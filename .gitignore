@@ -1,5 +1,11 @@
 node_modules
-dist
 *.tsbuildinfo
 .DS_Store
 *.db
+
+# Keep MCP server dist/ (needed for plugin execution)
+# Other packages' dist/ are build artifacts
+packages/core/dist
+packages/validation/dist
+packages/strategy/dist
+packages/benchmark/dist

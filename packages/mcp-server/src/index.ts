@@ -11,11 +11,19 @@ import {
   PRD_CONTEXT_CONFIGS,
   TIER_CAPABILITIES,
   STRATEGY_TIERS,
-  EvidenceRepository,
   type LicenseTier,
   type PRDContext,
   type SectionType,
 } from "@prd-gen/core";
+
+// EvidenceRepository is optional — requires better-sqlite3 native module
+let EvidenceRepository: (new (dbPath?: string) => any) | null = null;
+try {
+  const mod = await import("@prd-gen/core");
+  EvidenceRepository = mod.EvidenceRepository;
+} catch {
+  // better-sqlite3 not available — run without persistence
+}
 
 import { validateSection, validateDocument } from "@prd-gen/validation";
 import {
@@ -118,11 +126,16 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
-// Lazy-init evidence repository (only when needed)
-let _evidenceRepo: EvidenceRepository | null = null;
-function getEvidenceRepo(): EvidenceRepository {
+// Lazy-init evidence repository (only when better-sqlite3 is available)
+let _evidenceRepo: any = null;
+function getEvidenceRepo(): any | null {
+  if (!EvidenceRepository) return null;
   if (!_evidenceRepo) {
-    _evidenceRepo = new EvidenceRepository();
+    try {
+      _evidenceRepo = new EvidenceRepository();
+    } catch {
+      return null;
+    }
   }
   return _evidenceRepo;
 }
@@ -208,8 +221,10 @@ server.tool(
     let dbHealthy = false;
     try {
       const repo = getEvidenceRepo();
-      repo.getQualityHistory(1);
-      dbHealthy = true;
+      if (repo) {
+        repo.getQualityHistory(1);
+        dbHealthy = true;
+      }
     } catch {
       dbHealthy = false;
     }

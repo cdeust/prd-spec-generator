@@ -1,8 +1,15 @@
-import Database from "better-sqlite3";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { mkdirSync, existsSync } from "node:fs";
 import type { ThinkingStrategy, PRDContext, HardOutputRule } from "../index.js";
+
+// Dynamic import — better-sqlite3 is optional (native module, may not be available)
+let Database: any = null;
+try {
+  Database = (await import("better-sqlite3")).default;
+} catch {
+  // better-sqlite3 not installed — EvidenceRepository will throw on construction
+}
 
 /**
  * SQLite evidence repository — FIXES the no-op InMemoryVerificationEvidenceRepository.
@@ -56,9 +63,12 @@ export interface StrategyPerformanceSummary {
 // ─── Repository ──────────────────────────────────────────────────────────────
 
 export class EvidenceRepository {
-  private db: Database.Database;
+  private db: any;
 
   constructor(dbPath?: string) {
+    if (!Database) {
+      throw new Error("better-sqlite3 not available — install it with: pnpm add better-sqlite3");
+    }
     const resolvedPath = dbPath ?? this.defaultDbPath();
     const dir = resolvedPath.substring(0, resolvedPath.lastIndexOf("/"));
     if (!existsSync(dir)) {
