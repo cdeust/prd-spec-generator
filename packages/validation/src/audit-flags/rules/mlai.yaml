@@ -1,0 +1,163 @@
+family:
+  code: MLAI
+  name: mlAndAI
+  display_name: ML and AI
+  description: "Machine learning and AI integration gaps"
+  primary_persona: "ML Engineer"
+
+rules:
+  - id: "001"
+    name: noModelEvaluationCriteria
+    display_name: No Model Evaluation Criteria
+    description: "ML feature without evaluation metrics"
+    type: pattern
+    mode: presence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:model|ML|machine\s+learning|neural|classifier|prediction|recommendation|embedding|fine.?tun|training|inference)'
+        description: ML feature reference
+    suppress:
+      - pattern: '(?i)(?:precision|recall|F1|accuracy|AUC|ROC|confusion\s+matrix|BLEU|ROUGE|perplexity|evaluation\s+(?:metric|criteria)|benchmark)'
+        scope: nearby_lines_15
+        description: evaluation metric nearby
+    claim_count: detect_matches
+    suggested_action: "Add evaluation criteria with specific metrics for each ML component"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Train a recommendation model using collaborative filtering"
+      should_pass:
+        - section: technical_specification
+          content: "Recommendation model evaluated with precision@10, recall@10, and NDCG"
+
+  - id: "002"
+    name: noDataPipeline
+    display_name: No Data Pipeline
+    description: "ML feature without data strategy"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:training\s+data|dataset|data\s+pipeline|preprocessing|feature\s+engineer|annotation|labeling|ETL|data\s+(?:source|collection|cleaning)|ground\s+truth)'
+        description: data pipeline content
+    claim_count: per_document
+    suggested_action: "Add data pipeline section covering collection, preprocessing, and labeling"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Build ML model for sentiment analysis"
+      should_pass:
+        - section: technical_specification
+          content: "Training data: 100K labeled reviews via annotation pipeline"
+
+  - id: "003"
+    name: noModelVersioning
+    display_name: No Model Versioning
+    description: "ML deployment without version management"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:model\s+version|model\s+registry|A/?B\s+test|shadow\s+(?:mode|deploy)|champion.?challenger|MLOps|ML\s+pipeline|feature\s+store)'
+        description: model versioning content
+    claim_count: per_document
+    suggested_action: "Add model versioning and deployment strategy"
+    test_fixtures:
+      should_flag:
+        - section: deployment
+          content: "Deploy trained model to production endpoint"
+      should_pass:
+        - section: deployment
+          content: "Model registry with A/B testing: champion vs challenger deployment"
+
+  - id: "004"
+    name: noInferenceLatencyBudget
+    display_name: No Inference Latency Budget
+    description: "Inference without latency or cost constraints"
+    type: pattern
+    mode: presence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:inference|predict|classify|recommend|embed)'
+        description: inference reference
+    suppress:
+      - pattern: '(?i)(?:inference\s+(?:latency|time|cost|budget)|batch\s+vs\s+real.?time|GPU\s+(?:cost|budget)|token\s+(?:cost|budget|limit))'
+        scope: nearby_lines_10
+        description: latency/cost constraint nearby
+    claim_count: detect_matches
+    suggested_action: "Add inference latency budget and cost constraints"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "The model runs inference on each user request"
+      should_pass:
+        - section: technical_specification
+          content: "Inference budget: < 100ms p95, batch processing for non-real-time"
+
+  - id: "005"
+    name: noPromptVersioning
+    display_name: No Prompt Versioning
+    description: "LLM integration without prompt management"
+    type: pattern
+    mode: presence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:prompt|LLM|GPT|Claude|Gemini|completion\s+API|chat\s+API)'
+        description: LLM reference
+    suppress:
+      - pattern: '(?i)(?:prompt\s+(?:version|template|registry|management)|prompt\s+(?:A/?B|testing)|eval(?:uation)?\s+(?:suite|framework)|regression\s+test)'
+        scope: nearby_lines_15
+        description: prompt management nearby
+    claim_count: detect_matches
+    suggested_action: "Add prompt versioning and evaluation strategy"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Use Claude API to generate summaries"
+      should_pass:
+        - section: technical_specification
+          content: "Claude API with prompt versioning via template registry and eval suite"
+
+  - id: "006"
+    name: noHallucinationMitigation
+    display_name: No Hallucination Mitigation
+    description: "LLM output without guardrails"
+    type: pattern
+    mode: presence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:LLM|model\s+(?:output|response)|generated\s+(?:text|content)).*(?:display|show|user)'
+        description: LLM output displayed to user
+    suppress:
+      - pattern: '(?i)(?:hallucination|guardrail|content\s+filter|safety|moderation|grounding|fact.?check|RAG|human.in.the.loop)'
+        scope: nearby_lines_15
+        description: safety measure nearby
+    claim_count: detect_matches
+    suggested_action: "Add hallucination mitigation strategy (guardrails, RAG, human review)"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "Display LLM model output directly to the user"
+      should_pass:
+        - section: requirements
+          content: "Display LLM output with RAG grounding and content safety filter"
+
+  - id: "007"
+    name: noModelFallback
+    display_name: No Model Fallback
+    description: "Model integration without degradation strategy"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:fallback|graceful\s+degradation|circuit\s+breaker|model\s+(?:unavailable|failure)|rate.?limit\s+(?:handling|strategy))'
+        description: fallback strategy content
+    claim_count: per_document
+    suggested_action: "Add fallback strategy for model unavailability"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Call external ML API for predictions"
+      should_pass:
+        - section: technical_specification
+          content: "ML API with circuit breaker: fallback to cached predictions on failure"

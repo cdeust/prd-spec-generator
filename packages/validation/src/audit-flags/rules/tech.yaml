@@ -1,0 +1,279 @@
+family:
+  code: TECH
+  name: technicalDepth
+  display_name: Technical Depth
+  description: "Architecture and infrastructure gaps"
+  primary_persona: "Tech Lead"
+
+rules:
+  - id: "001"
+    name: noScalabilityConsideration
+    display_name: No Scalability Consideration
+    description: "Concurrency requirements without scaling architecture"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: cross_section_presence
+        source_sections: [requirements, performance_requirements]
+        target_sections: [technical_specification]
+        source_pattern: '(?i)(?:concurrent|simultaneous|users?|requests?|scale)'
+        target_pattern: '(?i)(?:horizontal\s+scal|vertical\s+scal|auto.?scal|load\s+balanc|caching|CDN|sharding|partitioning|queue|async|worker|replica)'
+      - op: flag_if
+        condition: "source_found > 0 AND target_found < 1"
+        finding: "Scalability requirements exist but no scaling architecture described"
+    suggested_action: "Add scalability architecture to technical specification"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "Support 10000 concurrent users"
+      should_pass:
+        - section: technical_specification
+          content: "Horizontal scaling with auto-scaling groups and load balancer"
+
+  - id: "002"
+    name: noObservabilityPlan
+    display_name: No Observability Plan
+    description: "No monitoring or observability strategy"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:logging|monitoring|alerting|observability|tracing|metrics|Prometheus|Grafana|DataDog|CloudWatch|Sentry|OpenTelemetry|ELK|PagerDuty|on.call)'
+        description: observability content
+    claim_count: per_document
+    suggested_action: "Add observability plan with logging, monitoring, and alerting"
+    test_fixtures:
+      should_flag:
+        - section: deployment
+          content: "Deploy via Docker Compose to production server"
+      should_pass:
+        - section: deployment
+          content: "Monitoring: Prometheus metrics, Grafana dashboards, PagerDuty alerts"
+
+  - id: "003"
+    name: noDataRetentionPolicy
+    display_name: No Data Retention Policy
+    description: "Storage without TTL or archival strategy"
+    type: pattern
+    mode: presence
+    sections: [data_model, technical_specification]
+    detect:
+      - pattern: '(?i)(?:CREATE\s+TABLE|data\s+model|schema|entity|table\s+design)'
+        description: database schema reference
+    suppress:
+      - pattern: '(?i)(?:retention|TTL|time.to.live|archiv|purg|cleanup|expir|soft.delete|hard.delete|GDPR\s+erasure|right\s+to\s+(?:be\s+forgotten|deletion))'
+        scope: any_section
+        description: retention policy anywhere
+    claim_count: detect_matches
+    suggested_action: "Add data retention policy with TTL and archival strategy"
+    test_fixtures:
+      should_flag:
+        - section: data_model
+          content: "CREATE TABLE users (id UUID, email TEXT, created_at TIMESTAMP)"
+      should_pass:
+        - section: data_model
+          content: "CREATE TABLE users (id UUID, email TEXT)\nRetention: 7-year archive, soft-delete with 30-day TTL"
+
+  - id: "004"
+    name: noAPIVersioning
+    display_name: No API Versioning
+    description: "Endpoints without versioning strategy"
+    type: pattern
+    mode: presence
+    sections: [api_specification, technical_specification]
+    detect:
+      - pattern: '(?i)(?:GET|POST|PUT|DELETE|PATCH)\s+/'
+        description: API endpoint definition
+    suppress:
+      - pattern: '(?i)(?:/v\d+/|version|api.?version|backward.?compat|deprecat|sunset|breaking\s+change)'
+        scope: any_section
+        description: versioning strategy anywhere
+    claim_count: per_document
+    suggested_action: "Add API versioning strategy (URL path, header, or query param)"
+    test_fixtures:
+      should_flag:
+        - section: api_specification
+          content: "GET /users\nPOST /orders"
+      should_pass:
+        - section: api_specification
+          content: "GET /v1/users\nAPI versioning via URL path prefix"
+
+  - id: "005"
+    name: noScalableDesign
+    display_name: No Scalable Design
+    description: "Technical spec proposes changes without parameterization, centralization, or extensibility — fix would need repeating if the project scales"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: cross_section_presence
+        source_sections: [technical_specification]
+        target_sections: [technical_specification]
+        source_pattern: '(?i)(?:modify|change|fix|update|adjust|implement|add|create)'
+        target_pattern: '(?i)(?:parameter|configurable|extensible|composable|reusable|centralize|single\s+source|shared\s+component|default\s+value|sensible\s+default|design\s+pattern|strategy|factory|dependency\s+injection|abstraction|common\s+module)'
+      - op: flag_if
+        condition: "source_found > 0 AND target_found < 1"
+        finding: "Technical spec describes modifications without scalable design patterns — if the project grows, this fix would need repeating across many files instead of changing one centralized place"
+    suggested_action: "Ensure the solution is parameterized (configurable values with defaults), centralized (one change propagates everywhere), and extensible (new similar needs don't require modifying the same shared code again)."
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Modify the subtitle width to a fixed value in the shared component"
+      should_pass:
+        - section: technical_specification
+          content: "Add a configurable parameter with a sensible default to the shared component. The design is extensible — new callers can override without modifying shared code."
+
+  - id: "006"
+    name: noDependencyInjection
+    display_name: No Dependency Injection
+    description: "Technical spec instantiates dependencies directly instead of using factories or DI containers"
+    type: pattern
+    mode: absence
+    sections: [technical_specification]
+    detect:
+      - pattern: '(?i)(?:dependency\s+injection|inject|factory|composition\s+root|DI\s+container|provider|resolver|inversion\s+of\s+control)'
+        description: dependency injection pattern
+    claim_count: per_document
+    suggested_action: "Specify how dependencies are injected — use factories, DI containers, or composition roots. Never instantiate concrete types directly in business logic."
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "The service creates a database connection directly in the constructor"
+      should_pass:
+        - section: technical_specification
+          content: "Dependencies are injected through the composition root using a factory pattern"
+
+  - id: "007"
+    name: noSolidPrinciples
+    display_name: No SOLID Principles
+    description: "Technical spec does not address separation of concerns or extensibility"
+    type: pattern
+    mode: absence
+    sections: [technical_specification]
+    detect:
+      - pattern: '(?i)(?:single\s+responsibility|separation\s+of\s+concern|open.?closed|extensible\s+without\s+modif|dependency\s+inversion|depend\s+on\s+abstraction|interface\s+segregation|SOLID)'
+        description: SOLID principle reference
+    claim_count: per_document
+    suggested_action: "Address SOLID principles in the technical spec — single responsibility, open/closed, and dependency inversion at minimum."
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "The application handles all logic in a single controller class"
+      should_pass:
+        - section: technical_specification
+          content: "Following single responsibility principle, each service handles one concern. Components are extensible without modification via strategy pattern."
+
+  - id: "008"
+    name: noAccessControlStrategy
+    display_name: No Access Control Strategy
+    description: "Technical spec does not discuss visibility, encapsulation, or API surface minimization"
+    type: pattern
+    mode: absence
+    sections: [technical_specification]
+    detect:
+      - pattern: '(?i)(?:access\s+control|visibility|encapsulat|public\s+api|api\s+surface|private|internal|information\s+hiding|least\s+privilege|minimal\s+exposure)'
+        description: access control discussion
+    claim_count: per_document
+    suggested_action: "Define access control strategy — what is public API surface vs private implementation detail. Default to most restrictive visibility."
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "All classes and methods are accessible throughout the application"
+      should_pass:
+        - section: technical_specification
+          content: "Internal implementation details are private. Only the public API surface is exposed through well-defined interfaces."
+
+  - id: "009"
+    name: specificOverGeneric
+    display_name: Specific Over Generic
+    description: "Technical spec proposes hardcoded or one-off solutions instead of generic, parameterized approaches"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: cross_section_presence
+        source_sections: [technical_specification]
+        target_sections: [technical_specification]
+        source_pattern: '(?i)(?:hardcode|hard.code|specific\s+(?:value|case|file|path)|one.off|special.case|only\s+for|just\s+for)'
+        target_pattern: '(?i)(?:generic|parameteriz|configurable|reusable|abstract|protocol|interface|type.safe|type\s+erasure|generics|template|plug.?in|adapter)'
+      - op: flag_if
+        condition: "source_found > 0 AND target_found < 1"
+        finding: "Technical spec proposes specific/hardcoded solutions without a generic, reusable approach — prefer genericity over specificity"
+    suggested_action: "Replace hardcoded or one-off solutions with generic, parameterized abstractions that work across multiple use cases."
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Hardcode the timeout to 30 seconds for this specific endpoint"
+      should_pass:
+        - section: technical_specification
+          content: "Add a configurable timeout parameter with a generic retry policy that any endpoint can adopt"
+
+  - id: "010"
+    name: newCodeOverRefactoring
+    display_name: New Code Over Refactoring
+    description: "Technical spec adds new files or modules without considering refactoring existing code to accommodate the change"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: cross_section_presence
+        source_sections: [technical_specification]
+        target_sections: [technical_specification]
+        source_pattern: '(?i)(?:create\s+(?:new|a)\s+(?:file|class|module|struct|component|service)|add\s+(?:new|a)\s+(?:file|class|module|struct)|new\s+(?:file|class|module|struct|helper|utility))'
+        target_pattern: '(?i)(?:refactor|extract|consolidat|reuse|extend\s+existing|modify\s+existing|existing\s+(?:code|module|class|component)|DRY|don.t\s+repeat|eliminate\s+duplicat)'
+      - op: flag_if
+        condition: "source_found > 0 AND target_found < 1"
+        finding: "Technical spec creates new code without evaluating whether existing code can be refactored — prefer refactoring over new code"
+    suggested_action: "Before creating new files or modules, evaluate whether existing code can be refactored or extended. Prefer refactoring over adding new code to keep the codebase lean."
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Create a new utility class to handle date formatting"
+      should_pass:
+        - section: technical_specification
+          content: "Refactor the existing DateHelper to extract a reusable formatting protocol, then extend it for the new use case"
+
+  - id: "011"
+    name: boilerplateOverClean
+    display_name: Boilerplate Over Clean
+    description: "Technical spec introduces repetitive, boilerplate-heavy patterns instead of clean abstractions"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: cross_section_presence
+        source_sections: [technical_specification]
+        target_sections: [technical_specification]
+        source_pattern: '(?i)(?:copy.?paste|boilerplate|repeat(?:ed|ing)|duplicate|manual(?:ly)?|for\s+each\s+(?:file|class|module|endpoint)|similarly|same\s+pattern\s+for)'
+        target_pattern: '(?i)(?:clean|concise|macro|code\s+gen|metaprogram|result\s+builder|property\s+wrapper|decorator|middleware|base\s+class|shared\s+protocol|eliminate\s+boilerplate|reduce\s+duplication)'
+      - op: flag_if
+        condition: "source_found > 0 AND target_found < 1"
+        finding: "Technical spec relies on repetitive boilerplate instead of clean abstractions — prefer clean code over boilerplate"
+    suggested_action: "Replace boilerplate with clean abstractions — shared protocols, base classes, macros, result builders, or code generation to eliminate repetition."
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Copy the same validation logic for each endpoint and adjust the field names manually"
+      should_pass:
+        - section: technical_specification
+          content: "Define a shared Validatable protocol with a clean declarative API, eliminating boilerplate across all endpoints"
+
+  - id: "012"
+    name: nonScalableFix
+    display_name: Non-Scalable Fix
+    description: "Technical spec proposes a fix that solves the immediate problem but would break or require rework as the project grows"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: cross_section_presence
+        source_sections: [technical_specification]
+        target_sections: [technical_specification]
+        source_pattern: '(?i)(?:quick\s+fix|workaround|temporary|patch|band.?aid|hot.?fix|short.?term|for\s+now|until\s+we)'
+        target_pattern: '(?i)(?:reliable|scalable|long.term|sustain|future.proof|growth|production.ready|robust|resilient|idempotent|backward.?compat|migration\s+path)'
+      - op: flag_if
+        condition: "source_found > 0 AND target_found < 1"
+        finding: "Technical spec proposes a non-scalable fix — prefer reliable, scalable solutions over fixes that don't scale up"
+    suggested_action: "Ensure the proposed solution is reliable at scale. If a short-term fix is necessary, include a migration path to the scalable solution with clear timelines."
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Quick fix: add a sleep(2) workaround until we figure out the race condition"
+      should_pass:
+        - section: technical_specification
+          content: "Implement a reliable retry mechanism with exponential backoff and circuit breaker — scalable to any number of concurrent requests"

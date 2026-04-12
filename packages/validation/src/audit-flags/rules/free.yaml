@@ -1,0 +1,47 @@
+family:
+  code: FREE
+  name: freelancer
+  display_name: Freelancer
+  description: "Delivery and IP concerns"
+  primary_persona: "Freelancer"
+
+rules:
+  - id: "001"
+    name: noDeliveryFormat
+    display_name: No Delivery Format
+    description: "No deliverable format defined"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:deliver(?:able|y)\s+format|handoff|(?:design|code)\s+review|definition\s+of\s+done)'
+        description: delivery format content
+    claim_count: per_document
+    suggested_action: "Add deliverable format and handoff criteria"
+    test_fixtures:
+      should_flag:
+        - section: overview
+          content: "Build a complete e-commerce platform"
+      should_pass:
+        - section: overview
+          content: "Deliverable format: source code via Git, handoff via documented API specs"
+
+  - id: "002"
+    name: noIPLicensingMention
+    display_name: No IP Licensing Mention
+    description: "Libraries used without licensing consideration"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:licen[sc]|MIT|Apache|GPL|BSD|proprietary|IP\s+(?:rights|ownership)|intellectual\s+property|attribution)'
+        description: licensing content
+    claim_count: per_document
+    suggested_action: "Add IP and licensing section covering dependencies and deliverables"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Use React, Tailwind, and various npm packages"
+      should_pass:
+        - section: overview
+          content: "All dependencies MIT/Apache licensed. IP ownership transfers to client on payment."

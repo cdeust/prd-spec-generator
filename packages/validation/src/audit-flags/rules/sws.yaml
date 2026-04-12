@@ -1,0 +1,89 @@
+family:
+  code: SWS
+  name: swiftSecurity
+  display_name: Swift Security
+  description: "Security-critical checks for hardcoded secrets, insecure URLs, and sensitive data storage"
+  primary_persona: "Security Engineer"
+
+rules:
+  - id: "001"
+    name: hardcodedSecrets
+    display_name: Hardcoded Secrets
+    description: "Hardcoded API keys, tokens, or passwords in source code"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code, test_code]
+    detect:
+      - pattern: '(?i)(?:api_?key|secret|password|token)\s*[:=]\s*"[^"]{8,}"'
+        description: hardcoded secret assignment
+      - pattern: 'sk-[A-Za-z0-9]{20,}'
+        description: OpenAI-style API key
+      - pattern: 'ghp_[A-Za-z0-9]{36}'
+        description: GitHub personal access token
+    suppress:
+      - pattern: 'Keychain'
+        scope: nearby_lines_5
+        description: Keychain-based storage
+      - pattern: 'ProcessInfo.*environment'
+        scope: nearby_lines_5
+        description: environment variable access
+    claim_count: detect_matches
+    suggested_action: "Move secrets to Keychain, environment variables, or a secure vault"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "let apiKey = \"sk-abc123def456ghi789jkl012mno345\""
+      should_pass:
+        - section: source_code
+          content: "let apiKey = Keychain.shared.get(\"api_key\")"
+
+  - id: "002"
+    name: insecureURL
+    display_name: Insecure URL
+    description: "HTTP URL without TLS — use HTTPS for all network requests"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: '"http://[^"]+"'
+        description: plain HTTP URL string
+    suppress:
+      - pattern: 'localhost|127\.0\.0\.1|0\.0\.0\.0'
+        scope: same_row
+        description: local development URL
+    claim_count: detect_matches
+    suggested_action: "Change http:// to https:// for all production URLs"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "let url = \"http://api.example.com/users\""
+      should_pass:
+        - section: source_code
+          content: "let url = \"http://localhost:8080/api\""
+
+  - id: "003"
+    name: userDefaultsSensitiveData
+    display_name: UserDefaults Sensitive Data
+    description: "Storing sensitive data in UserDefaults — use Keychain instead"
+    type: pattern
+    mode: presence
+    severity: warning
+    sections: [source_code]
+    detect:
+      - pattern: 'UserDefaults.*(?:token|password|secret|credential)'
+        description: sensitive data in UserDefaults
+    suppress:
+      - pattern: 'Keychain'
+        scope: nearby_lines_10
+        description: Keychain migration context
+    claim_count: detect_matches
+    suggested_action: "Store sensitive data in Keychain instead of UserDefaults"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "UserDefaults.standard.set(token, forKey: \"authToken\")"
+      should_pass:
+        - section: source_code
+          content: "Keychain.shared.set(token, forKey: \"authToken\")"

@@ -1,0 +1,72 @@
+family:
+  code: PO
+  name: productOwner
+  display_name: Product Owner
+  description: "Prioritization and success definition gaps"
+  primary_persona: "PO"
+
+rules:
+  - id: "001"
+    name: noPrioritizationSignal
+    display_name: No Prioritization Signal
+    description: "All FRs same priority or no priority column"
+    type: algorithmic
+    sections: [requirements]
+    pipeline:
+      - op: extract
+        pattern: '(?mi)^\s*\|\s*FR-\d+\s*\|'
+        into: fr_rows
+      - op: count
+        from: fr_rows
+        into: fr_count
+      - op: flag_if
+        condition: "fr_count > 5"
+        finding: "{fr_count} FRs without apparent priority differentiation"
+    suggested_action: "Add priority column (P1/P2/P3) with rationale for prioritization"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "| FR-001 | Feature A |\n| FR-002 | Feature B |\n| FR-003 | Feature C |\n| FR-004 | Feature D |\n| FR-005 | Feature E |\n| FR-006 | Feature F |"
+      should_pass:
+        - section: requirements
+          content: "| FR-001 | Feature A | P1 |\n| FR-002 | Feature B | P2 |"
+
+  - id: "002"
+    name: noSuccessMetrics
+    display_name: No Success Metrics
+    description: "No success definition or KPIs"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?im)^#{1,4}\s*.*(?:success\s+(?:metrics?|criteria|definition)|KPI|OKR|key\s+results?|definition\s+of\s+done)'
+        description: success metrics section header
+    claim_count: per_document
+    suggested_action: "Add a Success Metrics section with measurable KPIs"
+    test_fixtures:
+      should_flag:
+        - section: overview
+          content: "## Overview\nBuild a dashboard for analytics"
+      should_pass:
+        - section: overview
+          content: "## Success Metrics\n- KPI: 50% reduction in manual reports"
+
+  - id: "003"
+    name: scopeCreepSignals
+    display_name: Scope Creep Signals
+    description: "Expansive language suggesting unbounded scope"
+    type: pattern
+    mode: presence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:and\s+(?:all|any)\s+(?:other|related|similar)|(?:full|complete|comprehensive)\s+(?:suite|set|collection)\s+of|extensible\s+to\s+(?:all|any)|all\s+future|unlimited|everything\s+(?:related|needed))'
+        description: expansive scope language
+    claim_count: detect_matches
+    suggested_action: "Replace unbounded scope with specific deliverables for this phase"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "Support all future authentication methods and any related integrations"
+      should_pass:
+        - section: requirements
+          content: "Support OAuth 2.0 and SAML for Phase 1; additional methods in Phase 2"

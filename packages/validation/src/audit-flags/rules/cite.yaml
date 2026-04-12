@@ -1,0 +1,106 @@
+family:
+  code: CITE
+  name: citationSupport
+  display_name: Citation Support
+  description: "Thresholds, baselines, and percentages without provenance"
+  primary_persona: "PM, BA"
+
+rules:
+  - id: "001"
+    name: nfrWithoutProvenance
+    display_name: NFR Without Provenance
+    description: "NFR threshold without cited origin"
+    type: pattern
+    mode: presence
+    sections: [requirements, performance_requirements]
+    detect:
+      - pattern: '(?m)^\s*\|\s*NFR-\d+\s*\|'
+        description: NFR table rows
+      - pattern: '(?i)(?:p95|p99|latency|throughput|response\s+time|uptime|availability)\s*(?:[:<≤<=>=>\s]+)\s*\d+'
+        description: prose thresholds
+      - pattern: '(?i)[<>≤≥]=?\s*\d+\s*(?:ms|s|MB|GB|fps|rps|QPS|TPS|%)'
+        description: comparison targets
+      - pattern: '(?i)\d{2,3}(?:\.\d+)?%\s*(?:uptime|availability|SLA)'
+        description: SLA style
+      - pattern: '(?i)(?:handle|support|scale\s+to)\s+[\d,]+\s*(?:concurrent|simultaneous|requests|users)'
+        description: capacity targets
+    suppress:
+      - pattern: '(?mi)^\s*\|[^\n]*\bSource\b[^\n]*\|'
+        scope: same_section
+        description: source column in table header
+      - pattern: '(?i)\((?:Apple\s+HIG|WWDC|RFC\s*\d+|industry|benchmark|measured|profiled)\)'
+        scope: same_row
+        description: inline citation
+      - pattern: '(?i)(?:based\s+on|derived\s+from|per|according\s+to|as\s+measured)'
+        scope: nearby_lines_3
+        description: explicit provenance
+    claim_count: detect_matches
+    suggested_action: "Add source citation for each NFR threshold"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "| NFR-001 | Response time < 200ms | High |"
+      should_pass:
+        - section: requirements
+          content: "| NFR-001 | Response time < 200ms (based on profiling) | High | Source |"
+
+  - id: "002"
+    name: baselineNAWithTarget
+    display_name: Baseline NA With Target
+    description: "Baseline N/A with quantitative target"
+    type: pattern
+    mode: presence
+    sections: [requirements, performance_requirements]
+    detect:
+      - pattern: '(?mi)^\s*\|[^|]*\|[^|]*(?:N/?A|None|-|TBD|Unknown|not\s+measured)[^|]*\|[^|]*\d+[^|]*\|'
+        description: N/A baseline with numeric target
+      - pattern: '(?i)baseline[:\s]+(?:N/?A|none|tbd|-)\b'
+        description: prose baseline N/A
+    suppress:
+      - pattern: '(?i)(?:measurement\s+plan|establish\s+baseline|will\s+measure)'
+        scope: nearby_lines_5
+        description: measurement plan nearby
+      - pattern: '(?i)(?:baseline\s+pending|pre-launch\s+measurement)'
+        scope: same_section
+        description: pending baseline noted
+    claim_count: detect_matches
+    suggested_action: "Add measurement plan or cite baseline source"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "| NFR-002 | N/A | < 100ms | High |"
+      should_pass:
+        - section: requirements
+          content: "| NFR-002 | N/A (measurement plan in sprint 1) | < 100ms | High |"
+
+  - id: "003"
+    name: percentWithoutMethodology
+    display_name: Percent Without Methodology
+    description: "Percentage claim without methodology"
+    type: pattern
+    mode: presence
+    sections: []
+    detect:
+      - pattern: '(?i)[+-]?\d+(?:\.\d+)?%\s*(?:improvement|reduction|savings|increase|faster|coverage)'
+        description: improvement percentage
+      - pattern: '(?i)(?:quality|accuracy|precision|recall|coverage)\s*(?:[:=]|of)\s*\d+(?:\.\d+)?%'
+        description: quality metric percentage
+    suppress:
+      - pattern: '(?i)(?:methodology|how\s+measured|calculated\s+(?:by|as|using)|formula)'
+        scope: nearby_lines_5
+        description: methodology nearby
+      - pattern: '(?i)(?:based\s+on\s+\d+|sample\s+(?:size|of))'
+        scope: nearby_lines_5
+        description: sample basis
+      - pattern: '(?i)(?:formula:|calculated:|=\s*\()'
+        scope: nearby_lines_5
+        description: formula shown
+    claim_count: detect_matches
+    suggested_action: "Add methodology or measurement basis for percentage claims"
+    test_fixtures:
+      should_flag:
+        - section: overview
+          content: "This will achieve a 40% improvement in response time"
+      should_pass:
+        - section: overview
+          content: "This will achieve a 40% improvement (based on 500 sample runs, formula: (before-after)/before)"

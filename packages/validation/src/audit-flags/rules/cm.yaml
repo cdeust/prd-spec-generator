@@ -1,0 +1,47 @@
+family:
+  code: CM
+  name: community
+  display_name: Community
+  description: "User-facing communication gaps"
+  primary_persona: "Community Manager"
+
+rules:
+  - id: "001"
+    name: noUserFacingErrorMessages
+    display_name: No User Facing Error Messages
+    description: "Backend errors without user-friendly copy"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:user.facing\s+(?:message|copy|text)|error\s+message[:\s]+["'']|display\s+(?:to\s+user|message)|toast\s+message|alert\s+text)'
+        description: user-facing message content
+    claim_count: per_document
+    suggested_action: "Define user-facing error messages for each error type"
+    test_fixtures:
+      should_flag:
+        - section: api_specification
+          content: "Returns 400 Bad Request on validation failure"
+      should_pass:
+        - section: api_specification
+          content: "400 error displays user-facing message: 'Please check your input and try again'"
+
+  - id: "002"
+    name: noLocalizationConsideration
+    display_name: No Localization Consideration
+    description: "User-facing content without i18n strategy"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:locali[sz]|i18n|l10n|translat|multi.?language|locale|internationali[sz])'
+        description: localization content
+    claim_count: per_document
+    suggested_action: "Add internationalization strategy for user-facing content"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "Display notification messages and email alerts to users"
+      should_pass:
+        - section: technical_specification
+          content: "i18n: all user-facing strings in localization files, initial support for en/es/fr"

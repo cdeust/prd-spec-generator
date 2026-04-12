@@ -1,0 +1,131 @@
+family:
+  code: SEC
+  name: security
+  display_name: Security
+  description: "Security hardening and attack prevention"
+  primary_persona: "Security Engineer"
+
+rules:
+  - id: "001"
+    name: noInputValidation
+    display_name: No Input Validation
+    description: "External inputs without validation or sanitization strategy"
+    type: pattern
+    mode: absence
+    sections: [technical_specification, api_specification, security_considerations]
+    detect:
+      - pattern: '(?i)(?:input\s+validation|validate\s+input|sanitiz|whitelist|allowlist|schema\s+validation|request\s+validation|payload\s+validation)'
+        description: input validation content
+    claim_count: per_document
+    suggested_action: "Specify input validation strategy for all external inputs — API requests, user input, file uploads, webhooks"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "The API accepts user data and stores it in the database"
+      should_pass:
+        - section: technical_specification
+          content: "All API inputs undergo schema validation and sanitization before processing"
+
+  - id: "002"
+    name: noInjectionPrevention
+    display_name: No Injection Prevention
+    description: "No mention of SQL injection, XSS, or command injection prevention"
+    type: pattern
+    mode: absence
+    sections: [technical_specification, security_considerations]
+    detect:
+      - pattern: '(?i)(?:injection\s+prevention|sql\s+injection|xss|cross.site\s+scripting|parameterized\s+quer|prepared\s+statement|output\s+encoding|content\s+security\s+policy)'
+        description: injection prevention content
+    claim_count: per_document
+    suggested_action: "Address injection prevention — parameterized queries (SQL), output encoding (XSS), input sanitization"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Queries are built from user input to fetch data"
+      should_pass:
+        - section: technical_specification
+          content: "All database queries use parameterized statements to prevent SQL injection"
+
+  - id: "003"
+    name: noRateLimiting
+    display_name: No Rate Limiting
+    description: "Public endpoints without rate limiting or throttling"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: cross_section_presence
+        source_sections: [api_specification, technical_specification]
+        target_sections: [technical_specification, security_considerations]
+        source_pattern: '(?i)(?:GET|POST|PUT|DELETE|PATCH)\s+/|endpoint|api\s+route'
+        target_pattern: '(?i)(?:rate\s+limit|throttl|request\s+limit|quota|burst\s+limit|ddos|abuse\s+prevention)'
+      - op: flag_if
+        condition: "source_found > 0 AND target_found < 1"
+        finding: "API endpoints exist but no rate limiting or throttling strategy defined"
+    suggested_action: "Add rate limiting strategy — per-user/IP request limits, throttling behavior, abuse prevention"
+    test_fixtures:
+      should_flag:
+        - section: api_specification
+          content: "POST /api/v1/users - Create user\nGET /api/v1/users - List users"
+      should_pass:
+        - section: security_considerations
+          content: "Rate limiting: 100 requests/minute per user, 1000/minute per IP, with token bucket algorithm"
+
+  - id: "004"
+    name: noSecureCommunication
+    display_name: No Secure Communication
+    description: "No TLS/HTTPS requirements specified"
+    type: pattern
+    mode: absence
+    sections: [technical_specification, security_considerations, deployment]
+    detect:
+      - pattern: '(?i)(?:TLS|HTTPS|SSL|transport\s+layer\s+security|encrypt\w*\s+in\s+transit|certificate|cert\s+pinning|mutual\s+TLS|mTLS)'
+        description: secure communication content
+    claim_count: per_document
+    suggested_action: "Specify TLS requirements, certificate management, and encrypted communication for all data in transit"
+    test_fixtures:
+      should_flag:
+        - section: deployment
+          content: "The application is deployed on port 8080 and accepts HTTP requests"
+      should_pass:
+        - section: deployment
+          content: "All communication uses TLS 1.3 with certificate rotation every 90 days"
+
+  - id: "005"
+    name: noCryptographicStandards
+    display_name: No Cryptographic Standards
+    description: "No encryption or hashing standards specified"
+    type: pattern
+    mode: absence
+    sections: [technical_specification, security_considerations]
+    detect:
+      - pattern: '(?i)(?:AES|RSA|bcrypt|argon2|scrypt|PBKDF2|SHA.256|SHA.384|SHA.512|HMAC|key\s+management|key\s+rotation|encrypt\w+\s+at\s+rest)'
+        description: cryptographic standards content
+    claim_count: per_document
+    suggested_action: "Specify cryptographic standards — AES-256 for encryption, bcrypt/argon2 for passwords, key management strategy"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Passwords are stored in the database for authentication"
+      should_pass:
+        - section: technical_specification
+          content: "Passwords hashed with argon2id (memory=64MB, iterations=3). Data encrypted at rest with AES-256-GCM"
+
+  - id: "006"
+    name: noAuditTrail
+    display_name: No Audit Trail
+    description: "Security-sensitive operations without audit logging"
+    type: pattern
+    mode: absence
+    sections: [technical_specification, security_considerations]
+    detect:
+      - pattern: '(?i)(?:audit\s+trail|audit\s+log|audit\s+event|compliance\s+log|activity\s+log|who.+what.+when|accountability|tamper.proof\s+log|immutable\s+log)'
+        description: audit trail content
+    claim_count: per_document
+    suggested_action: "Add audit trail requirements — who/what/when for authentication, data access, config changes, admin actions"
+    test_fixtures:
+      should_flag:
+        - section: security_considerations
+          content: "Admin users can modify system configuration"
+      should_pass:
+        - section: security_considerations
+          content: "All admin actions logged to immutable audit trail: user ID, action, timestamp, IP address"

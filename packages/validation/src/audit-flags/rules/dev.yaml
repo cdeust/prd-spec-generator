@@ -1,0 +1,103 @@
+family:
+  code: DEV
+  name: developer
+  display_name: Developer
+  description: "API contract and implementation gaps"
+  primary_persona: "Dev"
+
+rules:
+  - id: "001"
+    name: noErrorHandlingContract
+    display_name: No Error Handling Contract
+    description: "Endpoints without error response shape"
+    type: pattern
+    mode: presence
+    sections: [api_specification, technical_specification]
+    detect:
+      - pattern: '(?i)(?:GET|POST|PUT|DELETE|PATCH)\s+/'
+        description: API endpoint definition
+    suppress:
+      - pattern: '(?i)(?:error\s+(?:response|schema|format|body)|(?:4\d\d|5\d\d)\s*:\s*\{|ErrorResponse|error_code)'
+        scope: any_section
+        description: error contract anywhere
+    claim_count: per_document
+    suggested_action: "Define error response schema with HTTP codes and error types"
+    test_fixtures:
+      should_flag:
+        - section: api_specification
+          content: "POST /users - Create user\nGET /users/:id - Get user"
+      should_pass:
+        - section: api_specification
+          content: "POST /users\n400: { error_code: VALIDATION_ERROR, message: string }"
+
+  - id: "002"
+    name: noPagination
+    display_name: No Pagination
+    description: "List endpoints without pagination"
+    type: pattern
+    mode: presence
+    sections: [api_specification, technical_specification]
+    detect:
+      - pattern: '(?i)(?:GET\s+/\w+s\b|list\s+\w+|fetch\s+all|collection)'
+        description: list endpoint
+    suppress:
+      - pattern: '(?i)(?:pagination|paginate|page_size|page_token|offset|limit|cursor|next_page|has_more)'
+        scope: nearby_lines_10
+        description: pagination nearby
+    claim_count: detect_matches
+    suggested_action: "Add pagination parameters (cursor or offset-based)"
+    test_fixtures:
+      should_flag:
+        - section: api_specification
+          content: "GET /users - List all users"
+      should_pass:
+        - section: api_specification
+          content: "GET /users?page_size=20&cursor=abc - List users with cursor pagination"
+
+  - id: "003"
+    name: noOptimisticConcurrency
+    display_name: No Optimistic Concurrency
+    description: "Update endpoints without conflict resolution"
+    type: pattern
+    mode: presence
+    sections: [api_specification, technical_specification]
+    detect:
+      - pattern: '(?i)(?:PUT|PATCH)\s+/'
+        description: update endpoint
+    suppress:
+      - pattern: '(?i)(?:optimistic\s+lock|ETag|If-Match|version\s+(?:field|column)|conflict\s+resolution|last.?write.?wins|concurrent\s+edit)'
+        scope: nearby_lines_15
+        description: concurrency strategy nearby
+    claim_count: detect_matches
+    suggested_action: "Add optimistic concurrency control (ETag, If-Match, or version field)"
+    test_fixtures:
+      should_flag:
+        - section: api_specification
+          content: "PUT /users/:id - Update user profile"
+      should_pass:
+        - section: api_specification
+          content: "PUT /users/:id\nHeaders: If-Match: etag_value\n409 Conflict on version mismatch"
+
+  - id: "004"
+    name: frontendStateUndefined
+    display_name: Frontend State Undefined
+    description: "UI-heavy without state management strategy"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: cross_section_presence
+        source_sections: [requirements, user_stories]
+        target_sections: [technical_specification]
+        source_pattern: '(?i)(?:dashboard|form|modal|wizard|real.time|interactive|drag.and.drop|filter|sort)'
+        target_pattern: '(?i)(?:state\s+management|Redux|MobX|Zustand|@Observable|@State|@Published|ViewModel|MVVM|MVI|store|single\s+source\s+of\s+truth)'
+      - op: flag_if
+        condition: "source_found > 0 AND target_found < 1"
+        finding: "UI-heavy requirements without state management architecture"
+    suggested_action: "Add state management strategy to technical specification"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "FR-001: Interactive dashboard with real-time filters"
+      should_pass:
+        - section: technical_specification
+          content: "State management: @Observable pattern with single source of truth"

@@ -1,0 +1,10 @@
+{
+  "name": "Sample Feature PRD",
+  "context": "feature",
+  "description": "Minimal golden fixture for validation pipeline smoke test. Replace with actual PRD output from the Swift system for regression testing.",
+  "sections": [
+    { "name": "requirements", "type": "requirements", "file": "requirements.md" },
+    { "name": "user_stories", "type": "user_stories", "file": "user-stories.md" },
+    { "name": "technical_specification", "type": "technical_specification", "file": "technical.md" }
+  ]
+}

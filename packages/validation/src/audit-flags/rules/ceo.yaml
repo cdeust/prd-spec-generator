@@ -1,0 +1,47 @@
+family:
+  code: CEO
+  name: executiveOversight
+  display_name: Executive Oversight
+  description: "Strategic scope and go-to-market gaps"
+  primary_persona: "CEO"
+
+rules:
+  - id: "001"
+    name: noMVPScopeBoundary
+    display_name: No MVP Scope Boundary
+    description: "MVP without out-of-scope definition"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?im)^#{1,4}\s*.*(?:out\s+of\s+scope|not\s+included|excluded|deferred|phase\s+2|future|v2)'
+        description: scope boundary section
+    claim_count: per_document
+    suggested_action: "Add Out of Scope section listing deferred features"
+    test_fixtures:
+      should_flag:
+        - section: overview
+          content: "## MVP Features\nUser authentication, dashboard, and reporting"
+      should_pass:
+        - section: overview
+          content: "## Out of Scope\n- Advanced analytics (Phase 2)\n- Mobile app (v2)"
+
+  - id: "002"
+    name: noGoToMarketSignal
+    display_name: No Go-To-Market Signal
+    description: "Feature without GTM or launch strategy"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:go.to.market|GTM|launch\s+plan|distribution|user\s+acquisition|marketing|growth|onboarding\s+(?:flow|funnel))'
+        description: GTM content
+    claim_count: per_document
+    suggested_action: "Add go-to-market or launch strategy section"
+    test_fixtures:
+      should_flag:
+        - section: overview
+          content: "Build a new analytics dashboard for enterprise customers"
+      should_pass:
+        - section: overview
+          content: "GTM: Launch to existing enterprise customers via in-app announcement"

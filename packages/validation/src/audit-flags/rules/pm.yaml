@@ -1,0 +1,72 @@
+family:
+  code: PM
+  name: productManager
+  display_name: Product Manager
+  description: "Market analysis and rollout strategy gaps"
+  primary_persona: "PM"
+
+rules:
+  - id: "001"
+    name: noCompetitiveAnalysis
+    display_name: No Competitive Analysis
+    description: "Proposal without alternatives or market context"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:alternative|competitor|existing\s+solution|build\s+vs\s+buy|market\s+(?:analysis|research)|competitive\s+(?:landscape|analysis)|status\s+quo)'
+        description: competitive analysis content
+    claim_count: per_document
+    suggested_action: "Add alternatives analysis or competitive landscape section"
+    test_fixtures:
+      should_flag:
+        - section: overview
+          content: "## Overview\nBuild a new notification service"
+      should_pass:
+        - section: overview
+          content: "## Alternatives Considered\n- Competitor X: lacks custom rules\n- Build vs Buy: custom build chosen"
+
+  - id: "002"
+    name: noUserSegmentDefinition
+    display_name: No User Segment Definition
+    description: "Generic users without segmentation"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: extract
+        pattern: '(?i)(?:all\s+users|users?\s+can|the\s+user)'
+        into: generic_refs
+      - op: count
+        from: generic_refs
+        into: generic_count
+      - op: flag_if
+        condition: "generic_count > 5"
+        finding: "{generic_count} generic user references without segmentation"
+    suggested_action: "Define user segments (new/existing/premium/enterprise) with distinct needs"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "The user can view data. Users can export. All users see dashboard. The user can filter. Users can search. The user can sort."
+      should_pass:
+        - section: requirements
+          content: "Premium users can export. Free users see limited dashboard."
+
+  - id: "003"
+    name: noRolloutStrategy
+    display_name: No Rollout Strategy
+    description: "No phased rollout for large feature set"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:feature\s+flag|rollout|phased|gradual|canary|A/?B\s+test|beta|early\s+access|ring\s+deployment)'
+        description: rollout strategy content
+    claim_count: per_document
+    suggested_action: "Add phased rollout strategy with feature flags"
+    test_fixtures:
+      should_flag:
+        - section: deployment
+          content: "Deploy to production for all users simultaneously"
+      should_pass:
+        - section: deployment
+          content: "Phase 1: Beta with 10% users via feature flag. Phase 2: General availability"

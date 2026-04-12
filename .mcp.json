@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ai-prd-tools": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/packages/mcp-server/dist/index.js"],
+      "env": {
+        "PRD_GEN_SKILL_CONFIG": "${CLAUDE_PLUGIN_ROOT}/packages/skill/skill-config.json",
+        "PRD_GEN_EVIDENCE_DB": "${CLAUDE_PLUGIN_ROOT}/.prd-gen/evidence.db"
+      }
+    }
+  }
+}

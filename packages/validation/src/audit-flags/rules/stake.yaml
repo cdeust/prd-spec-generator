@@ -1,0 +1,67 @@
+family:
+  code: STAKE
+  name: stakeholder
+  display_name: Stakeholder
+  description: "Cost, compliance, and timeline gaps"
+  primary_persona: "Stakeholder"
+
+rules:
+  - id: "001"
+    name: noCostEstimate
+    display_name: No Cost Estimate
+    description: "Infrastructure without cost section"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?im)^#{1,4}\s*.*(?:cost|budget|pricing|financial|TCO)'
+        description: cost section header
+    claim_count: per_document
+    suggested_action: "Add cost estimation section with infrastructure and operational costs"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Deploy on AWS with RDS and ElastiCache"
+      should_pass:
+        - section: overview
+          content: "## Cost Estimate\nEstimated $500/month for AWS infrastructure"
+
+  - id: "002"
+    name: noRegulatoryCompliance
+    display_name: No Regulatory Compliance
+    description: "User data processing without compliance mention"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:GDPR|CCPA|HIPAA|SOC\s*2|PCI[\s-]DSS|compliance|data\s+protection|privacy)'
+        description: compliance mention
+    claim_count: per_document
+    suggested_action: "Add compliance requirements section covering applicable regulations"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "Store user email, phone, and payment information"
+      should_pass:
+        - section: security_considerations
+          content: "GDPR compliance: user data encrypted, right to deletion supported"
+
+  - id: "003"
+    name: noTimelineOrDeliveryDate
+    display_name: No Timeline Or Delivery Date
+    description: "Sprints without calendar dates"
+    type: pattern
+    mode: absence
+    sections: [timeline]
+    detect:
+      - pattern: '(?i)(?:target\s+date|deadline|delivery\s+date|launch\s+date|go.live|release\s+date|ETA|Q[1-4]\s+20\d{2})'
+        description: calendar date reference
+    claim_count: per_document
+    suggested_action: "Add target delivery dates for milestones"
+    test_fixtures:
+      should_flag:
+        - section: timeline
+          content: "Sprint 1: Authentication\nSprint 2: Dashboard"
+      should_pass:
+        - section: timeline
+          content: "Sprint 1 (Mar 2026): Authentication\nTarget launch: Q2 2026"

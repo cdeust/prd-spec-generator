@@ -1,0 +1,75 @@
+family:
+  code: BA
+  name: businessAnalysis
+  display_name: Business Analysis
+  description: "Business justification and requirements structure gaps"
+  primary_persona: "BA"
+
+rules:
+  - id: "001"
+    name: requirementWithoutBusinessJustification
+    display_name: Requirement Without Business Justification
+    description: "FR with technical detail but no business why"
+    type: pattern
+    mode: presence
+    sections: [requirements]
+    detect:
+      - pattern: '(?mi)^\s*\|\s*FR-\d+\s*\|[^|]*(?:implement|create\s+endpoint|add\s+table|build\s+service|integrate)[^|]*\|'
+        description: technical FR without business context
+    suppress:
+      - pattern: '(?i)(?:so\s+that|in\s+order\s+to|business\s+value|KPI|user\s+can|enables?|allows?)'
+        scope: same_row
+        description: business justification in same row
+    claim_count: detect_matches
+    suggested_action: "Add business justification (so that / in order to) for each technical FR"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "| FR-001 | Implement REST endpoint for user data |"
+      should_pass:
+        - section: requirements
+          content: "| FR-001 | Implement REST endpoint so that mobile apps can sync user data |"
+
+  - id: "002"
+    name: undefinedUserRoles
+    display_name: Undefined User Roles
+    description: "Multiple roles referenced without definition section"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?im)^#{1,4}\s*.*(?:roles?|personas?|actors?|user\s+types?)'
+        description: roles definition section
+    claim_count: per_document
+    suggested_action: "Add a User Roles/Personas section defining each role"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "Admin users can manage settings. Editors can modify content."
+      should_pass:
+        - section: overview
+          content: "## User Roles\n- Admin: full access\n- Editor: content management"
+
+  - id: "003"
+    name: unstructuredAcceptanceCriteria
+    display_name: Unstructured Acceptance Criteria
+    description: "ACs without Given-When-Then or structured assertions"
+    type: pattern
+    mode: presence
+    sections: [acceptance_criteria]
+    detect:
+      - pattern: '(?mi)^\s*\|[^|]*AC-\d+[^|]*\|'
+        description: AC rows in table
+    suppress:
+      - pattern: '(?i)(?:given|when|then|verify\s+that|ensure\s+that|assert|expect|confirm\s+that|check\s+that)'
+        scope: same_row
+        description: structured assertion keyword
+    claim_count: detect_matches
+    suggested_action: "Use Given-When-Then format for acceptance criteria"
+    test_fixtures:
+      should_flag:
+        - section: acceptance_criteria
+          content: "| AC-001 | Login works correctly |"
+      should_pass:
+        - section: acceptance_criteria
+          content: "| AC-001 | Given valid credentials When user submits Then redirect to dashboard |"

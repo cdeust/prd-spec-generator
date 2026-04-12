@@ -1,0 +1,23 @@
+{
+  "name": "@prd-gen/benchmark",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "bench": "node dist/runner.js"
+  },
+  "dependencies": {
+    "@prd-gen/core": "workspace:*",
+    "@prd-gen/strategy": "workspace:*",
+    "@prd-gen/validation": "workspace:*",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^5.7.0"
+  }
+}

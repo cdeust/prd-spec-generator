@@ -1,0 +1,91 @@
+family:
+  code: DATAPROT
+  name: dataProtection
+  display_name: Data Protection
+  description: "Data privacy, PII handling, and compliance"
+  primary_persona: "Compliance Officer"
+
+rules:
+  - id: "001"
+    name: noDataClassification
+    display_name: No Data Classification
+    description: "Data entities without sensitivity classification"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: cross_section_presence
+        source_sections: [data_model, technical_specification]
+        target_sections: [data_model, technical_specification, security_considerations]
+        source_pattern: '(?i)(?:entity|table|model|schema|struct|class\s+\w+|data\s+class)'
+        target_pattern: '(?i)(?:classif|sensitivity|public\s+data|internal\s+data|confidential|restricted|PII|PHI|PCI)'
+      - op: flag_if
+        condition: "source_found > 0 AND target_found < 1"
+        finding: "Data entities defined but no sensitivity classification applied"
+    suggested_action: "Classify all data entities by sensitivity: public, internal, confidential, restricted"
+    test_fixtures:
+      should_flag:
+        - section: data_model
+          content: "User entity: id, email, phone, ssn, address"
+      should_pass:
+        - section: data_model
+          content: "User entity [CONFIDENTIAL]: id, email [PII], phone [PII], ssn [RESTRICTED]"
+
+  - id: "002"
+    name: noPIIProtection
+    display_name: No PII Protection Strategy
+    description: "PII fields without encryption, masking, or anonymization"
+    type: pattern
+    mode: absence
+    sections: [technical_specification, security_considerations, data_model]
+    detect:
+      - pattern: '(?i)(?:encrypt\w*\s+at\s+rest|field.level\s+encryption|mask|anonymiz|pseudonymiz|redact|tokeniz|de.identif|row.level\s+security|column.level)'
+        description: PII protection content
+    claim_count: per_document
+    suggested_action: "Specify PII protection — encryption at rest, masking in non-prod, anonymization for analytics"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "User personal data is stored in the database"
+      should_pass:
+        - section: technical_specification
+          content: "PII fields encrypted at rest with AES-256. Masked in non-production environments. Anonymized for analytics."
+
+  - id: "003"
+    name: noPIIInLogs
+    display_name: PII May Leak to Logs
+    description: "No explicit prevention of sensitive data in logs and error messages"
+    type: pattern
+    mode: absence
+    sections: [technical_specification, security_considerations, deployment]
+    detect:
+      - pattern: '(?i)(?:no\s+pii\s+in\s+log|mask\s+in\s+log|redact\s+in\s+log|log\s+sanitiz|scrub\s+log|filter\s+sensitive|exclude\s+pii|safe\s+logging)'
+        description: PII log prevention content
+    claim_count: per_document
+    suggested_action: "Explicitly prevent PII from appearing in logs, error messages, URLs, and query parameters"
+    test_fixtures:
+      should_flag:
+        - section: deployment
+          content: "Application logs are sent to CloudWatch for monitoring"
+      should_pass:
+        - section: deployment
+          content: "Structured logging with PII scrubbing — email, phone, SSN fields automatically redacted before log emission"
+
+  - id: "004"
+    name: noConsentErasure
+    display_name: No Consent or Erasure Support
+    description: "No consent tracking or right-to-deletion support"
+    type: pattern
+    mode: absence
+    sections: [technical_specification, security_considerations, data_model]
+    detect:
+      - pattern: '(?i)(?:consent|opt.in|opt.out|right\s+to\s+(?:erasure|deletion|be\s+forgotten)|GDPR\s+(?:erasure|compliance|deletion)|data\s+subject|cascade\s+delete|account\s+deletion)'
+        description: consent and erasure content
+    claim_count: per_document
+    suggested_action: "Implement consent tracking and right-to-deletion cascades for GDPR/CCPA compliance"
+    test_fixtures:
+      should_flag:
+        - section: data_model
+          content: "Users table stores personal information with no deletion mechanism"
+      should_pass:
+        - section: data_model
+          content: "User deletion cascades through all related tables. Consent preferences tracked per purpose. GDPR Article 17 compliance."

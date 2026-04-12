@@ -1,0 +1,426 @@
+family:
+  code: SWC
+  name: swiftCodeQuality
+  display_name: Swift Code Quality
+  description: "Deterministic Swift code quality checks — force unwraps, dead code markers, debug statements, structural limits"
+  primary_persona: "Lead Architect"
+
+rules:
+  - id: "001"
+    name: forceCast
+    display_name: Force Cast
+    description: "Force cast (as!) can crash at runtime — use conditional cast (as?) instead"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: '(?<!\w)as!\s'
+        description: force cast operator
+    suppress:
+      - pattern: '//\s*swiftlint:disable'
+        scope: same_row
+        description: swiftlint disable comment
+      - pattern: '//\s*SAFE:'
+        scope: same_row
+        description: explicit safety annotation
+    claim_count: detect_matches
+    suggested_action: "Replace as! with as? and handle the nil case"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "let view = sender as! UIButton"
+      should_pass:
+        - section: source_code
+          content: "guard let view = sender as? UIButton else { return }"
+
+  - id: "002"
+    name: forceTry
+    display_name: Force Try
+    description: "Force try (try!) can crash at runtime — use do/catch or try? instead"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: '\btry!\s'
+        description: force try operator
+    suppress:
+      - pattern: '//\s*swiftlint:disable'
+        scope: same_row
+        description: swiftlint disable comment
+      - pattern: '//\s*SAFE:'
+        scope: same_row
+        description: explicit safety annotation
+    claim_count: detect_matches
+    suggested_action: "Replace try! with do/catch or try? and handle errors"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "let data = try! JSONEncoder().encode(model)"
+      should_pass:
+        - section: source_code
+          content: "let data = try JSONEncoder().encode(model)"
+
+  - id: "003"
+    name: todoMarkers
+    display_name: TODO Markers
+    description: "TODO/FIXME/HACK/XXX markers indicate incomplete implementation"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: '//\s*TODO\b'
+        description: TODO marker
+      - pattern: '//\s*FIXME\b'
+        description: FIXME marker
+      - pattern: '//\s*HACK\b'
+        description: HACK marker
+      - pattern: '//\s*XXX\b'
+        description: XXX marker
+    claim_count: detect_matches
+    suggested_action: "Complete the implementation — no TODO markers in delivered code"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "// TODO: implement this later"
+      should_pass:
+        - section: source_code
+          content: "// This handles the edge case properly"
+
+  - id: "004"
+    name: exportedImport
+    display_name: Exported Import
+    description: "@_exported import leaks transitive dependencies and breaks module boundaries"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: '@_exported\s+import'
+        description: exported import directive
+    claim_count: detect_matches
+    suggested_action: "Remove @_exported and add explicit imports where needed"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "@_exported import Foundation"
+      should_pass:
+        - section: source_code
+          content: "import Foundation"
+
+  - id: "005"
+    name: typeErasure
+    display_name: Type Erasure via Any
+    description: "Casting to Any/AnyObject erases type safety — use protocols or generics"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: '\bas\s+Any\b'
+        description: cast to Any
+      - pattern: '\bas\s+AnyObject\b'
+        description: cast to AnyObject
+    suppress:
+      - pattern: 'Encodable'
+        scope: same_row
+        description: Encodable context
+      - pattern: 'Codable'
+        scope: same_row
+        description: Codable context
+    claim_count: detect_matches
+    suggested_action: "Use a specific protocol or generic constraint instead of Any"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "let value = model as Any"
+      should_pass:
+        - section: source_code
+          content: "let value = model as Encodable"
+
+  - id: "006"
+    name: printStatement
+    display_name: Print Statement
+    description: "print() in production code — use structured logging instead"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: '\bprint\s*\('
+        description: print function call
+    suppress:
+      - pattern: '#if\s+DEBUG'
+        scope: nearby_lines_3
+        description: inside DEBUG conditional
+      - pattern: '//\s*SAFE:'
+        scope: same_row
+        description: explicit safety annotation
+    claim_count: detect_matches
+    suggested_action: "Replace print() with os_log or Logger for production code"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "print(\"User logged in: \\(userId)\")"
+      should_pass:
+        - section: source_code
+          content: "#if DEBUG\nprint(\"debug info\")\n#endif"
+
+  - id: "007"
+    name: fatalErrorUsage
+    display_name: Fatal Error Usage
+    description: "fatalError/preconditionFailure will crash the app at runtime"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: '\bfatalError\s*\('
+        description: fatalError call
+      - pattern: '\bpreconditionFailure\s*\('
+        description: preconditionFailure call
+    suppress:
+      - pattern: '//\s*SAFE:.*unreachable'
+        scope: same_row
+        description: annotated as unreachable code path
+    claim_count: detect_matches
+    suggested_action: "Replace fatalError with proper error handling or assertionFailure for debug-only checks"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "fatalError(\"Not implemented\")"
+      should_pass:
+        - section: source_code
+          content: "assertionFailure(\"Unexpected state\") // SAFE: unreachable in production"
+
+  - id: "008"
+    name: placeholderCode
+    display_name: Placeholder Code
+    description: "Placeholder or stub code indicates incomplete implementation"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: '(?i)not\s+implemented'
+        description: not implemented marker
+      - pattern: '(?i)\bstub\b'
+        description: stub marker
+    suppress:
+      - pattern: 'protocol'
+        scope: nearby_lines_3
+        description: protocol context (stubs are expected)
+    claim_count: detect_matches
+    suggested_action: "Complete the implementation — no placeholder code in delivered code"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "func fetchData() { fatalError(\"not implemented\") }"
+      should_pass:
+        - section: source_code
+          content: "protocol DataFetching { func fetchData() // stub for conformance }"
+
+  - id: "009"
+    name: emptyCatch
+    display_name: Empty Catch Block
+    description: "Empty catch blocks silently swallow errors — handle or log them"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: 'catch\s*\{\s*\}'
+        description: empty catch block
+    suppress:
+      - pattern: '//\s*swiftlint:disable'
+        scope: same_row
+        description: swiftlint disable comment
+    claim_count: detect_matches
+    suggested_action: "Add error handling or logging inside the catch block"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "do { try save() } catch { }"
+      should_pass:
+        - section: source_code
+          content: "do { try save() } catch { logger.error(\"Save failed: \\(error)\") }"
+
+  - id: "010"
+    name: nslogUsage
+    display_name: NSLog Usage
+    description: "NSLog is slower than os_log and includes unnecessary metadata"
+    type: pattern
+    mode: presence
+    severity: warning
+    sections: [source_code]
+    detect:
+      - pattern: '\bNSLog\s*\('
+        description: NSLog call
+    suppress:
+      - pattern: '#if\s+DEBUG'
+        scope: nearby_lines_3
+        description: inside DEBUG conditional
+    claim_count: detect_matches
+    suggested_action: "Replace NSLog with os_log or Logger"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "NSLog(\"Something happened\")"
+      should_pass:
+        - section: source_code
+          content: "Logger.default.info(\"Something happened\")"
+
+  - id: "011"
+    name: uncheckedSendable
+    display_name: Unchecked Sendable
+    description: "@unchecked Sendable bypasses concurrency safety checks"
+    type: pattern
+    mode: presence
+    severity: warning
+    sections: [source_code]
+    detect:
+      - pattern: '@unchecked\s+Sendable'
+        description: unchecked Sendable conformance
+    suppress:
+      - pattern: 'NSLock|os_unfair_lock'
+        scope: nearby_lines_10
+        description: uses explicit locking
+    claim_count: detect_matches
+    suggested_action: "Make the type properly Sendable or use an actor instead"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "final class Cache: @unchecked Sendable { var items: [String] = [] }"
+      should_pass:
+        - section: source_code
+          content: "final class Cache: @unchecked Sendable { private let lock = NSLock() }"
+
+  - id: "012"
+    name: magicNumber
+    display_name: Magic Number
+    description: "Magic numbers in conditionals reduce readability — use named constants"
+    type: pattern
+    mode: presence
+    severity: warning
+    sections: [source_code]
+    detect:
+      - pattern: '(?:if|guard|case|==|!=|<|>)\s*\d{3,}'
+        description: large numeric literal in conditional
+    suppress:
+      - pattern: '\.count|\.rawValue'
+        scope: same_row
+        description: property-based comparison
+    claim_count: detect_matches
+    suggested_action: "Extract magic number into a named constant"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "if statusCode == 404 {"
+      should_pass:
+        - section: source_code
+          content: "let notFound = 404\nif statusCode == notFound {"
+
+  - id: "013"
+    name: typealiasUsage
+    display_name: Typealias Usage
+    description: "Top-level typealias adds indirection — prefer using the concrete type directly"
+    type: pattern
+    mode: presence
+    severity: warning
+    sections: [source_code]
+    detect:
+      - pattern: '\btypealias\s+\w+\s*='
+        description: typealias declaration
+    suppress:
+      - pattern: 'associatedtype'
+        scope: nearby_lines_3
+        description: protocol associated type context
+    claim_count: detect_matches
+    suggested_action: "Remove typealias and use the concrete type directly, or move into a protocol"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "typealias Handler = (Result<Data, Error>) -> Void"
+      should_pass:
+        - section: source_code
+          content: "protocol Fetcher { associatedtype Output\ntypealias Result = Swift.Result<Output, Error> }"
+
+  - id: "014"
+    name: nestedTypeDeclaration
+    display_name: Nested Type Declaration
+    description: "Nested struct/enum/class increases coupling — extract to top level"
+    type: algorithmic
+    severity: critical
+    sections: [source_code]
+    pipeline:
+      - op: extract
+        pattern: '^\s{4,}(?:struct|enum|class)\s+\w+'
+        store_as: nested_types
+      - op: count
+        source: nested_types
+        store_as: total
+      - op: flag_if
+        condition: "total > 0"
+        finding: "Nested type declaration found — extract to top-level file for better modularity"
+    suggested_action: "Move nested types to their own files"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "struct Outer {\n    struct Inner {\n        let value: Int\n    }\n}"
+      should_pass:
+        - section: source_code
+          content: "struct Inner {\n    let value: Int\n}\nstruct Outer {\n    let inner: Inner\n}"
+
+  - id: "015"
+    name: multipleTypesPerFile
+    display_name: Multiple Types Per File
+    description: "Multiple top-level types in one file violates single-file-per-type convention"
+    type: algorithmic
+    severity: critical
+    sections: [source_code]
+    pipeline:
+      - op: extract
+        pattern: '^(?:public\s+|internal\s+|private\s+|open\s+)?(?:final\s+)?(?:struct|enum|class|actor)\s+\w+'
+        store_as: top_level_types
+      - op: count
+        source: top_level_types
+        store_as: total
+      - op: flag_if
+        condition: "total > 1"
+        finding: "Multiple top-level type declarations in a single file — split into separate files"
+    suggested_action: "Move each top-level type to its own file"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "struct Foo { }\nstruct Bar { }"
+      should_pass:
+        - section: source_code
+          content: "struct Foo {\n    let value: Int\n}"
+
+  - id: "016"
+    name: fileLength
+    display_name: File Length
+    description: "Files over 400 lines are harder to navigate and likely violate single responsibility"
+    type: algorithmic
+    severity: warning
+    sections: [source_code]
+    pipeline:
+      - op: extract
+        pattern: '\n'
+        store_as: lines
+      - op: count
+        source: lines
+        store_as: total
+      - op: flag_if
+        condition: "total > 400"
+        finding: "File exceeds 400 lines — consider splitting into smaller, focused files"
+    suggested_action: "Split the file into smaller files with focused responsibilities"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "// This would need 401+ lines to trigger"
+      should_pass:
+        - section: source_code
+          content: "struct Small { let value: Int }"

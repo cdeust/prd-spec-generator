@@ -1,0 +1,296 @@
+{
+  "version": "2.0.0",
+  "name": "AI Architect PRD Generator",
+  "description": "Enterprise PRD generation with structured rules, deterministic MCP validation, 8 context-aware PRD types, license-aware tiered architecture, 15 thinking strategies, research-based prioritization, and production-ready technical specifications",
+  "license": {
+    "tiers": ["trial", "free", "licensed"],
+    "default_tier": "free",
+    "validation": {
+      "method": "cryptographic",
+      "verification": {
+        "license_file": "Ed25519 signature + hardware fingerprint + expiry",
+        "trial_file": "HMAC-SHA256 tamper detection + hardware fingerprint + expiry"
+      }
+    },
+    "license_resolution": [
+      { "priority": 1, "source": "~/.aiprd/.lk", "condition": "AES-256 decrypted, Ed25519 verified, not expired", "result": "licensed" },
+      { "priority": 2, "source": "default", "condition": "no valid activation", "result": "free" }
+    ],
+    "free_tier": {
+      "strategies": ["zero_shot", "chain_of_thought"],
+      "prd_contexts": ["feature", "bug"],
+      "max_clarification_rounds": 3,
+      "max_clarification_questions": 5,
+      "verification": "basic",
+      "rag_max_hops": 1,
+      "sections_limit": 6,
+      "business_kpis": "summary_only"
+    },
+    "trial_tier": {
+      "strategies": "all",
+      "prd_contexts": "all",
+      "max_clarification_rounds": "unlimited",
+      "max_clarification_questions": "context_aware",
+      "verification": "full",
+      "rag_max_hops": "context_aware",
+      "sections_limit": "context_aware",
+      "business_kpis": "full"
+    },
+    "licensed_tier": {
+      "strategies": "all",
+      "prd_contexts": "all",
+      "max_clarification_rounds": "unlimited",
+      "max_clarification_questions": "context_aware",
+      "verification": "full",
+      "rag_max_hops": "context_aware",
+      "sections_limit": "context_aware",
+      "business_kpis": "full"
+    }
+  },
+  "prd_contexts": {
+    "available": ["proposal", "feature", "bug", "incident", "poc", "mvp", "release", "cicd"],
+    "free_tier_access": ["feature", "bug"],
+    "trial_tier_access": "all",
+    "licensed_tier_access": "all",
+    "configurations": {
+      "proposal": {
+        "clarification_range": [5, 6],
+        "sections": 7,
+        "rag_hops": 1,
+        "focus": "business_value"
+      },
+      "feature": {
+        "clarification_range": [8, 10],
+        "sections": 11,
+        "rag_hops": 3,
+        "focus": "technical_depth"
+      },
+      "bug": {
+        "clarification_range": [6, 8],
+        "sections": 6,
+        "rag_hops": 3,
+        "focus": "root_cause"
+      },
+      "incident": {
+        "clarification_range": [10, 12],
+        "sections": 8,
+        "rag_hops": 4,
+        "focus": "forensic_investigation"
+      },
+      "poc": {
+        "clarification_range": [4, 5],
+        "sections": 5,
+        "rag_hops": 2,
+        "focus": "feasibility_validation"
+      },
+      "mvp": {
+        "clarification_range": [6, 7],
+        "sections": 8,
+        "rag_hops": 2,
+        "focus": "core_value"
+      },
+      "release": {
+        "clarification_range": [9, 11],
+        "sections": 10,
+        "rag_hops": 3,
+        "focus": "production_readiness"
+      },
+      "cicd": {
+        "clarification_range": [7, 9],
+        "sections": 9,
+        "rag_hops": 3,
+        "focus": "pipeline_automation"
+      }
+    }
+  },
+  "clarification": {
+    "confidence_threshold": 0.90,
+    "min_questions_per_round": 2,
+    "max_questions_per_round": 5
+  },
+  "rag": {
+    "enabled": true,
+    "features": {
+      "contextual_bm25": true,
+      "hybrid_search": true,
+      "token_aware_chunking": true
+    },
+    "chunk_size": 1000,
+    "chunk_overlap": 200,
+    "max_results": 10,
+    "similarity_threshold": 0.7
+  },
+  "vision": {
+    "enabled": true,
+    "max_retries": 3,
+    "features": {
+      "graceful_degradation": true,
+      "tiled_analysis": true
+    }
+  },
+  "business_kpis": {
+    "enabled": true,
+    "metric_systems": 8,
+    "systems": {
+      "business_kpis": {
+        "metrics": ["timeSavingsPercent", "qualityImprovementPercent", "costSavingsPercent", "tokenEfficiencyRatio"],
+        "baselines": "measured_via_benchmark_suite"
+      },
+      "baseline_definitions": {
+        "configurable": true,
+        "note": "Baselines must be measured via the benchmark suite before use. Do not use hardcoded estimates."
+      },
+      "template_business_kpis": {
+        "metrics": ["timeSavedSeconds", "qualityImprovement", "tokensSaved", "templateHitRate"]
+      },
+      "strategy_business_kpis": {
+        "metrics": ["qualityImprovementPercent", "costMultiplier", "efficiencyScore", "isWorthTheCost"]
+      },
+      "vision_business_kpis": {
+        "metrics": ["precision", "recall", "f1Score", "timeSavingsPercent", "costSavingsPercent"]
+      },
+      "reasoning_enhancement_metrics": {
+        "total_kpis": 30,
+        "categories": ["accuracy", "cost", "efficiency", "templates", "stall_recovery", "signals"]
+      },
+      "provider_metrics": {
+        "metrics": ["successRate", "averageDuration", "averageConfidence"]
+      },
+      "strategy_effectiveness_tracker": {
+        "metrics": ["expectedImprovement", "actualConfidenceGain", "complianceRate"]
+      }
+    }
+  },
+  "verification": {
+    "enabled": true,
+    "strategies": {
+      "claim_generation": ["question_based", "atomic_decomposition", "hybrid"],
+      "evaluation": ["independent_judges", "debate_judges", "nli_entailment", "graph_constrained"],
+      "consensus": ["weighted_average", "adaptive_stability", "bayesian"]
+    },
+    "defaults": {
+      "num_judges": 3,
+      "consensus_threshold": 0.66,
+      "ks_stability_threshold": 0.1,
+      "debate_max_rounds": 3,
+      "debate_convergence_threshold": 0.05
+    }
+  },
+  "thinking": {
+    "default_strategy": "verified_reasoning",
+    "extended_thinking_enabled": true,
+    "rag_integration": {
+      "enabled": true,
+      "codebase_context": true,
+      "pattern_extraction": ["Repository", "Service", "Factory", "Observer", "Strategy", "MVVM", "Clean Architecture"],
+      "entity_extraction": true
+    },
+    "strategy_prioritization": {
+      "research_basis": "MIT/Stanford/Harvard/Anthropic/OpenAI/DeepSeek (2024-2025)",
+      "tier_1_most_effective": ["trm", "verified_reasoning", "self_consistency"],
+      "tier_2_highly_effective": ["tree_of_thoughts", "graph_of_thoughts", "react", "reflexion"],
+      "tier_3_contextual": ["few_shot", "meta_prompting", "plan_and_solve", "problem_analysis"],
+      "tier_4_basic": ["zero_shot", "chain_of_thought"]
+    },
+    "available_strategies": [
+      "trm",
+      "chain_of_thought",
+      "tree_of_thoughts",
+      "graph_of_thoughts",
+      "react",
+      "reflexion",
+      "plan_and_solve",
+      "verified_reasoning",
+      "recursive_refinement",
+      "zero_shot",
+      "few_shot",
+      "self_consistency",
+      "generate_knowledge",
+      "prompt_chaining",
+      "multimodal_cot",
+      "meta_prompting",
+      "problem_analysis"
+    ]
+  },
+  "strategy_engine": {
+    "enabled": true,
+    "research_sources": [
+      "MIT", "Stanford", "Harvard", "ETH Zurich", "Princeton",
+      "Google", "Anthropic", "OpenAI", "DeepSeek"
+    ],
+    "license_tiers": {
+      "free": ["chain_of_thought", "zero_shot"],
+      "trial": "all",
+      "licensed": "all"
+    }
+  },
+  "orchestration": {
+    "enabled": true,
+    "clarification_contexts": ["mvp", "feature", "poc", "bug", "incident", "release", "cicd", "proposal"],
+    "features": {
+      "adaptive_questioning": true,
+      "section_by_section_generation": true,
+      "jira_ticket_formatting": true,
+      "token_aware_budgeting": true,
+      "verification_integration": true
+    }
+  },
+  "providers": {
+    "supported": ["anthropic", "openai", "gemini", "bedrock", "openrouter"],
+    "default": "anthropic"
+  },
+  "output": {
+    "format": "markdown",
+    "include_metadata": true,
+    "include_confidence_scores": true,
+    "include_verification_results": true,
+    "include_reasoning_metrics": true,
+    "reasoning_kpis": [
+      "confidence_gain_percent",
+      "token_savings_percent",
+      "llm_call_savings_percent",
+      "early_termination_rate",
+      "template_hit_rate",
+      "stall_recovery_rate",
+      "signal_effectiveness_rate",
+      "cross_enhancement_events"
+    ]
+  },
+  "integrations": {
+    "github": {
+      "enabled": true,
+      "auth_methods": ["device_flow", "gh_cli", "env_token"],
+      "scopes": ["repo", "read:org"]
+    },
+    "jira": {
+      "enabled": false,
+      "url": "",
+      "project_key": ""
+    }
+  },
+  "plugin": {
+    "name": "ai-prd-generator",
+    "version": "2.0.0",
+    "mcp_server": {
+      "transport": "stdio",
+      "tools": [
+        "validate_license",
+        "get_license_features",
+        "get_config",
+        "read_skill_config",
+        "check_health",
+        "get_prd_context_info",
+        "list_available_strategies",
+        "validate_prd_section",
+        "validate_prd_document",
+        "get_quality_history",
+        "get_strategy_effectiveness"
+      ]
+    },
+    "commands": [
+      "generate-prd",
+      "validate-license",
+      "index-codebase"
+    ]
+  }
+}

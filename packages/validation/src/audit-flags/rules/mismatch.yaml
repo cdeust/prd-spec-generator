@@ -1,0 +1,141 @@
+family:
+  code: MISMATCH
+  name: verdictEvidenceMismatch
+  display_name: Verdict-Evidence Mismatch
+  description: "Verdicts contradicted by their own evidence"
+  primary_persona: "QA, CTO"
+
+rules:
+  - id: "001"
+    name: passWithPlannedEvidence
+    display_name: PASS With Planned Evidence
+    description: "PASS verdict with future/planned evidence"
+    type: pattern
+    mode: presence
+    sections: [testing]
+    detect:
+      - pattern: '(?mi)^\s*\|[^|]*\|\s*PASS\s*\|'
+        description: PASS verdict in table
+    suppress:
+      - pattern: '(?i)(?:measured|benchmarked|profiled|tested\s+and\s+passed)'
+        scope: same_row
+        description: actual evidence in same row
+    claim_count: detect_matches
+    suggested_action: "Change verdict to PROJECTED or add measured evidence"
+    test_fixtures:
+      should_flag:
+        - section: testing
+          content: "| TC-001 | PASS | Will be verified after deployment |"
+      should_pass:
+        - section: testing
+          content: "| TC-001 | PASS | Measured at 150ms in load test |"
+
+  - id: "002"
+    name: passWithDesignTimeEvidence
+    display_name: PASS With Design-Time Evidence
+    description: "PASS on runtime claim with design-only evidence"
+    type: pattern
+    mode: presence
+    sections: [testing]
+    detect:
+      - pattern: '(?mi)^[^\n]*(?:latency|throughput|response\s+time|concurrent|performance)[^\n]*\|\s*PASS\s*\|'
+        description: runtime claim with PASS
+    suppress:
+      - pattern: '(?i)(?:measured|profiled|benchmarked|load\s+test(?:ed|ing)?|stress\s+test|XCTest\s+measure|Instruments|flame\s+graph)'
+        scope: nearby_lines_5
+        description: runtime evidence nearby
+    claim_count: detect_matches
+    suggested_action: "Add runtime measurement evidence or change to DESIGN-VALIDATED"
+    test_fixtures:
+      should_flag:
+        - section: testing
+          content: "| TC-003 | Response time < 200ms | PASS | Architecture supports it |"
+      should_pass:
+        - section: testing
+          content: "| TC-003 | Response time < 200ms | PASS | Load test measured 150ms p95 |"
+
+  - id: "003"
+    name: zeroImportsWithFoundation
+    display_name: Zero Imports With Foundation
+    description: "Purity claim contradicted by framework usage"
+    type: pattern
+    mode: presence
+    sections: [technical_specification]
+    detect:
+      - pattern: '(?i)(?:zero\s+(?:framework\s+)?imports?|no\s+(?:framework|Foundation)\s+(?:imports?|dependencies)|pure\s+(?:domain|business\s+logic))'
+        description: purity claim
+    suppress:
+      - pattern: '(?i)(?:adapter|infrastructure|composition\s+root)'
+        scope: nearby_lines_5
+        description: adapter layer context
+    claim_count: detect_matches
+    suggested_action: "Clarify which layer has zero imports — domain vs adapter"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "The module uses zero framework imports while using Foundation.Date"
+      should_pass:
+        - section: technical_specification
+          content: "The domain layer has zero framework imports. The adapter layer uses Foundation."
+
+  - id: "004"
+    name: weaselWordsInRequirements
+    display_name: Weasel Words In Requirements
+    description: "Hedging language in FRs/NFRs/ACs"
+    type: pattern
+    mode: presence
+    sections: [requirements, acceptance_criteria]
+    detect:
+      - pattern: '(?mi)^\s*\|\s*(?:FR|NFR|AC)-\d+\s*\|[^|]*\b(?:should|might|could|may|ideally|optionally|if\s+possible|when\s+feasible|as\s+appropriate|consider|try\s+to|attempt\s+to|aim\s+to)\b[^|]*\|'
+        description: hedging in requirement rows
+    suppress:
+      - pattern: '(?i)(?:note:|rationale:|context:)'
+        scope: same_row
+        description: contextual note
+      - pattern: '(?i)(?:RFC\s*2119|SHOULD\s+\(RFC)'
+        scope: nearby_lines_3
+        description: RFC 2119 context
+      - pattern: '(?i)(?:optional\s+requirement|nice.to.have|P3)'
+        scope: same_row
+        description: explicitly optional
+    claim_count: detect_matches
+    suggested_action: "Replace hedging with SHALL/MUST or mark as optional with rationale"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "| FR-001 | The system should try to handle errors |"
+      should_pass:
+        - section: requirements
+          content: "| FR-001 | The system SHALL handle errors with retry logic |"
+
+  - id: "005"
+    name: genericErrorHandling
+    display_name: Generic Error Handling
+    description: "Handle appropriately without specifics"
+    type: pattern
+    mode: presence
+    sections: [requirements, technical_specification, api_specification]
+    detect:
+      - pattern: '(?i)(?:return\s+(?:appropriate|suitable|proper)\s+error|handl(?:e|ed)\s+(?:gracefully|appropriately|properly)|standard\s+error\s+handling)'
+        description: generic error handling
+      - pattern: '(?i)(?:catch\s+all\s+(?:errors|exceptions)|handle\s+(?:any|all)\s+(?:errors|exceptions))'
+        description: catch-all error handling
+    suppress:
+      - pattern: '(?i)(?:4\d{2}|5\d{2}|HTTP\s+\d{3})'
+        scope: nearby_lines_5
+        description: specific HTTP codes
+      - pattern: '(?i)(?:ValidationError|NotFoundError|TimeoutError)'
+        scope: nearby_lines_5
+        description: specific error types
+      - pattern: '(?i)(?:retry\s+(?:with|after)\s+\d+|exponential\s+backoff|circuit\s+breaker)'
+        scope: nearby_lines_5
+        description: specific strategy
+    claim_count: detect_matches
+    suggested_action: "Define specific error types, HTTP codes, and recovery strategies"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Errors should be handled appropriately by the service layer"
+      should_pass:
+        - section: technical_specification
+          content: "Returns 422 ValidationError with field-level details, retries with exponential backoff"

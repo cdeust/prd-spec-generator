@@ -1,0 +1,323 @@
+family:
+  code: SWA
+  name: swiftArchitecture
+  display_name: Swift Architecture / SOLID
+  description: "SOLID principles, dependency injection, clean architecture enforcement for Swift source code"
+  primary_persona: "Lead Architect"
+
+rules:
+  - id: "001"
+    name: concreteStoredDependency
+    display_name: Concrete Stored Dependency
+    description: "Stored property initialized with a concrete type — inject via protocol instead"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: '(?:private\s+)?(?:let|var)\s+\w+\s*=\s*[A-Z]\w+\('
+        description: concrete type instantiation as stored property
+    suppress:
+      - pattern: '@State'
+        scope: same_row
+        description: SwiftUI state property
+      - pattern: '@Published'
+        scope: same_row
+        description: Combine published property
+      - pattern: '@Observable'
+        scope: same_row
+        description: Observation framework
+      - pattern: 'lazy\s+var'
+        scope: same_row
+        description: lazy initialization
+      - pattern: 'static\s+let'
+        scope: same_row
+        description: static constant
+      - pattern: '=\s*UUID\('
+        scope: same_row
+        description: UUID value type
+      - pattern: '=\s*Date\('
+        scope: same_row
+        description: Date value type
+      - pattern: '=\s*URL\('
+        scope: same_row
+        description: URL value type
+    claim_count: detect_matches
+    suggested_action: "Inject the dependency via init parameter using a protocol type"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "class ViewModel {\n    let service = NetworkService()\n}"
+      should_pass:
+        - section: source_code
+          content: "class ViewModel {\n    let service: any NetworkServing\n    init(service: any NetworkServing) { self.service = service }\n}"
+
+  - id: "002"
+    name: missingProtocolAbstraction
+    display_name: Missing Protocol Abstraction in Init
+    description: "Init parameter uses concrete Service/Manager/Repository type — use protocol"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: 'init\([^)]*:\s*(?!any\s|some\s|@escaping)[A-Z]\w*(?:Service|Manager|Repository|Engine|Provider|Store|Scanner|Builder|Editor|Tracker)'
+        description: concrete dependency type in init
+    suppress:
+      - pattern: 'struct'
+        scope: nearby_lines_3
+        description: struct context (value types often take concrete deps)
+      - pattern: 'enum'
+        scope: nearby_lines_3
+        description: enum context
+    claim_count: detect_matches
+    suggested_action: "Change init parameter to use 'any ProtocolName' instead of concrete type"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "init(service: UserService) {"
+      should_pass:
+        - section: source_code
+          content: "init(service: any UserServing) {"
+
+  - id: "003"
+    name: concreteProtocolParameter
+    display_name: Concrete Type in Function Parameter
+    description: "Function parameter uses concrete Service/Manager type — use protocol"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: 'func\s+\w+\([^)]*:\s*(?!any\s|some\s|@escaping|@autoclosure)[A-Z]\w*(?:Service|Manager|Repository|Engine|Provider|Store|Scanner)'
+        description: concrete dependency type in function parameter
+    suppress:
+      - pattern: 'private\s+func'
+        scope: same_row
+        description: private function (internal implementation detail)
+    claim_count: detect_matches
+    suggested_action: "Change parameter to use 'any ProtocolName' instead of concrete type"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "func configure(with manager: LayoutManager) {"
+      should_pass:
+        - section: source_code
+          content: "func configure(with manager: any LayoutManaging) {"
+
+  - id: "004"
+    name: singletonPattern
+    display_name: Singleton Pattern
+    description: "static shared instance creates hidden global state — use dependency injection"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: 'static\s+(?:let|var)\s+shared\s*=\s*\w+\('
+        description: singleton shared instance
+    suppress:
+      - pattern: 'LibraryCompositionCache'
+        scope: same_row
+        description: composition root singleton (acceptable)
+      - pattern: 'actor'
+        scope: nearby_lines_3
+        description: actor context (thread-safe by design)
+    claim_count: detect_matches
+    suggested_action: "Remove singleton and inject the dependency through init"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "class Analytics {\n    static let shared = Analytics()\n}"
+      should_pass:
+        - section: source_code
+          content: "actor LibraryCompositionCache {\n    static let shared = LibraryCompositionCache()\n}"
+
+  - id: "005"
+    name: globalMutableState
+    display_name: Global Mutable State
+    description: "Public/internal mutable variable creates shared mutable state"
+    type: pattern
+    mode: presence
+    severity: critical
+    sections: [source_code]
+    detect:
+      - pattern: '(?:public|internal)\s+var\s+\w+\s*:\s*\[?\w+\]?\s*='
+        description: public or internal mutable variable with initializer
+    suppress:
+      - pattern: '@Observable'
+        scope: nearby_lines_3
+        description: Observation framework managed
+      - pattern: '@MainActor'
+        scope: nearby_lines_3
+        description: main actor isolated
+      - pattern: 'struct'
+        scope: nearby_lines_5
+        description: struct context (value semantics)
+    claim_count: detect_matches
+    suggested_action: "Make the variable private or use an actor for thread-safe access"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "class AppState {\n    public var users: [User] = []\n}"
+      should_pass:
+        - section: source_code
+          content: "@MainActor\nclass AppState {\n    public var users: [User] = []\n}"
+
+  - id: "006"
+    name: tightCoupling
+    display_name: Tight Coupling to UI Framework
+    description: "Importing UIKit/AppKit in non-view code couples domain logic to UI framework"
+    type: pattern
+    mode: presence
+    severity: warning
+    sections: [source_code]
+    detect:
+      - pattern: 'import\s+(?:UIKit|AppKit)'
+        description: UI framework import
+    suppress:
+      - pattern: 'View'
+        scope: nearby_lines_5
+        description: view layer code
+      - pattern: 'ViewController'
+        scope: nearby_lines_5
+        description: view controller code
+    claim_count: detect_matches
+    suggested_action: "Remove UIKit/AppKit import from domain/service code — use platform-agnostic types"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "import UIKit\nclass UserService {"
+      should_pass:
+        - section: source_code
+          content: "import UIKit\nclass UserViewController: UIViewController {"
+
+  - id: "007"
+    name: fatProtocol
+    display_name: Fat Protocol
+    description: "Protocol with too many methods violates Interface Segregation Principle"
+    type: algorithmic
+    severity: critical
+    sections: [source_code]
+    pipeline:
+      - op: extract
+        pattern: 'func\s+\w+\s*\('
+        store_as: protocol_methods
+      - op: count
+        source: protocol_methods
+        store_as: total
+      - op: flag_if
+        condition: "total > 8"
+        finding: "Protocol declares more than 8 methods — split into smaller, focused protocols (Interface Segregation Principle)"
+    suggested_action: "Split the protocol into smaller, role-specific protocols"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "protocol Service {\nfunc a()\nfunc b()\nfunc c()\nfunc d()\nfunc e()\nfunc f()\nfunc g()\nfunc h()\nfunc i()\n}"
+      should_pass:
+        - section: source_code
+          content: "protocol Service {\nfunc fetch()\nfunc save()\n}"
+
+  - id: "008"
+    name: godType
+    display_name: God Type
+    description: "Type with too many members violates Single Responsibility Principle"
+    type: algorithmic
+    severity: critical
+    sections: [source_code]
+    pipeline:
+      - op: extract
+        pattern: '(?:func|var|let)\s+\w+'
+        store_as: members
+      - op: count
+        source: members
+        store_as: total
+      - op: flag_if
+        condition: "total > 25"
+        finding: "Type has more than 25 members — likely violates Single Responsibility Principle"
+    suggested_action: "Extract responsibilities into separate types or use extensions for protocol conformances"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "// Would need 26+ member declarations to trigger"
+      should_pass:
+        - section: source_code
+          content: "struct Config {\n    let host: String\n    let port: Int\n}"
+
+  - id: "009"
+    name: excessiveImports
+    display_name: Excessive Imports
+    description: "Too many imports suggest high coupling — the type depends on too many modules"
+    type: algorithmic
+    severity: warning
+    sections: [source_code]
+    pipeline:
+      - op: extract
+        pattern: '^import\s+\w+'
+        store_as: imports
+      - op: count
+        source: imports
+        store_as: total
+      - op: flag_if
+        condition: "total > 10"
+        finding: "File imports more than 10 modules — high coupling signal"
+    suggested_action: "Reduce imports by extracting functionality into separate files or using protocols"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "import A\nimport B\nimport C\nimport D\nimport E\nimport F\nimport G\nimport H\nimport I\nimport J\nimport K"
+      should_pass:
+        - section: source_code
+          content: "import Foundation\nimport SwiftUI"
+
+  - id: "010"
+    name: excessiveParameters
+    display_name: Excessive Parameters
+    description: "Function with too many parameters — use a parameter object"
+    type: algorithmic
+    severity: critical
+    sections: [source_code]
+    pipeline:
+      - op: extract
+        pattern: 'func\s+\w+\([^)]*,[^)]*,[^)]*,[^)]*,[^)]*,[^)]*'
+        store_as: long_param_funcs
+      - op: count
+        source: long_param_funcs
+        store_as: total
+      - op: flag_if
+        condition: "total > 0"
+        finding: "Function has more than 5 parameters — extract into a parameter object or config struct"
+    suggested_action: "Group related parameters into a struct or configuration object"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "func configure(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int) {"
+      should_pass:
+        - section: source_code
+          content: "func configure(options: ConfigOptions) {"
+
+  - id: "011"
+    name: deepNesting
+    display_name: Deep Nesting
+    description: "Deep indentation (5+ levels) indicates excessive complexity"
+    type: algorithmic
+    severity: warning
+    sections: [source_code]
+    pipeline:
+      - op: extract
+        pattern: '^\s{20,}\S'
+        store_as: deep_lines
+      - op: count
+        source: deep_lines
+        store_as: total
+      - op: flag_if
+        condition: "total > 0"
+        finding: "Code has 5+ indentation levels — reduce nesting with guard clauses or extract methods"
+    suggested_action: "Use guard clauses for early returns and extract nested logic into separate methods"
+    test_fixtures:
+      should_flag:
+        - section: source_code
+          content: "                     let x = 1"
+      should_pass:
+        - section: source_code
+          content: "    let x = 1"

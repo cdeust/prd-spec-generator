@@ -1,0 +1,117 @@
+family:
+  code: STAT
+  name: statisticalPlausibility
+  display_name: Statistical Plausibility
+  description: "Patterns that are statistically implausible"
+  primary_persona: "QA, CTO"
+
+rules:
+  - id: "001"
+    name: universalPassRate
+    display_name: Universal Pass Rate
+    description: "Pass rate >95% with >5 verdicts"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: extract
+        pattern: '(?i)\b(PASS|FAIL|SPEC-COMPLETE|NEEDS-RUNTIME|INCONCLUSIVE|PROJECTED|DESIGN-VALIDATED)\b'
+        capture: [token]
+        into: verdicts
+      - op: count
+        from: verdicts
+        group_by: token
+        into: verdict_counts
+      - op: ratio
+        numerator_match: "PASS"
+        numerator_from: verdict_counts
+        denominator_sum: verdict_counts
+        into: pass_rate
+      - op: flag_if
+        condition: "pass_rate > 0.95 AND total > 5"
+        finding: "Pass rate {pass_rate:.0%} across {total} verdicts"
+    suggested_action: "Review verdicts — universal pass is statistically implausible"
+    test_fixtures:
+      should_flag:
+        - section: testing
+          content: "| TC-001 | PASS |\n| TC-002 | PASS |\n| TC-003 | PASS |\n| TC-004 | PASS |\n| TC-005 | PASS |\n| TC-006 | PASS |"
+      should_pass:
+        - section: testing
+          content: "| TC-001 | PASS |\n| TC-002 | FAIL |\n| TC-003 | PASS |"
+
+  - id: "002"
+    name: allPositiveImprovement
+    display_name: All Positive Improvement
+    description: "Every strategy shows positive delta, zero underperformers"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: extract
+        pattern: '(?i)[+-]?\d+(?:\.\d+)?%?\s*(?:improvement|savings|gain|reduction|faster)'
+        capture: [value]
+        into: deltas
+      - op: count
+        from: deltas
+        into: delta_count
+      - op: flag_if
+        condition: "delta_count >= 3"
+        finding: "All {delta_count} improvement metrics are positive"
+    suggested_action: "Include variance data or acknowledge potential downsides"
+    test_fixtures:
+      should_flag:
+        - section: overview
+          content: "Strategy A: +15% improvement\nStrategy B: +22% savings\nStrategy C: +8% gain"
+      should_pass:
+        - section: overview
+          content: "Strategy A: +15% improvement\nStrategy B: -3% regression"
+
+  - id: "003"
+    name: confidenceClustering
+    display_name: Confidence Clustering
+    description: "All confidence values >0.85 with low variance"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: extract
+        pattern: '(?i)(?:confidence|score)[:\s]+(\d\.\d+)'
+        capture: [value]
+        into: confidence_values
+      - op: count
+        from: confidence_values
+        into: conf_count
+      - op: flag_if
+        condition: "conf_count >= 3"
+        finding: "{conf_count} confidence values show suspicious clustering"
+    suggested_action: "Review scoring methodology — high uniformity suggests calibration issues"
+    test_fixtures:
+      should_flag:
+        - section: testing
+          content: "confidence: 0.92\nconfidence: 0.91\nconfidence: 0.93"
+      should_pass:
+        - section: testing
+          content: "confidence: 0.92\nconfidence: 0.45"
+
+  - id: "004"
+    name: uniformStoryPoints
+    display_name: Uniform Story Points
+    description: "Per-story SP identical within epic"
+    type: algorithmic
+    sections: [timeline]
+    pipeline:
+      - op: extract
+        pattern: '(?i)\|\s*(\d+)\s*(?:SP|points?)\s*\|'
+        capture: [sp]
+        into: story_points
+      - op: count
+        from: story_points
+        into: sp_count
+      - op: flag_if
+        condition: "sp_count >= 3"
+        finding: "{sp_count} stories may have identical point values"
+    suggested_action: "Verify story points reflect actual complexity rather than default values"
+    test_fixtures:
+      should_flag:
+        - section: timeline
+          content: "| US-001 | 5 SP |\n| US-002 | 5 SP |\n| US-003 | 5 SP |"
+      should_pass:
+        - section: timeline
+          content: "| US-001 | 3 SP |\n| US-002 | 8 SP |"

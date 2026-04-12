@@ -1,0 +1,6 @@
+{
+  "name": "@prd-gen/skill",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SKILL.md, commands, and Claude Code plugin configuration"
+}

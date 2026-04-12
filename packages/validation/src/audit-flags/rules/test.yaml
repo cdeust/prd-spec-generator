@@ -1,0 +1,119 @@
+family:
+  code: TEST
+  name: testability
+  display_name: Testability
+  description: "Testing gaps and missing coverage types"
+  primary_persona: "QA, Dev"
+
+rules:
+  - id: "001"
+    name: noIntegrationTestCoverage
+    display_name: No Integration Test Coverage
+    description: "Only unit tests, no integration or E2E"
+    type: pattern
+    mode: absence
+    sections: [testing]
+    detect:
+      - pattern: '(?i)(?:integration\s+test|e2e|end.to.end|system\s+test|acceptance\s+test|smoke\s+test|contract\s+test|API\s+test)'
+        description: integration test mention
+    claim_count: per_section
+    suggested_action: "Add integration and E2E test plan"
+    test_fixtures:
+      should_flag:
+        - section: testing
+          content: "Unit tests for all services using mock dependencies"
+      should_pass:
+        - section: testing
+          content: "Unit tests with mocks plus integration tests against staging DB"
+
+  - id: "002"
+    name: noPerformanceTestPlan
+    display_name: No Performance Test Plan
+    description: "Performance NFRs without load/stress test plan"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: cross_section_presence
+        source_sections: [requirements, performance_requirements]
+        target_sections: [testing]
+        source_pattern: '(?i)(?:p95|p99|latency|throughput|response\s+time|concurrent)'
+        target_pattern: '(?i)(?:performance\s+test|load\s+test|stress\s+test|benchmark|k6|JMeter|Locust|Gatling|artillery)'
+      - op: flag_if
+        condition: "source_found > 0 AND target_found < 1"
+        finding: "Performance NFRs exist but no load/stress test plan found"
+    suggested_action: "Add performance test plan with tools and methodology"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "NFR-001: p95 latency < 200ms"
+      should_pass:
+        - section: testing
+          content: "Load testing with k6: p95 latency < 200ms verified"
+
+  - id: "003"
+    name: noNegativeTestCases
+    display_name: No Negative Test Cases
+    description: "Only happy path tests"
+    type: pattern
+    mode: absence
+    sections: [testing]
+    detect:
+      - pattern: '(?i)(?:invalid|unauthorized|malformed|timeout|failure|error|edge\s+case|boundary|null|empty|overflow|injection)'
+        description: negative test indicator
+    claim_count: per_section
+    suggested_action: "Add negative, boundary, and error test cases"
+    test_fixtures:
+      should_flag:
+        - section: testing
+          content: "| TC-001 | User logs in successfully | PASS |\n| TC-002 | User creates order | PASS |"
+      should_pass:
+        - section: testing
+          content: "| TC-001 | User logs in | PASS |\n| TC-002 | Invalid credentials rejected | PASS |"
+
+  - id: "004"
+    name: noAccessibilityTestPlan
+    display_name: No Accessibility Test Plan
+    description: "UI feature without accessibility testing"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: cross_section_presence
+        source_sections: [requirements, user_stories]
+        target_sections: [testing]
+        source_pattern: '(?i)(?:screen|view|page|modal|button|form|input|dashboard|display)'
+        target_pattern: '(?i)(?:accessibility|a11y|VoiceOver|screen\s+reader|WCAG|ADA|color\s+contrast|dynamic\s+type|assistive)'
+      - op: flag_if
+        condition: "source_found > 0 AND target_found < 1"
+        finding: "UI requirements exist but no accessibility test plan found"
+    suggested_action: "Add accessibility test plan covering VoiceOver, contrast, and dynamic type"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "FR-001: Display user dashboard with charts"
+      should_pass:
+        - section: testing
+          content: "Accessibility: VoiceOver navigation, color contrast AA compliance"
+
+  - id: "005"
+    name: noDataSetupTeardown
+    display_name: No Data Setup Teardown
+    description: "Tests reference database without fixture plan"
+    type: pattern
+    mode: presence
+    sections: [testing]
+    detect:
+      - pattern: '(?i)(?:database|existing\s+(?:user|data|entry|record))'
+        description: database reference in tests
+    suppress:
+      - pattern: '(?i)(?:fixture|seed|setup|teardown|mock|stub|factory|beforeEach|afterEach|test\s+data|cleanup)'
+        scope: nearby_lines_10
+        description: test data management nearby
+    claim_count: detect_matches
+    suggested_action: "Add test data fixtures, setup, and teardown strategy"
+    test_fixtures:
+      should_flag:
+        - section: testing
+          content: "Verify existing user can access the database records"
+      should_pass:
+        - section: testing
+          content: "Setup: seed test database with fixtures. Teardown: cleanup after each test"

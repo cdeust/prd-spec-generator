@@ -1,0 +1,82 @@
+family:
+  code: SM
+  name: scrumMaster
+  display_name: Scrum Master
+  description: "Sprint planning and story sizing concerns"
+  primary_persona: "SM"
+
+rules:
+  - id: "001"
+    name: storiesTooLarge
+    display_name: Stories Too Large
+    description: "Stories exceeding 13 story points"
+    type: pattern
+    mode: presence
+    sections: [timeline, user_stories]
+    detect:
+      - pattern: '(?m)^\s*\|(?:[^|]*\|)*\s*(\d{2,})\s*(?:SP|story\s+points?)'
+        description: large story point value
+    suppress:
+      - pattern: '(?i)(?:epic|initiative|theme)'
+        scope: same_row
+        description: epic-level item
+    claim_count: detect_matches
+    suggested_action: "Break stories >13 SP into smaller deliverables"
+    test_fixtures:
+      should_flag:
+        - section: timeline
+          content: "| US-001 | Build auth system | 21 SP |"
+      should_pass:
+        - section: timeline
+          content: "| US-001 | Add login form | 5 SP |"
+
+  - id: "002"
+    name: noDefinitionOfReady
+    display_name: No Definition Of Ready
+    description: "Stories without dependency or readiness info"
+    type: algorithmic
+    sections: [user_stories, timeline]
+    pipeline:
+      - op: extract
+        pattern: '(?mi)^\s*\|\s*(?:US|STORY)-\d+'
+        into: stories
+      - op: count
+        from: stories
+        into: story_count
+      - op: flag_if
+        condition: "story_count > 5"
+        finding: "{story_count} stories without apparent definition of ready"
+    suggested_action: "Add dependency and readiness columns to story tables"
+    test_fixtures:
+      should_flag:
+        - section: user_stories
+          content: "| US-001 | Story A |\n| US-002 | Story B |\n| US-003 | Story C |\n| US-004 | Story D |\n| US-005 | Story E |\n| US-006 | Story F |"
+      should_pass:
+        - section: user_stories
+          content: "| US-001 | Story A | Ready | No deps |"
+
+  - id: "003"
+    name: sprintOverload
+    display_name: Sprint Overload
+    description: "Sprint with more than 40 story points"
+    type: algorithmic
+    sections: [timeline]
+    pipeline:
+      - op: extract
+        pattern: '(?i)\|\s*(\d+)\s*(?:SP|points?)\s*\|'
+        capture: [sp]
+        into: sprint_points
+      - op: count
+        from: sprint_points
+        into: point_count
+      - op: flag_if
+        condition: "point_count > 5"
+        finding: "Sprint may be overloaded with {point_count} story items"
+    suggested_action: "Limit sprints to 30-40 SP based on team velocity"
+    test_fixtures:
+      should_flag:
+        - section: timeline
+          content: "Sprint 1:\n| S1 | 13 SP |\n| S2 | 8 SP |\n| S3 | 8 SP |\n| S4 | 5 SP |\n| S5 | 5 SP |\n| S6 | 8 SP |"
+      should_pass:
+        - section: timeline
+          content: "Sprint 1:\n| S1 | 8 SP |\n| S2 | 5 SP |"

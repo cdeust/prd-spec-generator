@@ -1,0 +1,91 @@
+family:
+  code: OPS
+  name: operations
+  display_name: Operations
+  description: "Operational readiness gaps"
+  primary_persona: "DevOps"
+
+rules:
+  - id: "001"
+    name: noHealthCheck
+    display_name: No Health Check
+    description: "No health endpoint for service"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:health\s*check|/health|readiness\s+probe|liveness\s+probe|ping\s+endpoint|status\s+endpoint|heartbeat)'
+        description: health check content
+    claim_count: per_document
+    suggested_action: "Add /health endpoint with readiness and liveness probes"
+    test_fixtures:
+      should_flag:
+        - section: deployment
+          content: "Deploy service behind load balancer"
+      should_pass:
+        - section: api_specification
+          content: "GET /health - Returns 200 with readiness and liveness status"
+
+  - id: "002"
+    name: noEnvironmentConfigStrategy
+    display_name: No Environment Config Strategy
+    description: "Secrets without configuration management"
+    type: pattern
+    mode: presence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:API_KEY|SECRET|DATABASE_URL|connection\s+string|credentials?|password)'
+        description: secret reference
+    suppress:
+      - pattern: '(?i)(?:environment\s+variable|\.env|config\s+(?:map|file|service)|vault|KMS|parameter\s+store|secrets?\s+manag)'
+        scope: nearby_lines_10
+        description: config management nearby
+    claim_count: detect_matches
+    suggested_action: "Add secrets management strategy (vault, env vars, parameter store)"
+    test_fixtures:
+      should_flag:
+        - section: technical_specification
+          content: "Connect using DATABASE_URL and API_KEY for the payment service"
+      should_pass:
+        - section: deployment
+          content: "Secrets stored in AWS Parameter Store, injected as environment variables"
+
+  - id: "003"
+    name: noCICDPipeline
+    display_name: No CI/CD Pipeline
+    description: "Release without automated pipeline"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:CI/?CD|pipeline|GitHub\s+Actions|GitLab\s+CI|Jenkins|CircleCI|automated\s+(?:build|deploy|test)|continuous\s+(?:integration|delivery|deployment))'
+        description: CI/CD content
+    claim_count: per_document
+    suggested_action: "Add CI/CD pipeline definition with build, test, and deploy stages"
+    test_fixtures:
+      should_flag:
+        - section: deployment
+          content: "Deploy by running scripts on production server"
+      should_pass:
+        - section: deployment
+          content: "GitHub Actions pipeline: lint, test, build, deploy to staging then production"
+
+  - id: "004"
+    name: noBackupDisasterRecovery
+    display_name: No Backup Disaster Recovery
+    description: "Database without backup strategy"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:backup|disaster\s+recovery|DR\s+plan|RTO|RPO|point.in.time\s+recovery|snapshot|failover|business\s+continuity)'
+        description: backup/DR content
+    claim_count: per_document
+    suggested_action: "Add backup strategy with RTO/RPO targets"
+    test_fixtures:
+      should_flag:
+        - section: deployment
+          content: "PostgreSQL database with 500GB storage"
+      should_pass:
+        - section: deployment
+          content: "Automated daily backups with 30-day retention. RTO: 4 hours, RPO: 1 hour"

@@ -1,0 +1,85 @@
+family:
+  code: CONS
+  name: crossSectionConsistency
+  display_name: Cross-Section Consistency
+  description: "Values and claims that conflict across sections"
+  primary_persona: "QA, PM"
+
+rules:
+  - id: "001"
+    name: metricValueConflict
+    display_name: Metric Value Conflict
+    description: "Same metric ID with different values across sections"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: extract
+        pattern: '(?i)(NFR-\d+)[^|]*?([<>≤≥]=?\s*\d+(?:\.\d+)?\s*(?:ms|s|MB|GB|%|fps|rps))'
+        capture: [id, threshold]
+        into: metrics
+      - op: count
+        from: metrics
+        into: metric_count
+      - op: flag_if
+        condition: "metric_count >= 2"
+        finding: "{metric_count} metric references found — check for conflicting values"
+    suggested_action: "Ensure each metric has consistent values across all sections"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "NFR-001 < 200ms response time\nNFR-001 < 500ms response time"
+      should_pass:
+        - section: requirements
+          content: "NFR-001 < 200ms response time"
+
+  - id: "002"
+    name: duplicateMitigationText
+    display_name: Duplicate Mitigation Text
+    description: "Near-identical mitigation text across different risks"
+    type: algorithmic
+    sections: [risks]
+    pipeline:
+      - op: extract_table
+        header_pattern: '(?i)Risk|Mitigation'
+        value_column: '(?i)Mitigation|Response|Action'
+        into: mitigations
+      - op: similarity
+        from: mitigations
+        method: jaccard
+        threshold: 0.8
+        into: similar_pairs
+      - op: flag_if
+        condition: "similar_count > 0"
+        finding: "{similar_count} risk mitigations have near-identical text"
+    suggested_action: "Differentiate mitigation strategies or reference shared mitigation"
+    test_fixtures:
+      should_flag:
+        - section: risks
+          content: "| Risk | Mitigation |\n|---|---|\n| R1 | Monitor and alert the team | \n| R2 | Monitor and alert the team immediately |"
+      should_pass:
+        - section: risks
+          content: "| Risk | Mitigation |\n|---|---|\n| R1 | Implement circuit breaker |\n| R2 | Add redundant replicas |"
+
+  - id: "003"
+    name: technologyMentionedNotArchitected
+    display_name: Technology Mentioned Not Architected
+    description: "Technology in deployment absent from tech specification"
+    type: algorithmic
+    sections: []
+    pipeline:
+      - op: cross_section_presence
+        source_sections: [deployment]
+        target_sections: [technical_specification]
+        source_pattern: '(?i)\b(?:Redis|PostgreSQL|MySQL|MongoDB|Kafka|Elasticsearch|Docker|Kubernetes|Terraform|Nginx)\b'
+        target_pattern: '(?i)\b(?:Redis|PostgreSQL|MySQL|MongoDB|Kafka|Elasticsearch|Docker|Kubernetes|Terraform|Nginx)\b'
+      - op: flag_if
+        condition: "source_found > 0 AND target_found < 1"
+        finding: "Technologies referenced in deployment but absent from technical specification"
+    suggested_action: "Add architecture details for all deployed technologies"
+    test_fixtures:
+      should_flag:
+        - section: deployment
+          content: "Deploy Redis cluster for caching"
+      should_pass:
+        - section: technical_specification
+          content: "Redis is used as a caching layer with 15-minute TTL"

@@ -1,0 +1,67 @@
+family:
+  code: UX
+  name: userExperience
+  display_name: User Experience
+  description: "UI/UX design completeness gaps"
+  primary_persona: "UX"
+
+rules:
+  - id: "001"
+    name: noUserFlowDescription
+    display_name: No User Flow Description
+    description: "Multiple screens without flow description"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:user\s+flow|navigation|flow\s+diagram|user\s+journey|wireframe|prototype|screen\s+transition)'
+        description: user flow content
+    claim_count: per_document
+    suggested_action: "Add user flow diagram or navigation description"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "FR-001: Login screen\nFR-002: Dashboard screen\nFR-003: Settings screen"
+      should_pass:
+        - section: requirements
+          content: "User flow: Login -> Dashboard -> Settings (navigation via sidebar)"
+
+  - id: "002"
+    name: noLoadingEmptyErrorStates
+    display_name: No Loading Empty Error States
+    description: "UI with only happy state described"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:loading\s+state|skeleton|spinner|empty\s+state|zero\s+state|error\s+state|no\s+(?:results?|data|items?)|placeholder|fallback\s+(?:UI|view))'
+        description: UI state content
+    claim_count: per_document
+    suggested_action: "Define loading, empty, and error states for each view"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "Display list of items with search and filter"
+      should_pass:
+        - section: requirements
+          content: "Display items list. Empty state: illustration with CTA. Loading: skeleton. Error: retry button"
+
+  - id: "003"
+    name: noResponsiveConsideration
+    display_name: No Responsive Consideration
+    description: "UI without device adaptation strategy"
+    type: pattern
+    mode: absence
+    sections: []
+    detect:
+      - pattern: '(?i)(?:responsive|adaptive|mobile\s+(?:view|layout)|tablet|desktop|breakpoint|media\s+query|size\s+class|compact|regular|landscape|portrait)'
+        description: responsive design content
+    claim_count: per_document
+    suggested_action: "Add responsive design strategy for target device types"
+    test_fixtures:
+      should_flag:
+        - section: requirements
+          content: "Dashboard with charts, tables, and sidebar navigation"
+      should_pass:
+        - section: technical_specification
+          content: "Responsive layout: compact (mobile), regular (tablet/desktop) using size classes"
