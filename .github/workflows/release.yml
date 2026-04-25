@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, test, and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+
+      - name: Install dependencies (frozen)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Run full test suite
+        run: pnpm test
+
+      - name: Verify mcp-server bundle is current
+        run: |
+          # Rebuild the bundle and fail if the committed version diverges
+          # from the rebuilt one (catches "I forgot to commit dist/" PRs).
+          if [ -d packages/mcp-server/dist ]; then
+            git diff --exit-code packages/mcp-server/dist/ \
+              || (echo "::error::mcp-server bundle out of date — run 'pnpm build' and commit"; exit 1)
+          fi
+
+      - name: Extract release notes from CHANGELOG
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Pull the section between [VERSION] and the next [section] heading
+          awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (in_section) exit
+              if (index($0, "[" ver "]")) { in_section = 1; next }
+            }
+            in_section { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No CHANGELOG entry found for $VERSION; using tag message" > release-notes.md
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
