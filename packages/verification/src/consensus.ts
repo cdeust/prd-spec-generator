@@ -96,7 +96,7 @@ const DEFAULT_CONFIG: Required<Omit<ConsensusConfig, "reliability">> = {
  * size 10, moderately informative toward reliability). The previous
  * doc-comment described this as a "uniform weak prior," which is
  * incorrect: a uniform prior would be 0.5; ESS=10 is informative, not
- * weak. Phase 4.1 (PHASE_4_PLAN.md §4.1) will replace this with
+ * weak. Phase 4.1 (docs/PHASE_4_PLAN.md §4.1) will replace this with
  * per-agent Beta(α+correct, β+incorrect) calibrated from history.
  *
  * Bound: must lie in [0, 1] — `clampUnit` enforces at every use site.

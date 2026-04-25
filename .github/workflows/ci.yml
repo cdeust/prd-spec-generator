@@ -71,6 +71,25 @@ jobs:
         # starts, the latter cannot resolve types. Sequential is mandatory.
         run: pnpm build
 
+      - name: Bundle (mcp-server self-contained ESM)
+        # Produces mcp-server/index.js — the standalone bundle the
+        # marketplace install runs via .mcp.json. Must be reproducible
+        # from source on every CI run.
+        run: pnpm bundle
+
+      - name: Bundle freshness check
+        # The committed mcp-server/index.js MUST match what the current
+        # source produces. Drift means a contributor forgot to re-bundle
+        # before committing. Fail CI rather than silently shipping a
+        # stale bundle to the marketplace.
+        # source: cross-audit follow-through — Phase 4 strategy-wiring
+        # round, public-readiness baseline (2026-04).
+        run: |
+          if ! git diff --exit-code -- mcp-server/index.js; then
+            echo "::error::mcp-server/index.js is out of date. Run 'pnpm bundle' locally and commit the result."
+            exit 1
+          fi
+
       - name: Test
         # Vitest workspace runs every package's vitest.config.ts.
         run: pnpm test

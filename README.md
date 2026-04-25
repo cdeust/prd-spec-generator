@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License">
   <img src="https://img.shields.io/badge/TypeScript-5.9+-3178c6.svg" alt="TypeScript 5.9+">
   <img src="https://img.shields.io/badge/Node-20.x_·_22.x-339933.svg" alt="Node 20/22">
-  <img src="https://img.shields.io/badge/Tests-117_passing-brightgreen" alt="117 tests">
+  <img src="https://img.shields.io/badge/Tests-258_passing-brightgreen" alt="258 tests">
   <img src="https://img.shields.io/badge/Packages-10-orange" alt="10 packages">
   <img src="https://img.shields.io/badge/MCP_Tools-11-8A2BE2" alt="11 MCP tools">
   <img src="https://img.shields.io/badge/Validators-Hard_Output_Rules-red" alt="Hard Output Rules">
@@ -29,7 +29,7 @@ Every AI agent that drafts a PRD eventually invents a function that doesn't exis
 
 **prd-spec-generator** is a TypeScript MCP server that fixes this at the structural level. The pipeline is a stateless reducer (`step(state, result?) → next_state, action`) driven by a host (Claude Code or any MCP-speaking agent). Sections are produced one at a time, validated by deterministic Hard Output Rules before the host ever sees them, and every load-bearing claim is judged by a panel of genius reasoning agents drawn from `zetetic-team-subagents` against the codebase graph from `automatised-pipeline`.
 
-**10 packages. 11 MCP tools. 9 pipeline steps. Multi-judge verification with consensus. 117 tests. Every numeric constant traces to a citation, a benchmark, or a `// source: provisional heuristic` admission.**
+**10 packages. 11 MCP tools. 9 pipeline steps. Multi-judge verification with consensus. 258 tests. Every numeric constant traces to a citation, a benchmark, or a `// source: provisional heuristic` admission.**
 
 ---
 
@@ -68,55 +68,76 @@ map_failure_to_retrieval(violations[])
 
 ## Getting started
 
-### Prerequisites
+### Install (marketplace — recommended)
 
-- Node.js **20.x or 22.x**
-- pnpm **v10+** (`corepack enable && corepack prepare pnpm@10`)
+```bash
+claude plugin marketplace add cdeust/prd-spec-generator
+claude plugin install prd-spec-generator
+```
 
-### Clone + build
+Restart your Claude Code session. The 11 MCP tools register on first
+stdio handshake. Then:
+
+```
+/generate-prd build OAuth login for the admin console
+```
+
+The plugin's bundled MCP server at `mcp-server/index.js` is self-contained
+(only `better-sqlite3` is an optional native dependency for the evidence
+repository — gracefully degrades to in-memory mode when absent).
+
+### Companion ecosystem
+
+For full effect, install the three companion plugins so the pipeline can
+consume codebase intelligence, persistent memory, and the genius-agent
+panel:
+
+```bash
+claude plugin marketplace add cdeust/automatised-pipeline    # codebase graph intel
+claude plugin marketplace add cdeust/Cortex                  # persistent memory
+claude plugin marketplace add cdeust/zetetic-team-subagents  # the genius + team agents
+
+claude plugin install automatised-pipeline
+claude plugin install cortex
+claude plugin install zetetic-team-subagents
+```
+
+Each plugin is independently useful; together they are the ai-architect
+ecosystem. See [companion-projects](#) above.
+
+### Building from source
+
+For development or to run the audit cycle locally:
 
 ```bash
 git clone https://github.com/cdeust/prd-spec-generator.git
 cd prd-spec-generator
 pnpm install --frozen-lockfile
-pnpm build
-pnpm test
-# 117 tests pass + 2 integration skipped (live MCP integration is
-# env-gated by AIPRD_PIPELINE_BIN)
+pnpm build      # builds all 9 buildable packages via tsc
+pnpm bundle     # produces the standalone mcp-server/index.js
+pnpm test       # 258 tests + 2 integration skipped (live MCP integration
+                # env-gated by AIPRD_PIPELINE_BIN)
 ```
 
-### Register the MCP server
+`pnpm verify` runs all of the above (install + build + bundle + test) —
+same as CI.
+
+**Prerequisites for source builds:** Node.js 20.x or 22.x, pnpm v10+
+(`corepack enable && corepack prepare pnpm@10`).
+
+### Smoke-test offline
 
 ```bash
-claude mcp add prd-gen -- node /absolute/path/to/packages/mcp-server/dist/index.js
-```
-
-Or wire via `.mcp.json` next to your project root:
-
-```json
-{
-  "mcpServers": {
-    "prd-gen": {
-      "command": "node",
-      "args": ["/absolute/path/to/packages/mcp-server/dist/index.js"]
-    }
-  }
-}
-```
-
-Restart Claude Code. The 11 tools register on first stdio handshake.
-
-### First run
-
-```bash
-# Smoke-test the reducer end-to-end without a real host:
+# Reducer end-to-end without a real host (uses the canned dispatcher):
 pnpm test --filter @prd-gen/orchestration smoke
 
-# Drive a benchmark KPI run with the canned dispatcher:
+# Benchmark KPI run:
 pnpm test --filter @prd-gen/benchmark pipeline-kpis
 ```
 
-Both run in <2s on an M-series Mac. No LLM calls, no MCP traffic — the reducer is fully driven by canned ActionResults so you can audit behaviour offline.
+Both run in <2s on an M-series Mac. No LLM calls, no MCP traffic — the
+reducer is fully driven by canned ActionResults so you can audit behaviour
+offline.
 
 ---
 
@@ -338,7 +359,7 @@ The same standard applied to itself.
 1. **It does not write code.** This generator produces a PRD. The downstream coding agent (separate system) reads the PRD, the graph, and Cortex memory; it writes the implementation. Symbols in the PRD are validated against the graph but never edited by us.
 2. **It does not validate prose quality.** Hard Output Rules check structural invariants (FR numbering, AC traceability, NFR shape, cross-references). They do not check whether a sentence is well-written or persuasive. That is what the multi-judge phase is for, and even there the judges return verdicts on *claims* — atomic assertions — not on style.
 3. **The judge phase is end-to-end testable but the judges are not deterministic.** In tests we use a canned dispatcher that returns 100% PASS by construction; the `distribution_suspicious` detector exists precisely because real judge panels can also degenerate into confirmatory consensus, and we do not pretend otherwise.
-4. **The KPI gates are provisional.** `iteration_count_max=100`, `wall_time_ms_max=500`, `mean_section_attempts_max=2.5` — every threshold currently traces to a canned-dispatcher baseline, not a production-shaped run. Phase 4.5 calibrates them against K≥100 real PRDs (see [PHASE_4_PLAN.md](PHASE_4_PLAN.md)).
+4. **The KPI gates are provisional.** `iteration_count_max=100`, `wall_time_ms_max=500`, `mean_section_attempts_max=2.5` — every threshold currently traces to a canned-dispatcher baseline, not a production-shaped run. Phase 4.5 calibrates them against K≥100 real PRDs (see [docs/PHASE_4_PLAN.md](docs/PHASE_4_PLAN.md)).
 5. **Citation presence ≠ citation validity.** A `// source: Knuth 1998` comment satisfies the convention whether or not Knuth 1998 exists or supports the value. We enforce that the citation IS THERE; the cross-audit cycle (genius + team review every phase) is what keeps it honest.
 
 ---
@@ -358,7 +379,7 @@ The repo ships a multi-agent cross-audit workflow. After every non-trivial phase
 #   poincare (qualitative), ...
 ```
 
-Each agent reads the current state of the code (not from memory) and produces a ranked finding list. The Phase 3+4 cycle generated 30 findings; 28 were closed in the same cycle (4 CRIT + 13 HIGH + 11 MED). Two are deferred to Phase 4 calibration with the evidence required to close them documented in PHASE_4_PLAN.md.
+Each agent reads the current state of the code (not from memory) and produces a ranked finding list. The Phase 3+4 cycle generated 30 findings; 28 were closed in the same cycle (4 CRIT + 13 HIGH + 11 MED). Two are deferred to Phase 4 calibration with the evidence required to close them documented in docs/PHASE_4_PLAN.md.
 
 ---
 

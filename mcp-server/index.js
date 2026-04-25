@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-#!/usr/bin/env node
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -1095,11 +1094,11 @@ var require_util = __commonJS({
       return false;
     }
     exports.schemaHasRules = schemaHasRules;
-    function schemaHasRulesButRef(schema2, RULES) {
+    function schemaHasRulesButRef(schema2, RULES2) {
       if (typeof schema2 == "boolean")
         return !schema2;
       for (const key in schema2)
-        if (key !== "$ref" && RULES.all[key])
+        if (key !== "$ref" && RULES2.all[key])
           return true;
       return false;
     }
@@ -2493,17 +2492,17 @@ var require_validate = __commonJS({
     }
     function schemaKeywords(it, types, typeErrors, errsCount) {
       const { gen, schema: schema2, data, allErrors, opts, self } = it;
-      const { RULES } = self;
-      if (schema2.$ref && (opts.ignoreKeywordsWithRef || !(0, util_1.schemaHasRulesButRef)(schema2, RULES))) {
-        gen.block(() => keywordCode(it, "$ref", RULES.all.$ref.definition));
+      const { RULES: RULES2 } = self;
+      if (schema2.$ref && (opts.ignoreKeywordsWithRef || !(0, util_1.schemaHasRulesButRef)(schema2, RULES2))) {
+        gen.block(() => keywordCode(it, "$ref", RULES2.all.$ref.definition));
         return;
       }
       if (!opts.jtd)
         checkStrictTypes(it, types);
       gen.block(() => {
-        for (const group of RULES.rules)
+        for (const group of RULES2.rules)
           groupKeywords(group);
-        groupKeywords(RULES.post);
+        groupKeywords(RULES2.post);
       });
       function groupKeywords(group) {
         if (!(0, applicability_1.shouldUseGroup)(schema2, group))
@@ -4205,10 +4204,10 @@ var require_core = __commonJS({
       }
       // Remove keyword
       removeKeyword(keyword) {
-        const { RULES } = this;
-        delete RULES.keywords[keyword];
-        delete RULES.all[keyword];
-        for (const group of RULES.rules) {
+        const { RULES: RULES2 } = this;
+        delete RULES2.keywords[keyword];
+        delete RULES2.all[keyword];
+        for (const group of RULES2.rules) {
           const i = group.rules.findIndex((rule) => rule.keyword === keyword);
           if (i >= 0)
             group.rules.splice(i, 1);
@@ -4376,9 +4375,9 @@ var require_core = __commonJS({
     }
     var KEYWORD_NAME = /^[a-z_$][a-z0-9_$:-]*$/i;
     function checkKeyword(keyword, def) {
-      const { RULES } = this;
+      const { RULES: RULES2 } = this;
       (0, util_1.eachItem)(keyword, (kwd) => {
-        if (RULES.keywords[kwd])
+        if (RULES2.keywords[kwd])
           throw new Error(`Keyword ${kwd} is already defined`);
         if (!KEYWORD_NAME.test(kwd))
           throw new Error(`Keyword ${kwd} has invalid name`);
@@ -4394,13 +4393,13 @@ var require_core = __commonJS({
       const post = definition === null || definition === void 0 ? void 0 : definition.post;
       if (dataType && post)
         throw new Error('keyword with "post" flag cannot have "type"');
-      const { RULES } = this;
-      let ruleGroup = post ? RULES.post : RULES.rules.find(({ type: t }) => t === dataType);
+      const { RULES: RULES2 } = this;
+      let ruleGroup = post ? RULES2.post : RULES2.rules.find(({ type: t }) => t === dataType);
       if (!ruleGroup) {
         ruleGroup = { type: dataType, rules: [] };
-        RULES.rules.push(ruleGroup);
+        RULES2.rules.push(ruleGroup);
       }
-      RULES.keywords[keyword] = true;
+      RULES2.keywords[keyword] = true;
       if (!definition)
         return;
       const rule = {
@@ -4415,7 +4414,7 @@ var require_core = __commonJS({
         addBeforeRule.call(this, ruleGroup, rule, definition.before);
       else
         ruleGroup.rules.push(rule);
-      RULES.all[keyword] = rule;
+      RULES2.all[keyword] = rule;
       (_a = definition.implements) === null || _a === void 0 ? void 0 : _a.forEach((kwd) => this.addKeyword(kwd));
     }
     function addBeforeRule(ruleGroup, rule, before) {
@@ -8363,12 +8362,12 @@ ZodString.create = (params) => {
     ...processCreateParams(params)
   });
 };
-function floatSafeRemainder(val, step) {
+function floatSafeRemainder(val, step2) {
   const valDecCount = (val.toString().split(".")[1] || "").length;
-  const stepDecCount = (step.toString().split(".")[1] || "").length;
+  const stepDecCount = (step2.toString().split(".")[1] || "").length;
   const decCount = valDecCount > stepDecCount ? valDecCount : stepDecCount;
   const valInt = Number.parseInt(val.toFixed(decCount).replace(".", ""));
-  const stepInt = Number.parseInt(step.toFixed(decCount).replace(".", ""));
+  const stepInt = Number.parseInt(step2.toFixed(decCount).replace(".", ""));
   return valInt % stepInt / 10 ** decCount;
 }
 var ZodNumber = class _ZodNumber extends ZodType {
@@ -10999,12 +10998,12 @@ function cleanRegex(source) {
   const end = source.endsWith("$") ? source.length - 1 : source.length;
   return source.slice(start, end);
 }
-function floatSafeRemainder2(val, step) {
+function floatSafeRemainder2(val, step2) {
   const valDecCount = (val.toString().split(".")[1] || "").length;
-  const stepDecCount = (step.toString().split(".")[1] || "").length;
+  const stepDecCount = (step2.toString().split(".")[1] || "").length;
   const decCount = valDecCount > stepDecCount ? valDecCount : stepDecCount;
   const valInt = Number.parseInt(val.toFixed(decCount).replace(".", ""));
-  const stepInt = Number.parseInt(step.toFixed(decCount).replace(".", ""));
+  const stepInt = Number.parseInt(step2.toFixed(decCount).replace(".", ""));
   return valInt % stepInt / 10 ** decCount;
 }
 function defineLazy(object3, key, getter) {
@@ -21011,9 +21010,9 @@ var StdioServerTransport = class {
   }
 };
 
-// packages/mcp-server/src/index.ts
+// packages/mcp-server/dist/index.js
 import { readFileSync, existsSync as existsSync2 } from "node:fs";
-import { join as join2, dirname } from "node:path";
+import { join as join3, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // packages/core/dist/domain/prd-context.js
@@ -21111,8 +21110,47 @@ var SectionTypeSchema = external_exports.enum([
   "risks",
   "timeline",
   "source_code",
-  "test_code"
+  "test_code",
+  "jira_tickets"
 ]);
+var SECTION_DISPLAY_NAMES = {
+  overview: "Overview",
+  goals: "Goals & Objectives",
+  requirements: "Requirements",
+  user_stories: "User Stories",
+  technical_specification: "Technical Specification",
+  acceptance_criteria: "Acceptance Criteria",
+  data_model: "Data Model",
+  api_specification: "API Specification",
+  security_considerations: "Security Considerations",
+  performance_requirements: "Performance Requirements",
+  testing: "Testing Strategy",
+  deployment: "Deployment Plan",
+  risks: "Risks & Mitigation",
+  timeline: "Timeline & Milestones",
+  source_code: "Source Code",
+  test_code: "Test Code",
+  jira_tickets: "JIRA Tickets"
+};
+var SECTION_ORDER = {
+  overview: 0,
+  goals: 1,
+  requirements: 2,
+  user_stories: 3,
+  technical_specification: 4,
+  acceptance_criteria: 5,
+  data_model: 6,
+  api_specification: 7,
+  security_considerations: 8,
+  performance_requirements: 9,
+  testing: 10,
+  deployment: 11,
+  risks: 12,
+  timeline: 13,
+  source_code: 14,
+  test_code: 15,
+  jira_tickets: 16
+};
 
 // packages/core/dist/domain/hard-output-rule.js
 var HardOutputRuleSchema = external_exports.enum([
@@ -21321,7 +21359,9 @@ var TIER_CAPABILITIES = {
     verificationLevel: "basic"
   },
   trial: {
-    maxStrategies: 17,
+    // source: matches allowedStrategies.length below. Previously declared as
+    // 17 by mistake (Darwin difficulty-book pass-2, 2026-04).
+    maxStrategies: 16,
     allowedStrategies: [
       "chain_of_thought",
       "tree_of_thoughts",
@@ -21356,7 +21396,8 @@ var TIER_CAPABILITIES = {
     verificationLevel: "full"
   },
   licensed: {
-    maxStrategies: 17,
+    // source: matches allowedStrategies.length below.
+    maxStrategies: 16,
     allowedStrategies: [
       "chain_of_thought",
       "tree_of_thoughts",
@@ -21457,14 +21498,236 @@ var CrossRefValidationResultSchema = external_exports.object({
   isValid: external_exports.boolean()
 });
 
+// packages/core/dist/domain/agent.js
+var GeniusAgentSchema = external_exports.enum([
+  "alexander",
+  "alkhwarizmi",
+  "altshuller",
+  "archimedes",
+  "arendt",
+  "aristotle",
+  "bateson",
+  "beer",
+  "borges",
+  "boyd",
+  "braudel",
+  "bruner",
+  "carnot",
+  "champollion",
+  "coase",
+  "cochrane",
+  "curie",
+  "darwin",
+  "deming",
+  "dijkstra",
+  "eco",
+  "einstein",
+  "ekman",
+  "engelbart",
+  "erdos",
+  "erlang",
+  "euler",
+  "feinstein",
+  "fermi",
+  "feynman",
+  "fisher",
+  "fleming",
+  "foucault",
+  "gadamer",
+  "galileo",
+  "geertz",
+  "ginzburg",
+  "godel",
+  "hamilton",
+  "hart",
+  "hopper",
+  "ibnalhaytham",
+  "ibnkhaldun",
+  "jobs",
+  "kahneman",
+  "kauffman",
+  "kay",
+  "kekule",
+  "knuth",
+  "lamport",
+  "laplace",
+  "lavoisier",
+  "leguin",
+  "lem",
+  "liskov",
+  "mandelbrot",
+  "margulis",
+  "maxwell",
+  "mcclintock",
+  "meadows",
+  "mendeleev",
+  "midgley",
+  "mill",
+  "nagarjuna",
+  "noether",
+  "ostrom",
+  "panini",
+  "pearl",
+  "peirce",
+  "poincare",
+  "polya",
+  "popper",
+  "propp",
+  "ramanujan",
+  "ranganathan",
+  "rawls",
+  "rejewski",
+  "rogerfisher",
+  "rogers",
+  "schelling",
+  "schon",
+  "semmelweis",
+  "shannon",
+  "simon",
+  "snow",
+  "strauss",
+  "taleb",
+  "thompson",
+  "toulmin",
+  "turing",
+  "varela",
+  "ventris",
+  "vonneumann",
+  "vygotsky",
+  "wittgenstein",
+  "wu",
+  "zhuangzi"
+]);
+var TeamAgentSchema = external_exports.enum([
+  "architect",
+  "code-reviewer",
+  "data-scientist",
+  "dba",
+  "devops-engineer",
+  "engineer",
+  "experiment-runner",
+  "frontend-engineer",
+  "latex-engineer",
+  "mlops",
+  "orchestrator",
+  "paper-writer",
+  "professor",
+  "refactorer",
+  "research-scientist",
+  "reviewer-academic",
+  "security-auditor",
+  "test-engineer",
+  "ux-designer"
+]);
+var AgentIdentitySchema = external_exports.discriminatedUnion("kind", [
+  external_exports.object({ kind: external_exports.literal("genius"), name: GeniusAgentSchema }),
+  external_exports.object({ kind: external_exports.literal("team"), name: TeamAgentSchema })
+]);
+function agentSubagentType(identity) {
+  return identity.kind === "genius" ? `zetetic-team-subagents:genius:${identity.name}` : `zetetic-team-subagents:${identity.name}`;
+}
+var ClaimSchema = external_exports.object({
+  claim_id: external_exports.string().describe("Stable ID, e.g., FR-001, AC-005, NFR-LATENCY"),
+  claim_type: external_exports.enum([
+    "architecture",
+    "performance",
+    "correctness",
+    "security",
+    "data_model",
+    "test_coverage",
+    "story_point_arithmetic",
+    "fr_traceability",
+    "risk",
+    "acceptance_criteria_completeness",
+    "cross_file_consistency"
+  ]),
+  text: external_exports.string().describe("The claim being verified, in plain language"),
+  evidence: external_exports.string().describe("Section content / surrounding context"),
+  source_section: external_exports.string().optional()
+});
+var JudgeVerdictSchema = external_exports.object({
+  judge: AgentIdentitySchema,
+  claim_id: external_exports.string(),
+  verdict: VerdictSchema,
+  rationale: external_exports.string(),
+  caveats: external_exports.array(external_exports.string()).default([]),
+  confidence: external_exports.number().min(0).max(1)
+});
+var JudgeRequestSchema = external_exports.object({
+  judge: AgentIdentitySchema,
+  claim: ClaimSchema,
+  context: external_exports.object({
+    prd_excerpt: external_exports.string().optional(),
+    codebase_excerpts: external_exports.array(external_exports.string()).default([]),
+    memory_excerpts: external_exports.array(external_exports.string()).default([])
+  }).default({ prd_excerpt: void 0, codebase_excerpts: [], memory_excerpts: [] })
+});
+var SubagentInvocationSchema = external_exports.object({
+  agent: AgentIdentitySchema,
+  task_description: external_exports.string().describe("Short title for the task"),
+  prompt: external_exports.string().describe("Full self-contained prompt \u2014 agent has no prior context"),
+  expected_format: external_exports.enum(["freeform", "json", "markdown"]).default("freeform"),
+  isolation: external_exports.enum(["worktree", "none"]).default("none")
+});
+var SubagentResponseSchema = external_exports.object({
+  agent: AgentIdentitySchema,
+  text: external_exports.string(),
+  duration_ms: external_exports.number().int().nonnegative().optional()
+});
+
+// packages/core/dist/utils/json-extract.js
+function extractJsonObject(text) {
+  const stripped = text.replace(/```(?:json)?\s*/gi, "").replace(/```/g, "");
+  const start = stripped.indexOf("{");
+  if (start === -1)
+    throw new Error("no JSON object found in response");
+  let depth = 0;
+  let inString = false;
+  let escape2 = false;
+  for (let i = start; i < stripped.length; i++) {
+    const ch = stripped[i];
+    if (escape2) {
+      escape2 = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escape2 = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString)
+      continue;
+    if (ch === "{")
+      depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        const candidate = stripped.slice(start, i + 1);
+        return JSON.parse(candidate);
+      }
+    }
+  }
+  throw new Error("unbalanced JSON object in response");
+}
+
 // packages/core/dist/persistence/evidence-repository.js
-import Database from "better-sqlite3";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { mkdirSync, existsSync } from "node:fs";
+var Database = null;
+try {
+  Database = (await import("better-sqlite3")).default;
+} catch {
+}
 var EvidenceRepository = class {
   db;
   constructor(dbPath) {
+    if (!Database) {
+      throw new Error("better-sqlite3 not available \u2014 install it with: pnpm add better-sqlite3");
+    }
     const resolvedPath = dbPath ?? this.defaultDbPath();
     const dir = resolvedPath.substring(0, resolvedPath.lastIndexOf("/"));
     if (!existsSync(dir)) {
@@ -21651,6 +21914,15 @@ var EvidenceRepository = class {
     this.db.close();
   }
 };
+function tryCreateEvidenceRepository(dbPath) {
+  if (!Database)
+    return null;
+  try {
+    return new EvidenceRepository(dbPath);
+  } catch {
+    return null;
+  }
+}
 
 // packages/validation/dist/hard-output-rules/rule-mapping.js
 var SECTION_RULES = {
@@ -21779,7 +22051,11 @@ var SECTION_RULES = {
   overview: [],
   goals: [],
   source_code: [],
-  test_code: []
+  test_code: [],
+  // jira_tickets is a synthetic bucket emitted by jira-generation; its
+  // rules apply to the source sections (requirements / acceptance_criteria),
+  // not to the JIRA markdown itself.
+  jira_tickets: []
 };
 function rulesForSection(sectionType) {
   return [...SECTION_RULES[sectionType]];
@@ -26463,7 +26739,3292 @@ var safeLoad = renamed("safeLoad", "load");
 var safeLoadAll = renamed("safeLoadAll", "loadAll");
 var safeDump = renamed("safeDump", "dump");
 
-// packages/mcp-server/src/context-budget.ts
+// packages/strategy/dist/research-evidence-database.js
+var TIER_1_EVIDENCE = [
+  {
+    strategy: "recursive_refinement",
+    tier: 1,
+    improvementPercent: 0.32,
+    claimCharacteristics: [
+      "mathematical_reasoning",
+      "multi_step_logic",
+      "complex_technical",
+      "iterative_refinement",
+      "high_precision"
+    ],
+    source: "DeepSeek (2025) \u2014 DeepSeek-R1: Incentivizing Reasoning Capability in LLMs",
+    citation: "arXiv:2501.12948"
+  },
+  {
+    strategy: "recursive_refinement",
+    tier: 1,
+    improvementPercent: 0.74,
+    claimCharacteristics: [
+      "mathematical_reasoning",
+      "multi_step_logic",
+      "self_correction",
+      "high_precision"
+    ],
+    source: "OpenAI (2024) \u2014 Learning to Reason with LLMs",
+    citation: "OpenAI technical report (non-peer-reviewed)"
+  },
+  {
+    strategy: "verified_reasoning",
+    tier: 1,
+    improvementPercent: 0.18,
+    claimCharacteristics: [
+      "accuracy_critical",
+      "fact_verification",
+      "consistency_check",
+      "high_precision"
+    ],
+    source: "Stanford/Anthropic (2024) \u2014 Chain-of-Verification Reduces Hallucination in LLMs",
+    citation: "Stanford/Anthropic 2024"
+  },
+  {
+    strategy: "graph_of_thoughts",
+    tier: 1,
+    improvementPercent: 0.62,
+    claimCharacteristics: [
+      "dependency_analysis",
+      "cross_reference",
+      "structural_reasoning",
+      "complex_technical"
+    ],
+    source: "ETH Zurich (2024) \u2014 Graph of Thoughts: Solving Elaborate Problems with LLMs",
+    citation: "arXiv:2308.09687"
+  },
+  {
+    strategy: "self_consistency",
+    tier: 1,
+    improvementPercent: 0.179,
+    claimCharacteristics: [
+      "mathematical_reasoning",
+      "multiple_approaches",
+      "consistency_check",
+      "uncertainty_handling"
+    ],
+    source: "Google Research (2023) \u2014 Self-Consistency Improves Chain of Thought Reasoning",
+    citation: "arXiv:2203.11171"
+  },
+  {
+    strategy: "reflexion",
+    tier: 1,
+    improvementPercent: 0.21,
+    claimCharacteristics: [
+      "iterative_refinement",
+      "self_correction",
+      "quality_improvement",
+      "code_generation"
+    ],
+    source: "MIT/Northeastern (2023) \u2014 Reflexion: Language Agents with Verbal Reinforcement Learning",
+    citation: "arXiv:2303.11366"
+  },
+  {
+    strategy: "problem_analysis",
+    tier: 1,
+    improvementPercent: 0.24,
+    claimCharacteristics: [
+      "complex_technical",
+      "multi_dimensional",
+      "structural_reasoning",
+      "risk_analysis"
+    ],
+    source: "Harvard/MIT (2024) \u2014 Structured Decomposition Outperforms Linear Reasoning",
+    citation: "Harvard/MIT 2024"
+  }
+];
+var TIER_2_EVIDENCE = [
+  {
+    strategy: "tree_of_thoughts",
+    tier: 2,
+    improvementPercent: 0.74,
+    claimCharacteristics: [
+      "exploratory_reasoning",
+      "multiple_approaches",
+      "creative_problems",
+      "branch_exploration"
+    ],
+    source: "Princeton/Google DeepMind (2024) \u2014 Tree of Thoughts: Deliberate Problem Solving with LLMs",
+    citation: "arXiv:2305.10601"
+  },
+  {
+    strategy: "react",
+    tier: 2,
+    improvementPercent: 0.27,
+    claimCharacteristics: [
+      "codebase_integration",
+      "tool_use",
+      "external_knowledge",
+      "cross_reference"
+    ],
+    source: "Princeton/Google (2023) \u2014 ReAct: Synergizing Reasoning and Acting in Language Models",
+    citation: "arXiv:2210.03629"
+  },
+  {
+    strategy: "meta_prompting",
+    tier: 2,
+    improvementPercent: 0.171,
+    claimCharacteristics: [
+      "complex_technical",
+      "multi_step_logic",
+      "role_based_reasoning",
+      "expert_orchestration"
+    ],
+    source: "Stanford (2024) \u2014 Meta-Prompting: Enhancing Language Models with Task-Agnostic Scaffolding",
+    citation: "Stanford 2024"
+  },
+  {
+    strategy: "plan_and_solve",
+    tier: 2,
+    improvementPercent: 0.058,
+    claimCharacteristics: [
+      "multi_step_logic",
+      "sequential_planning",
+      "structural_reasoning"
+    ],
+    source: "NUS (2023) \u2014 Plan-and-Solve Prompting: Improving Zero-Shot CoT",
+    citation: "arXiv:2305.04091"
+  }
+];
+var TIER_3_EVIDENCE = [
+  {
+    strategy: "few_shot",
+    tier: 3,
+    improvementPercent: 0.25,
+    claimCharacteristics: [
+      "pattern_matching",
+      "domain_specific",
+      "example_based"
+    ],
+    source: "OpenAI (2020) \u2014 Language Models are Few-Shot Learners",
+    citation: "arXiv:2005.14165"
+  },
+  {
+    strategy: "generate_knowledge",
+    tier: 3,
+    improvementPercent: 0.15,
+    claimCharacteristics: [
+      "domain_knowledge",
+      "fact_generation",
+      "commonsense_reasoning"
+    ],
+    source: "AI2 (2022) \u2014 Generated Knowledge Prompting for Commonsense Reasoning",
+    citation: "arXiv:2110.08387"
+  },
+  {
+    strategy: "multimodal_cot",
+    tier: 3,
+    improvementPercent: 0.16,
+    claimCharacteristics: [
+      "visual_reasoning",
+      "multimodal",
+      "diagram_analysis"
+    ],
+    source: "Amazon/UCLA (2023) \u2014 Multimodal Chain-of-Thought Reasoning",
+    citation: "arXiv:2302.00923"
+  }
+];
+var TIER_4_EVIDENCE = [
+  {
+    strategy: "chain_of_thought",
+    tier: 4,
+    improvementPercent: 0,
+    claimCharacteristics: ["basic_reasoning"],
+    source: "Google/DeepMind (2024) \u2014 Chain-of-Thought Reasoning Without Prompting",
+    citation: "arXiv:2402.10200"
+  },
+  {
+    strategy: "zero_shot",
+    tier: 4,
+    improvementPercent: 0,
+    claimCharacteristics: [],
+    source: "Various (2023) \u2014 Baseline comparison meta-analysis",
+    citation: "Various 2023"
+  }
+];
+var ALL_EVIDENCE = [
+  ...TIER_1_EVIDENCE,
+  ...TIER_2_EVIDENCE,
+  ...TIER_3_EVIDENCE,
+  ...TIER_4_EVIDENCE
+];
+var ResearchEvidenceDatabase = class {
+  evidence = ALL_EVIDENCE;
+  getEvidence(strategy) {
+    return this.evidence.filter((e) => e.strategy === strategy);
+  }
+  getBestEvidence(strategy) {
+    return this.getEvidence(strategy).sort((a, b) => b.improvementPercent - a.improvementPercent)[0];
+  }
+  getTier(strategy) {
+    const first = this.evidence.find((e) => e.strategy === strategy);
+    return first?.tier;
+  }
+  getStrategiesInTier(tier) {
+    const seen = /* @__PURE__ */ new Set();
+    for (const e of this.evidence) {
+      if (e.tier === tier)
+        seen.add(e.strategy);
+    }
+    return [...seen];
+  }
+  getMatchingStrategies(characteristics) {
+    const charSet = new Set(characteristics);
+    return this.evidence.filter((e) => e.claimCharacteristics.some((c) => charSet.has(c))).sort((a, b) => {
+      if (a.tier !== b.tier)
+        return a.tier - b.tier;
+      return b.improvementPercent - a.improvementPercent;
+    });
+  }
+  calculateScore(strategy, characteristics) {
+    const matching = this.getEvidence(strategy);
+    if (matching.length === 0)
+      return 0;
+    let totalScore = 0;
+    for (const ev of matching) {
+      const evChars = new Set(ev.claimCharacteristics);
+      let overlap = 0;
+      for (const c of characteristics) {
+        if (evChars.has(c))
+          overlap++;
+      }
+      const overlapRatio = overlap / Math.max(1, ev.claimCharacteristics.length);
+      const tierWeight = STRATEGY_TIERS[ev.tier].selectionWeight;
+      totalScore += ev.improvementPercent * tierWeight * (0.5 + 0.5 * overlapRatio);
+    }
+    return totalScore / matching.length;
+  }
+  getCitations(strategy) {
+    return this.getEvidence(strategy).map((e) => e.citation);
+  }
+  getAllStrategies() {
+    const seen = /* @__PURE__ */ new Set();
+    for (const e of this.evidence) {
+      seen.add(e.strategy);
+    }
+    return [...seen];
+  }
+  getAllEvidence() {
+    return this.evidence;
+  }
+};
+
+// packages/strategy/dist/claim-analyzer.js
+var ClaimAnalysisResultSchema = external_exports.object({
+  claim: external_exports.string(),
+  characteristics: external_exports.array(external_exports.string()),
+  complexityScore: external_exports.number(),
+  complexityTier: external_exports.enum(["simple", "moderate", "complex"]),
+  analysisNotes: external_exports.array(external_exports.string())
+});
+function containsAny(text, patterns) {
+  return patterns.some((p) => text.includes(p));
+}
+function detectReasoningComplexity(text) {
+  const characteristics = /* @__PURE__ */ new Set();
+  const notes = [];
+  if (containsAny(text, ["calculate", "compute", "formula", "equation", "math"])) {
+    characteristics.add("mathematical_reasoning");
+    notes.push("Mathematical reasoning detected");
+  }
+  if (containsAny(text, ["step", "sequence", "then", "after", "before", "process"])) {
+    characteristics.add("multi_step_logic");
+    characteristics.add("sequential_planning");
+  }
+  if (containsAny(text, ["technical", "architecture", "system", "implementation", "api", "database"])) {
+    characteristics.add("complex_technical");
+    notes.push("Technical domain content");
+  }
+  if (containsAny(text, ["precise", "exact", "accurate", "critical", "must", "shall"])) {
+    characteristics.add("high_precision");
+    characteristics.add("accuracy_critical");
+  }
+  return { characteristics, notes };
+}
+function detectStructurePatterns(text) {
+  const characteristics = /* @__PURE__ */ new Set();
+  if (containsAny(text, ["depend", "relationship", "connect", "link", "reference"])) {
+    characteristics.add("dependency_analysis");
+    characteristics.add("cross_reference");
+  }
+  if (containsAny(text, ["structure", "hierarchy", "organize", "component", "module"])) {
+    characteristics.add("structural_reasoning");
+  }
+  return characteristics;
+}
+function detectExplorationPatterns(text) {
+  const characteristics = /* @__PURE__ */ new Set();
+  const notes = [];
+  if (containsAny(text, ["explore", "alternative", "option", "approach", "possibility"])) {
+    characteristics.add("exploratory_reasoning");
+    characteristics.add("multiple_approaches");
+    characteristics.add("branch_exploration");
+  }
+  if (containsAny(text, ["creative", "innovative", "novel", "design"])) {
+    characteristics.add("creative_problems");
+  }
+  if (containsAny(text, ["uncertain", "unclear", "ambiguous", "complex", "difficult"])) {
+    characteristics.add("uncertainty_handling");
+    notes.push("High uncertainty detected");
+  }
+  return { characteristics, notes };
+}
+function detectVerificationNeeds(text) {
+  const characteristics = /* @__PURE__ */ new Set();
+  if (containsAny(text, ["verify", "validate", "check", "ensure", "confirm"])) {
+    characteristics.add("fact_verification");
+    characteristics.add("consistency_check");
+  }
+  if (containsAny(text, ["risk", "threat", "vulnerability", "issue", "problem"])) {
+    characteristics.add("risk_analysis");
+  }
+  return characteristics;
+}
+function detectDomainPatterns(text) {
+  const characteristics = /* @__PURE__ */ new Set();
+  const notes = [];
+  if (containsAny(text, ["codebase", "repository", "existing code", "current system"])) {
+    characteristics.add("codebase_integration");
+    characteristics.add("tool_use");
+    notes.push("Codebase integration required");
+  }
+  if (containsAny(text, ["example", "sample", "template", "pattern"])) {
+    characteristics.add("pattern_matching");
+    characteristics.add("example_based");
+  }
+  if (containsAny(text, ["code", "function", "class", "method", "implement"])) {
+    characteristics.add("code_generation");
+  }
+  return { characteristics, notes };
+}
+function detectIterativePatterns(text) {
+  const characteristics = /* @__PURE__ */ new Set();
+  if (containsAny(text, ["refine", "improve", "iterate", "enhance", "optimize"])) {
+    characteristics.add("iterative_refinement");
+    characteristics.add("quality_improvement");
+  }
+  if (containsAny(text, ["correct", "fix", "revise", "update"])) {
+    characteristics.add("self_correction");
+  }
+  return characteristics;
+}
+function detectExternalDependencies(text) {
+  const characteristics = /* @__PURE__ */ new Set();
+  if (containsAny(text, ["search", "find", "lookup", "retrieve", "fetch"])) {
+    characteristics.add("external_knowledge");
+    characteristics.add("tool_use");
+  }
+  return characteristics;
+}
+function detectSpecialModes(text) {
+  const characteristics = /* @__PURE__ */ new Set();
+  const notes = [];
+  if (containsAny(text, ["image", "visual", "diagram", "mockup", "screenshot", "ui"])) {
+    characteristics.add("visual_reasoning");
+    characteristics.add("multimodal");
+    characteristics.add("diagram_analysis");
+    notes.push("Visual content processing needed");
+  }
+  if (containsAny(text, ["perspective", "role", "stakeholder", "expert"])) {
+    characteristics.add("role_based_reasoning");
+    characteristics.add("expert_orchestration");
+  }
+  return { characteristics, notes };
+}
+var HIGH_COMPLEXITY_CHARS = /* @__PURE__ */ new Set([
+  "mathematical_reasoning",
+  "complex_technical",
+  "dependency_analysis",
+  "multi_dimensional",
+  "accuracy_critical",
+  "risk_analysis",
+  "codebase_integration",
+  "iterative_refinement"
+]);
+var MEDIUM_COMPLEXITY_CHARS = /* @__PURE__ */ new Set([
+  "multi_step_logic",
+  "cross_reference",
+  "structural_reasoning",
+  "exploratory_reasoning",
+  "multiple_approaches",
+  "uncertainty_handling",
+  "fact_verification",
+  "self_correction"
+]);
+function calculateComplexityScore(characteristics, text) {
+  let score = characteristics.size * 0.05;
+  for (const c of characteristics) {
+    if (HIGH_COMPLEXITY_CHARS.has(c)) {
+      score += 0.12;
+    } else if (MEDIUM_COMPLEXITY_CHARS.has(c)) {
+      score += 0.08;
+    } else {
+      score += 0.04;
+    }
+  }
+  const wordCount = text.split(/\s+/).length;
+  score += Math.min(0.15, wordCount / 500);
+  return Math.min(1, score);
+}
+function complexityTierFromScore(score) {
+  if (score >= 0.6)
+    return "complex";
+  if (score >= 0.3)
+    return "moderate";
+  return "simple";
+}
+function analyzeClaim(claim, context) {
+  const text = (claim + " " + (context ?? "")).toLowerCase();
+  const reasoning = detectReasoningComplexity(text);
+  const structure = detectStructurePatterns(text);
+  const exploration = detectExplorationPatterns(text);
+  const verification = detectVerificationNeeds(text);
+  const domain = detectDomainPatterns(text);
+  const iterative = detectIterativePatterns(text);
+  const external = detectExternalDependencies(text);
+  const special = detectSpecialModes(text);
+  const characteristics = /* @__PURE__ */ new Set();
+  for (const set2 of [
+    reasoning.characteristics,
+    structure,
+    exploration.characteristics,
+    verification,
+    domain.characteristics,
+    iterative,
+    external,
+    special.characteristics
+  ]) {
+    for (const c of set2)
+      characteristics.add(c);
+  }
+  if (characteristics.size === 0) {
+    characteristics.add("basic_reasoning");
+  }
+  const notes = [
+    ...reasoning.notes,
+    ...exploration.notes,
+    ...domain.notes,
+    ...special.notes
+  ];
+  const complexityScore = calculateComplexityScore(characteristics, text);
+  return {
+    claim,
+    // Persisted as a deduplicated array. Set semantics recovered via
+    // `characteristicSet(...)` or `characteristics.includes(...)` at use sites.
+    characteristics: [...characteristics],
+    complexityScore,
+    complexityTier: complexityTierFromScore(complexityScore),
+    analysisNotes: notes
+  };
+}
+
+// packages/strategy/dist/selector.js
+var StrategyAssignmentSchema = external_exports.object({
+  required: external_exports.array(ThinkingStrategySchema),
+  optional: external_exports.array(ThinkingStrategySchema),
+  forbidden: external_exports.array(ThinkingStrategySchema),
+  expectedImprovement: external_exports.number(),
+  assignmentConfidence: external_exports.number(),
+  claimAnalysis: ClaimAnalysisResultSchema,
+  researchCitations: external_exports.array(external_exports.string())
+});
+var db = new ResearchEvidenceDatabase();
+function scoreStrategies(characteristics, historicalAdjustments, overlapWeight, minimumThreshold) {
+  const allStrategies = db.getAllStrategies();
+  const scored = [];
+  for (const strategy of allStrategies) {
+    const tier = db.getTier(strategy);
+    if (tier === void 0)
+      continue;
+    const evidence = db.getEvidence(strategy);
+    if (evidence.length === 0)
+      continue;
+    let totalOverlap = 0;
+    let weightedImprovement = 0;
+    for (const ev of evidence) {
+      const evChars = new Set(ev.claimCharacteristics);
+      let overlap = 0;
+      for (const c of characteristics) {
+        if (evChars.has(c))
+          overlap++;
+      }
+      totalOverlap += overlap;
+      const overlapRatio = overlap / Math.max(1, ev.claimCharacteristics.length);
+      weightedImprovement += ev.improvementPercent * (overlapWeight * overlapRatio + (1 - overlapWeight));
+    }
+    const avgImprovement = weightedImprovement / evidence.length;
+    if (avgImprovement < minimumThreshold && tier !== 1)
+      continue;
+    const overlapFactor = 1 + totalOverlap / Math.max(1, characteristics.size);
+    let score = STRATEGY_TIERS[tier].selectionWeight * avgImprovement * overlapFactor;
+    const adjustment = historicalAdjustments.get(strategy) ?? 0;
+    const clampedAdjustment = Math.max(-0.3, Math.min(0.3, adjustment));
+    score = score * (1 + clampedAdjustment);
+    scored.push({ strategy, score, tier, improvement: avgImprovement, overlapCount: totalOverlap });
+  }
+  return scored.sort((a, b) => {
+    if (a.tier !== b.tier)
+      return a.tier - b.tier;
+    return b.score - a.score;
+  });
+}
+function applyComplexityConstraints(strategies, complexityTier) {
+  const maxAllowedTier = complexityTier === "complex" ? 2 : complexityTier === "moderate" ? 3 : 4;
+  return strategies.filter((s) => s.tier <= maxAllowedTier);
+}
+function selectRequired(strategies, analysis, maxRequired) {
+  const required2 = [];
+  if (analysis.complexityTier === "complex") {
+    const tier1 = strategies.find((s) => s.tier === 1);
+    if (tier1)
+      required2.push(tier1.strategy);
+  }
+  const best = strategies[0];
+  if (best && !required2.includes(best.strategy)) {
+    required2.push(best.strategy);
+  }
+  if (analysis.characteristics.includes("accuracy_critical") || analysis.characteristics.includes("high_precision")) {
+    if (!required2.includes("verified_reasoning")) {
+      required2.push("verified_reasoning");
+    }
+  }
+  if (analysis.characteristics.includes("codebase_integration")) {
+    if (!required2.includes("react") && !required2.includes("verified_reasoning")) {
+      required2.push("react");
+    }
+  }
+  return required2.slice(0, maxRequired);
+}
+function selectOptional(strategies, required2) {
+  const reqSet = new Set(required2);
+  return strategies.filter((s) => !reqSet.has(s.strategy) && s.tier <= 3).slice(0, 3).map((s) => s.strategy);
+}
+function selectForbidden(complexityTier) {
+  switch (complexityTier) {
+    case "complex":
+      return ["zero_shot", "chain_of_thought"];
+    case "moderate":
+      return ["zero_shot"];
+    case "simple":
+      return [];
+  }
+}
+function buildCitations(strategies) {
+  const citations = [];
+  for (const strategy of strategies) {
+    const evidence = db.getEvidence(strategy);
+    for (const ev of evidence.slice(0, 2)) {
+      citations.push(ev.citation);
+    }
+  }
+  return citations;
+}
+function calculateExpectedImprovement(strategies, characteristics) {
+  if (strategies.length === 0)
+    return 0;
+  const improvements = strategies.map((s) => db.calculateScore(s, characteristics));
+  return Math.max(...improvements);
+}
+function calculateAssignmentConfidence(strategies, characteristics, complexityTier) {
+  let confidence = 0.5;
+  if (complexityTier === "complex") {
+    const hasTier1 = strategies.some((s) => db.getTier(s) === 1);
+    if (hasTier1)
+      confidence += 0.3;
+  }
+  let totalOverlap = 0;
+  for (const strategy of strategies) {
+    for (const ev of db.getEvidence(strategy)) {
+      const evChars = new Set(ev.claimCharacteristics);
+      for (const c of characteristics) {
+        if (evChars.has(c))
+          totalOverlap++;
+      }
+    }
+  }
+  confidence += Math.min(0.2, totalOverlap * 0.02);
+  return Math.min(1, confidence);
+}
+function selectStrategy(options) {
+  const {
+    claim,
+    context,
+    licenseTier,
+    hasCodebase = false,
+    hasMockups = false,
+    evidenceRepository,
+    // source: chosen heuristically — overlap dominates over raw expectedImprovement
+    // because matched claim characteristics correlate more strongly with success
+    // than abstract improvement claims. Tune from execution history.
+    overlapWeight = 0.6,
+    // source: chosen heuristically — strategies whose marginal improvement falls
+    // below 5 percentage points are filtered as not worth the cost overhead.
+    // Calibrate against (cost, accuracy_delta) pairs in evidence repository.
+    minimumImprovementThreshold = 0.05,
+    maxRequiredStrategies = 3
+  } = options;
+  const analysis = analyzeClaim(claim, context);
+  const characteristics = new Set(analysis.characteristics);
+  if (hasCodebase) {
+    characteristics.add("codebase_integration");
+    characteristics.add("tool_use");
+  }
+  if (hasMockups) {
+    characteristics.add("visual_reasoning");
+    characteristics.add("multimodal");
+  }
+  const capabilities = TIER_CAPABILITIES[licenseTier];
+  if (licenseTier === "free") {
+    return {
+      required: ["chain_of_thought"],
+      optional: [],
+      forbidden: [],
+      expectedImprovement: 0,
+      // source: chosen heuristically — free tier uses chain_of_thought only
+      // (zero ablation), so confidence is below the neutral 0.5 prior to signal
+      // "this is a degraded assignment, not a calibrated recommendation."
+      assignmentConfidence: 0.3,
+      claimAnalysis: { ...analysis, characteristics: [...characteristics] },
+      researchCitations: []
+    };
+  }
+  let historicalAdjustments = /* @__PURE__ */ new Map();
+  if (evidenceRepository) {
+    historicalAdjustments = evidenceRepository.getHistoricalAdjustments();
+  }
+  const scored = scoreStrategies(characteristics, historicalAdjustments, overlapWeight, minimumImprovementThreshold);
+  const allowed = new Set(capabilities.allowedStrategies);
+  const allowedScored = scored.filter((s) => allowed.has(s.strategy));
+  const constrained = applyComplexityConstraints(allowedScored, analysis.complexityTier);
+  const enrichedAnalysis = {
+    ...analysis,
+    characteristics: [...characteristics]
+  };
+  const required2 = selectRequired(constrained, enrichedAnalysis, maxRequiredStrategies);
+  const optional2 = selectOptional(constrained, required2);
+  const forbidden = selectForbidden(analysis.complexityTier);
+  const allSelected = [...required2, ...optional2];
+  const researchCitations = buildCitations(allSelected);
+  const expectedImprovement = calculateExpectedImprovement(required2, characteristics);
+  const assignmentConfidence = calculateAssignmentConfidence(required2, characteristics, analysis.complexityTier);
+  return {
+    required: required2,
+    optional: optional2,
+    forbidden,
+    expectedImprovement,
+    assignmentConfidence,
+    claimAnalysis: enrichedAnalysis,
+    researchCitations
+  };
+}
+
+// packages/strategy/dist/effectiveness-tracker.js
+var ExecutionResultSchema = external_exports.object({
+  strategy: ThinkingStrategySchema,
+  assignment: StrategyAssignmentSchema,
+  actualConfidenceGain: external_exports.number(),
+  wasCompliant: external_exports.boolean(),
+  retryCount: external_exports.number().int().nonnegative(),
+  prdContext: PRDContextSchema,
+  sessionId: external_exports.string().optional()
+});
+var EffectivenessTracker = class {
+  repository;
+  constructor(repository) {
+    this.repository = repository;
+  }
+  recordExecution(result) {
+    const execution = {
+      strategy: result.strategy,
+      claimCharacteristics: [...result.assignment.claimAnalysis.characteristics],
+      complexityTier: result.assignment.claimAnalysis.complexityTier,
+      expectedImprovement: result.assignment.expectedImprovement,
+      actualConfidenceGain: result.actualConfidenceGain,
+      wasCompliant: result.wasCompliant,
+      retryCount: result.retryCount,
+      prdContext: result.prdContext
+    };
+    this.repository.recordStrategyExecution(execution, result.sessionId);
+  }
+  generateReport(minExecutions = 5) {
+    const summaries = this.repository.getStrategyPerformance(minExecutions);
+    const totalMeasurements = summaries.reduce((s, r) => s + r.executionCount, 0);
+    const averageConfidenceGain = totalMeasurements === 0 ? 0 : summaries.reduce((s, r) => s + r.avgActualGain * r.executionCount, 0) / totalMeasurements;
+    const overallComplianceRate = totalMeasurements === 0 ? 0 : summaries.reduce((s, r) => s + r.complianceRate * r.executionCount, 0) / totalMeasurements;
+    const underperforming = summaries.filter((s) => s.performanceDelta < -0.2 * Math.abs(s.avgExpectedImprovement)).map((s) => s.strategy);
+    const overperforming = summaries.filter((s) => s.performanceDelta > 0.2 * Math.abs(s.avgExpectedImprovement)).map((s) => s.strategy);
+    return {
+      totalMeasurements,
+      averageConfidenceGain,
+      overallComplianceRate,
+      underperformingStrategies: underperforming,
+      overperformingStrategies: overperforming
+    };
+  }
+};
+
+// packages/orchestration/dist/types/state.js
+var PipelineStepSchema = external_exports.enum([
+  "license_gate",
+  "context_detection",
+  "input_analysis",
+  "feasibility_gate",
+  "clarification",
+  "budget",
+  "section_generation",
+  "jira_generation",
+  "file_export",
+  "self_check",
+  "complete"
+]);
+var SectionStatusSchema = external_exports.object({
+  section_type: SectionTypeSchema,
+  status: external_exports.enum([
+    "pending",
+    "retrieving",
+    "generating",
+    "passed",
+    "failed"
+  ]),
+  attempt: external_exports.number().int().nonnegative(),
+  violation_count: external_exports.number().int().nonnegative(),
+  last_violations: external_exports.array(external_exports.string()).default([]),
+  /** Markdown content of the section — populated after generation passes validation */
+  content: external_exports.string().optional(),
+  /**
+   * Strategy assignment chosen by `@prd-gen/strategy.selectStrategy` at the
+   * pending → retrieving transition. Persisted on the section so retries
+   * use the SAME strategies (not re-selecting per attempt) and so
+   * `EffectivenessTracker.recordExecution` has the assignment to attribute
+   * the outcome to.
+   *
+   * source: Phase 4 strategy-wiring (2026-04). Optional because the
+   * selection is gated by the orchestration layer; legacy state snapshots
+   * predating the wiring may be absent.
+   */
+  strategy_assignment: StrategyAssignmentSchema.optional()
+});
+var ClarificationTurnSchema = external_exports.object({
+  round: external_exports.number().int().min(1),
+  question: external_exports.string(),
+  answer: external_exports.string().optional(),
+  asked_at: external_exports.string(),
+  answered_at: external_exports.string().optional()
+});
+var VerificationPlanSnapshotSchema = external_exports.object({
+  batch_id: external_exports.string(),
+  /** Claim IDs in dispatch order — index = invocation slot. */
+  claim_ids: external_exports.array(external_exports.string()),
+  /** Judge identities, parallel to claim_ids by index. */
+  judges: external_exports.array(AgentIdentitySchema)
+}).refine((s) => s.claim_ids.length === s.judges.length, {
+  message: "VerificationPlanSnapshot: claim_ids and judges must have the same length (positional invariant \u2014 see self-check.ts:parseVerdictsFromSnapshot).",
+  path: ["judges"]
+});
+var PipelineStateSchema = external_exports.object({
+  run_id: external_exports.string(),
+  current_step: PipelineStepSchema,
+  prd_context: PRDContextSchema.nullable(),
+  license_tier: LicenseTierSchema,
+  feature_description: external_exports.string(),
+  codebase_path: external_exports.string().nullable(),
+  /**
+   * Filesystem path returned by automatised-pipeline `index_codebase`
+   * (response field `graph_path`). Subsequent graph-query tools (query_graph,
+   * get_symbol, etc.) use this as their `graph_path` argument.
+   */
+  codebase_graph_path: external_exports.string().nullable(),
+  /** Output directory passed to `index_codebase` so retries are idempotent. */
+  codebase_output_dir: external_exports.string().nullable(),
+  codebase_indexed: external_exports.boolean(),
+  sections: external_exports.array(SectionStatusSchema).default([]),
+  clarifications: external_exports.array(ClarificationTurnSchema).default([]),
+  /**
+   * Set when the user types "proceed" or clarification reaches max rounds.
+   * Read by handleBudget to sanity-check that clarification finished cleanly
+   * before generation starts.
+   */
+  proceed_signal: external_exports.boolean().default(false),
+  started_at: external_exports.string(),
+  updated_at: external_exports.string(),
+  /** Genuine error messages only. NOT a progress log. */
+  errors: external_exports.array(external_exports.string()).default([]),
+  /**
+   * Parallel to `errors[]` (same length, same order). Tags each error as
+   * one of three kinds. pipeline-kpis.ts:structural_error_count reads
+   * `"structural"` count DIRECTLY rather than deriving it by subtraction.
+   *
+   *   "section_failure"   — section validator failed after MAX_ATTEMPTS.
+   *                         1-per-failed-section by convention. Section-
+   *                         level retries are not counted; only the final
+   *                         fail-out increments. KPI: section_fail_count.
+   *
+   *   "structural"        — handler bug, runner protocol violation,
+   *                         schema mismatch, uncaught exception. The KPI
+   *                         gate `structural_error_count_max=0` blocks
+   *                         any run with a structural defect.
+   *
+   *   "upstream_failure"  — recoverable failure in an external service
+   *                         the pipeline tolerates (jira-generation
+   *                         subagent fails → continue without JIRA;
+   *                         index_codebase tool fails → fail input_analysis
+   *                         but do not blame the handler). Counted
+   *                         separately so the structural gate does not
+   *                         fire spuriously on real-LLM runs where
+   *                         upstream services have realistic flake rates
+   *                         (cross-audit curie H1, Phase 3+4 follow-up,
+   *                         2026-04).
+   *
+   * source: curie cross-audit H-2 (Phase 3+4, 2026-04) for the introduction
+   * of the parallel array; curie H1 (Phase 3+4 follow-up, 2026-04) for the
+   * upstream_failure split.
+   */
+  error_kinds: external_exports.array(external_exports.enum(["section_failure", "structural", "upstream_failure"])).default([]),
+  /** Paths of files successfully written during file_export. Append-only. */
+  written_files: external_exports.array(external_exports.string()).default([]),
+  /**
+   * Verification plan dispatched in self-check Phase A. Set during Phase A;
+   * read in Phase B to attribute verdicts. Null until Phase A runs.
+   */
+  verification_plan: VerificationPlanSnapshotSchema.nullable().default(null),
+  /**
+   * Append-only queue of strategy execution results, populated when a
+   * section transitions to a terminal status (passed/failed). The
+   * composition root (mcp-server) drains this queue after each step and
+   * forwards entries to `EffectivenessTracker.recordExecution` so the
+   * closed feedback loop populates `EvidenceRepository`.
+   *
+   * Decouples orchestration (pure reducer) from infrastructure (SQLite
+   * persistence) per §2.2: the reducer emits data; the composition
+   * root is the only layer that performs I/O.
+   *
+   * source: Phase 4 strategy-wiring (2026-04).
+   */
+  strategy_executions: external_exports.array(ExecutionResultSchema).default([])
+}).refine((s) => s.errors.length === s.error_kinds.length, {
+  message: "PipelineState: errors[] and error_kinds[] must have the same length (lockstep invariant \u2014 use appendError() to append, never spread directly).",
+  path: ["error_kinds"]
+});
+function newPipelineState(input) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  return PipelineStateSchema.parse({
+    run_id: input.run_id,
+    current_step: "license_gate",
+    prd_context: null,
+    license_tier: input.license_tier,
+    feature_description: input.feature_description,
+    codebase_path: input.codebase_path ?? null,
+    codebase_graph_path: null,
+    codebase_output_dir: null,
+    codebase_indexed: false,
+    sections: [],
+    clarifications: [],
+    proceed_signal: false,
+    started_at: now,
+    updated_at: now,
+    errors: [],
+    written_files: [],
+    verification_plan: null,
+    strategy_executions: []
+  });
+}
+function touch(state) {
+  return { ...state, updated_at: (/* @__PURE__ */ new Date()).toISOString() };
+}
+function appendError(state, message, kind) {
+  return {
+    ...state,
+    errors: [...state.errors, message],
+    error_kinds: [...state.error_kinds, kind]
+  };
+}
+
+// packages/orchestration/dist/types/actions.js
+var AskUserActionSchema = external_exports.object({
+  kind: external_exports.literal("ask_user"),
+  /** Identifies the question so the host can map answer → state */
+  question_id: external_exports.string(),
+  header: external_exports.string().describe("Short prompt header for AskUserQuestion tool"),
+  description: external_exports.string().describe("Body explaining what we need from the user"),
+  options: external_exports.array(external_exports.object({
+    label: external_exports.string(),
+    description: external_exports.string().optional()
+  })).min(2).max(4).nullable().describe("Structured options for AskUserQuestion. Null = freeform answer."),
+  multi_select: external_exports.boolean().default(false)
+});
+var CallPipelineToolActionSchema = external_exports.object({
+  kind: external_exports.literal("call_pipeline_tool"),
+  tool_name: external_exports.string().describe("automatised-pipeline MCP tool name"),
+  arguments: external_exports.record(external_exports.string(), external_exports.unknown()),
+  /** Opaque routing token — host echoes it back unchanged on the corresponding tool_result. */
+  correlation_id: external_exports.string()
+});
+var CallCortexToolActionSchema = external_exports.object({
+  kind: external_exports.literal("call_cortex_tool"),
+  tool_name: external_exports.string().describe("Cortex MCP tool name"),
+  arguments: external_exports.record(external_exports.string(), external_exports.unknown()),
+  /** Opaque routing token — host echoes it back unchanged on the corresponding tool_result. */
+  correlation_id: external_exports.string()
+});
+var SpawnSubagentsActionSchema = external_exports.object({
+  kind: external_exports.literal("spawn_subagents"),
+  /** Multiple invocations to run IN PARALLEL — host MUST issue them in one message */
+  invocations: external_exports.array(external_exports.object({
+    invocation_id: external_exports.string(),
+    subagent_type: external_exports.string(),
+    description: external_exports.string(),
+    prompt: external_exports.string(),
+    isolation: external_exports.enum(["worktree", "none"]).default("none")
+  })),
+  /** Identifies the batch so the runner can route the batch result on submission. */
+  batch_id: external_exports.string(),
+  /**
+   * Observability label only — host dispatch logic MUST NOT branch on this
+   * field. It exists so logs and telemetry can attribute batches to a high-
+   * level intent (judging vs drafting vs reviewing).
+   */
+  purpose: external_exports.enum(["judge", "draft", "review"])
+});
+var WriteFileActionSchema = external_exports.object({
+  kind: external_exports.literal("write_file"),
+  path: external_exports.string(),
+  content: external_exports.string()
+});
+var EmitMessageActionSchema = external_exports.object({
+  kind: external_exports.literal("emit_message"),
+  message: external_exports.string(),
+  level: external_exports.enum(["info", "warn", "error"]).default("info")
+});
+var VerificationSummarySchema = external_exports.object({
+  claims_evaluated: external_exports.number().int().nonnegative(),
+  distribution: external_exports.record(VerdictSchema, external_exports.number().int().nonnegative()),
+  distribution_suspicious: external_exports.boolean()
+});
+var DoneActionSchema = external_exports.object({
+  kind: external_exports.literal("done"),
+  summary: external_exports.string(),
+  artifacts: external_exports.array(external_exports.string()).default([]),
+  /**
+   * Typed verification summary. Optional only because not every `done`
+   * emission has run the judge phase (zero-claim short-circuit, malformed
+   * input, etc.). When present, KPI extractors and tests MUST read this
+   * field — never regex-parse `summary`.
+   */
+  verification: VerificationSummarySchema.optional()
+});
+var FailedActionSchema = external_exports.object({
+  kind: external_exports.literal("failed"),
+  reason: external_exports.string(),
+  step: external_exports.string()
+});
+var HandlerActionSchema = external_exports.discriminatedUnion("kind", [
+  AskUserActionSchema,
+  CallPipelineToolActionSchema,
+  CallCortexToolActionSchema,
+  SpawnSubagentsActionSchema,
+  WriteFileActionSchema,
+  EmitMessageActionSchema,
+  DoneActionSchema,
+  FailedActionSchema
+]);
+var NextActionSchema = external_exports.discriminatedUnion("kind", [
+  AskUserActionSchema,
+  CallPipelineToolActionSchema,
+  CallCortexToolActionSchema,
+  SpawnSubagentsActionSchema,
+  WriteFileActionSchema,
+  DoneActionSchema,
+  FailedActionSchema
+]);
+var UserAnswerSchema = external_exports.object({
+  kind: external_exports.literal("user_answer"),
+  question_id: external_exports.string(),
+  selected: external_exports.array(external_exports.string()).default([]),
+  freeform: external_exports.string().optional()
+});
+var ToolResultSchema = external_exports.object({
+  kind: external_exports.literal("tool_result"),
+  correlation_id: external_exports.string(),
+  success: external_exports.boolean(),
+  data: external_exports.unknown(),
+  error: external_exports.string().optional()
+});
+var SubagentBatchResultSchema = external_exports.object({
+  kind: external_exports.literal("subagent_batch_result"),
+  batch_id: external_exports.string(),
+  responses: external_exports.array(external_exports.object({
+    invocation_id: external_exports.string(),
+    raw_text: external_exports.string().optional(),
+    error: external_exports.string().optional()
+  }))
+});
+var FileWrittenSchema = external_exports.object({
+  kind: external_exports.literal("file_written"),
+  path: external_exports.string(),
+  bytes: external_exports.number().int().nonnegative()
+});
+var ActionResultSchema = external_exports.discriminatedUnion("kind", [
+  UserAnswerSchema,
+  ToolResultSchema,
+  SubagentBatchResultSchema,
+  FileWrittenSchema
+]);
+
+// packages/orchestration/dist/section-plan.js
+var SECTIONS_BY_CONTEXT = {
+  proposal: [
+    "overview",
+    "goals",
+    "requirements",
+    "user_stories",
+    "acceptance_criteria",
+    "timeline",
+    "risks"
+  ],
+  feature: [
+    "overview",
+    "goals",
+    "requirements",
+    "user_stories",
+    "technical_specification",
+    "acceptance_criteria",
+    "data_model",
+    "api_specification",
+    "security_considerations",
+    "performance_requirements",
+    "testing"
+  ],
+  bug: [
+    "overview",
+    "requirements",
+    "technical_specification",
+    "acceptance_criteria",
+    "testing",
+    "deployment"
+  ],
+  incident: [
+    "overview",
+    "requirements",
+    "technical_specification",
+    "acceptance_criteria",
+    "security_considerations",
+    "testing",
+    "deployment",
+    "risks"
+  ],
+  poc: [
+    "overview",
+    "goals",
+    "requirements",
+    "technical_specification",
+    "acceptance_criteria"
+  ],
+  mvp: [
+    "overview",
+    "goals",
+    "requirements",
+    "user_stories",
+    "technical_specification",
+    "acceptance_criteria",
+    "testing",
+    "timeline"
+  ],
+  release: [
+    "overview",
+    "goals",
+    "requirements",
+    "technical_specification",
+    "acceptance_criteria",
+    "security_considerations",
+    "performance_requirements",
+    "testing",
+    "deployment",
+    "timeline"
+  ],
+  cicd: [
+    "overview",
+    "goals",
+    "requirements",
+    "technical_specification",
+    "acceptance_criteria",
+    "security_considerations",
+    "testing",
+    "deployment",
+    "timeline"
+  ]
+};
+var SECTION_RECALL_TEMPLATES = {
+  overview: "high-level architecture domain context for {feature}",
+  goals: "business goals success metrics KPIs for {feature}",
+  requirements: "public API surfaces exports interfaces contracts for {feature}",
+  user_stories: "user flows personas use cases for {feature}",
+  technical_specification: "architecture patterns module structure dependencies for {feature}",
+  acceptance_criteria: "test scenarios validation rules edge cases for {feature}",
+  data_model: "database schema tables relationships data types for {feature}",
+  api_specification: "REST GraphQL endpoints routes handlers middleware for {feature}",
+  security_considerations: "authentication authorization encryption validation secrets for {feature}",
+  performance_requirements: "latency throughput caching scalability targets for {feature}",
+  testing: "test patterns fixtures assertions coverage for {feature}",
+  deployment: "deployment configuration infrastructure CI/CD environments for {feature}",
+  risks: "error handling edge cases failure modes risks for {feature}",
+  timeline: "milestones phases release schedule for {feature}",
+  source_code: "implementation source code patterns for {feature}",
+  test_code: "test code patterns assertions for {feature}",
+  // jira_tickets is generated from the PRD itself, not from a Cortex query.
+  jira_tickets: ""
+};
+
+// packages/orchestration/dist/handlers/license-gate.js
+var TIER_BANNER = {
+  free: "\u{1F7E2} PRD Spec Generator \u2014 FREE TIER",
+  trial: "\u23F3 PRD Spec Generator \u2014 TRIAL TIER (full features)",
+  licensed: "\u2728 PRD Spec Generator \u2014 LICENSED TIER"
+};
+var handleLicenseGate = ({ state }) => {
+  const banner = TIER_BANNER[state.license_tier];
+  const caps = TIER_CAPABILITIES[state.license_tier];
+  const message = [
+    banner,
+    `Run ID: ${state.run_id}`,
+    `Allowed strategies: ${caps.allowedStrategies.length}`,
+    `Allowed PRD contexts: ${caps.allowedContextTypes.length}`,
+    "",
+    `Feature: ${state.feature_description}`,
+    state.codebase_path ? `Codebase: ${state.codebase_path}` : "Codebase: (none provided)"
+  ].join("\n");
+  return {
+    state: { ...state, current_step: "context_detection" },
+    action: {
+      kind: "emit_message",
+      message,
+      level: "info"
+    }
+  };
+};
+
+// packages/orchestration/dist/handlers/context-detection.js
+var TRIGGER_WORDS = {
+  proposal: ["proposal", "pitch", "stakeholder"],
+  feature: ["feature", "build", "implement", "add support"],
+  bug: ["bug", "fix", "broken", "regression", "defect"],
+  incident: ["incident", "outage", "production issue", "p0", "p1"],
+  poc: ["poc", "proof of concept", "spike", "feasibility"],
+  mvp: ["mvp", "minimum viable", "v1"],
+  release: ["release", "ship", "production launch"],
+  cicd: ["ci", "cd", "ci/cd", "pipeline", "deploy automation"]
+};
+function detectFromText(text) {
+  const lower = text.toLowerCase();
+  for (const [ctx, triggers] of Object.entries(TRIGGER_WORDS)) {
+    if (triggers.some((t) => lower.includes(t)))
+      return ctx;
+  }
+  return null;
+}
+var QUESTION_ID = "prd_context";
+var handleContextDetection = ({ state, result }) => {
+  if (state.prd_context) {
+    return {
+      state: { ...state, current_step: "input_analysis" },
+      action: {
+        kind: "emit_message",
+        message: `PRD context: ${PRD_CONTEXT_CONFIGS[state.prd_context].displayName}`
+      }
+    };
+  }
+  if (result?.kind === "user_answer" && result.question_id === QUESTION_ID) {
+    const choice = result.selected[0] ?? result.freeform ?? "";
+    const parsed = PRDContextSchema.safeParse(choice);
+    if (!parsed.success) {
+      return {
+        state,
+        action: {
+          kind: "failed",
+          reason: `Invalid PRD context choice: ${choice}`,
+          step: "context_detection"
+        }
+      };
+    }
+    return {
+      state: {
+        ...state,
+        prd_context: parsed.data,
+        current_step: "input_analysis"
+      },
+      action: {
+        kind: "emit_message",
+        message: `PRD context: ${PRD_CONTEXT_CONFIGS[parsed.data].displayName}`
+      }
+    };
+  }
+  const detected = detectFromText(state.feature_description);
+  const allowed = TIER_CAPABILITIES[state.license_tier].allowedContextTypes;
+  if (detected && allowed.includes(detected)) {
+    return {
+      state: {
+        ...state,
+        prd_context: detected,
+        current_step: "input_analysis"
+      },
+      action: {
+        kind: "emit_message",
+        message: `PRD context detected: ${PRD_CONTEXT_CONFIGS[detected].displayName} (from trigger words)`
+      }
+    };
+  }
+  const options = allowed.map((ctx) => ({
+    label: ctx,
+    description: PRD_CONTEXT_CONFIGS[ctx].description
+  }));
+  return {
+    state,
+    action: {
+      kind: "ask_user",
+      question_id: QUESTION_ID,
+      header: "Which kind of PRD?",
+      description: "I couldn't infer the PRD type from your request. Pick the closest match \u2014 this configures clarification depth and section count.",
+      // source: protocol constraint. AskUserActionSchema.options enforces
+      // .max(4) at the schema level (types/actions.ts). Slicing here ensures
+      // a tier with >4 allowed contexts doesn't fail Zod parsing on the
+      // emitted action. Cross-audit code-reviewer H6 (Phase 3+4, 2026-04).
+      options: options.slice(0, 4),
+      multi_select: false
+    }
+  };
+};
+
+// packages/orchestration/dist/handlers/input-analysis.js
+import { join as join2 } from "node:path";
+var CORRELATION_ID = "input_analysis_index";
+function deriveOutputDir(codebasePath, runId) {
+  return join2(codebasePath, ".prd-gen", "graphs", runId);
+}
+var handleInputAnalysis = ({ state, result }) => {
+  if (!state.codebase_path) {
+    return {
+      state: { ...state, current_step: "feasibility_gate" },
+      action: {
+        kind: "emit_message",
+        message: "No codebase provided. Skipping codebase analysis."
+      }
+    };
+  }
+  if (state.codebase_indexed && state.codebase_graph_path) {
+    return {
+      state: { ...state, current_step: "feasibility_gate" },
+      action: {
+        kind: "emit_message",
+        message: `Codebase indexed (graph: ${state.codebase_graph_path}).`
+      }
+    };
+  }
+  if (result?.kind === "tool_result" && result.correlation_id === CORRELATION_ID) {
+    if (!result.success) {
+      return {
+        state: appendError(
+          state,
+          `index_codebase failed: ${result.error ?? "unknown"}`,
+          // External tool failure — the pipeline gives up but it's not a
+          // handler bug. Cross-audit curie H1 (Phase 3+4 follow-up).
+          "upstream_failure"
+        ),
+        action: {
+          kind: "failed",
+          reason: `index_codebase failed: ${result.error ?? "unknown"}`,
+          step: "input_analysis"
+        }
+      };
+    }
+    const data = result.data ?? {};
+    const graphPath = data.graph_path ?? null;
+    if (!graphPath) {
+      return {
+        state: appendError(
+          state,
+          `index_codebase succeeded but returned no graph_path`,
+          // The upstream tool advertised success but violated its own
+          // contract. From the orchestration layer's perspective this
+          // is the SAME class as the explicit-failure case above —
+          // a tool we can't act on. Tag it as upstream_failure so the
+          // structural gate doesn't conflate this with a handler bug.
+          "upstream_failure"
+        ),
+        action: {
+          kind: "failed",
+          reason: "index_codebase returned no graph_path",
+          step: "input_analysis"
+        }
+      };
+    }
+    return {
+      state: {
+        ...state,
+        codebase_indexed: true,
+        codebase_graph_path: graphPath,
+        current_step: "feasibility_gate"
+      },
+      action: {
+        kind: "emit_message",
+        message: `Codebase indexed (graph: ${graphPath}).`
+      }
+    };
+  }
+  const outputDir = state.codebase_output_dir ?? deriveOutputDir(state.codebase_path, state.run_id);
+  return {
+    state: { ...state, codebase_output_dir: outputDir },
+    action: {
+      kind: "call_pipeline_tool",
+      tool_name: "index_codebase",
+      arguments: {
+        path: state.codebase_path,
+        output_dir: outputDir,
+        language: "auto"
+      },
+      correlation_id: CORRELATION_ID
+    }
+  };
+};
+
+// packages/orchestration/dist/handlers/feasibility-gate.js
+var QUESTION_ID2 = "feasibility_focus";
+var EPIC_SIGNALS = [
+  / and /i,
+  / & /,
+  /,\s*\w+\s*,/,
+  // multiple comma-separated items
+  /\bplus\b/i,
+  /\balso\b/i
+];
+function looksEpic(text) {
+  const matches = EPIC_SIGNALS.filter((re) => re.test(text)).length;
+  return matches >= 2;
+}
+var handleFeasibilityGate = ({ state, result }) => {
+  if (result?.kind === "user_answer" && result.question_id === QUESTION_ID2) {
+    const focus = result.freeform ?? result.selected[0] ?? state.feature_description;
+    return {
+      state: {
+        ...state,
+        feature_description: focus,
+        current_step: "clarification"
+      },
+      action: {
+        kind: "emit_message",
+        message: `Focused scope: ${focus}`
+      }
+    };
+  }
+  if (looksEpic(state.feature_description)) {
+    return {
+      state,
+      action: {
+        kind: "ask_user",
+        question_id: QUESTION_ID2,
+        header: "This looks like an epic. Pick one focus.",
+        description: "Generating one PRD for multiple features at once produces shallow output. Which single piece should this PRD cover? Type a focused description.",
+        options: null,
+        multi_select: false
+      }
+    };
+  }
+  return {
+    state: { ...state, current_step: "clarification" },
+    action: {
+      kind: "emit_message",
+      message: "Scope acceptable. Proceeding to clarification."
+    }
+  };
+};
+
+// packages/meta-prompting/dist/section-prompts.js
+var COMMON_RULES = [
+  "1. Output ONLY the section body. No surrounding prose, no JSON, no fences.",
+  "2. Start with `## <Section Display Name>` exactly once.",
+  "3. Every Functional Requirement (FR-XXX) MUST cite a Source: user-request, clarification round, or codebase finding.",
+  "4. Acceptance Criteria use `AC-XXX` format starting from AC-001.",
+  "5. No `AnyCodable`, `AnyJSON` \u2014 heterogeneous JSON is an explicit type.",
+  "6. NFR claims (latency, throughput, fps, storage) MUST specify a measurement method.",
+  "7. Story-point totals must add up. No self-referencing dependencies.",
+  "8. Architectural patterns: ports/adapters in code examples, not frameworks in domain."
+];
+var PER_SECTION_GUIDANCE = {
+  overview: "1-2 paragraphs. State problem, audience, success measure. No requirements here.",
+  goals: "Bulleted list of measurable goals. Each goal: outcome verb + target + measurement.",
+  requirements: "Markdown table: | ID | Requirement | Priority | Depends On | Source |. SP column FORBIDDEN here.",
+  user_stories: "Each story: As a <role>, I want <action>, so that <outcome>. Include AC-XXX list per story.",
+  technical_specification: "Show ports (interfaces in domain) + adapters (impls in infrastructure) + composition root. No framework imports in domain.",
+  acceptance_criteria: "Numbered AC-001..AC-NNN. Each AC: Given/When/Then or one-line behaviour. Each AC must trace to one or more FR-XXX.",
+  data_model: "DDL for tables/types/enums. Every CREATE TYPE / CREATE TABLE must be referenced. NO `NOW()` in partial-index WHERE.",
+  api_specification: "Endpoint table: | Method | Path | Auth | Request | Response | Errors |. Match any HTTP-style ports from technical_specification.",
+  security_considerations: "Auth (mechanism), authz (matrix), data-at-rest, data-in-transit, secrets handling, audit logs. Cite STRIDE category per claim.",
+  performance_requirements: "p50/p95/p99 + measurement method (e.g., k6 script, prod APM). Verdict: SPEC-COMPLETE if method is named, NEEDS-RUNTIME otherwise.",
+  testing: "Coverage table: | Test name | Tests AC-XXX or FR-XXX | Type (unit/integration/e2e) | Status |. Real implementations only \u2014 no `// TODO` test bodies.",
+  deployment: "Phases (canary, full), rollback procedure, feature flags, monitoring/alerting hooks.",
+  risks: "Risk register: | Risk | Likelihood | Impact | Mitigation | Owner |. One row per risk.",
+  timeline: "Phases with sprint counts. Each phase total = sum of stories in that phase. Grand total = sum of phases."
+};
+function renderStrategiesBlock(assignment) {
+  if (!assignment)
+    return "";
+  const lines = [
+    `<strategies>`,
+    `Apply the following research-evidence-backed reasoning strategies:`,
+    ""
+  ];
+  if (assignment.required.length > 0) {
+    lines.push(`REQUIRED (apply all of these):`);
+    for (const s of assignment.required)
+      lines.push(`  - ${s}`);
+  }
+  if (assignment.optional.length > 0) {
+    lines.push(`OPTIONAL (apply if natural for this section):`);
+    for (const s of assignment.optional)
+      lines.push(`  - ${s}`);
+  }
+  if (assignment.forbidden.length > 0) {
+    lines.push(`FORBIDDEN (do NOT apply \u2014 these have been shown to harm this kind of claim):`);
+    for (const s of assignment.forbidden)
+      lines.push(`  - ${s}`);
+  }
+  if (assignment.researchCitations.length > 0) {
+    lines.push("");
+    lines.push(`Citations backing this assignment:`);
+    for (const c of assignment.researchCitations)
+      lines.push(`  - ${c}`);
+  }
+  lines.push(`Research-evidence baseline (population aggregate, NOT a per-section prediction): ${(assignment.expectedImprovement * 100).toFixed(1)}%`);
+  lines.push(`Assignment confidence: ${(assignment.assignmentConfidence * 100).toFixed(1)}%`);
+  lines.push(`</strategies>`);
+  return lines.join("\n");
+}
+function buildSectionPrompt(input) {
+  const display = SECTION_DISPLAY_NAMES[input.section_type];
+  const contextConfig = PRD_CONTEXT_CONFIGS[input.prd_context];
+  const sectionGuidance = PER_SECTION_GUIDANCE[input.section_type] ?? "Follow the section's standard structure.";
+  const clarificationLines = input.clarification_qa.filter((c) => c.answer).map((c) => `Q: ${c.question}
+A: ${c.answer}`).join("\n\n");
+  const violationsBlock = input.prior_violations.length ? [
+    `<previous_attempt_failed validation>`,
+    `Attempt ${input.attempt - 1} produced violations:`,
+    input.prior_violations.map((v) => `- ${v}`).join("\n"),
+    `Fix every violation in this attempt.`,
+    `</previous_attempt_failed>`
+  ].join("\n") : "";
+  const strategiesBlock = renderStrategiesBlock(input.strategy_assignment);
+  return [
+    `<role>You draft section "${display}" of a ${contextConfig.displayName} PRD.</role>`,
+    "",
+    `<feature>${input.feature_description}</feature>`,
+    "",
+    `<context>`,
+    `PRD type: ${contextConfig.displayName}`,
+    `Focus: ${contextConfig.description}`,
+    `Attempt: ${input.attempt}`,
+    `</context>`,
+    "",
+    input.recall_summary ? `<codebase_context>
+${input.recall_summary}
+</codebase_context>
+` : "",
+    clarificationLines ? `<clarifications>
+${clarificationLines}
+</clarifications>
+` : "",
+    violationsBlock,
+    violationsBlock ? "" : "",
+    strategiesBlock,
+    strategiesBlock ? "" : "",
+    `<guidance>`,
+    sectionGuidance,
+    `</guidance>`,
+    "",
+    `<hard_rules>`,
+    COMMON_RULES.join("\n"),
+    `</hard_rules>`,
+    "",
+    `Produce the "${display}" section now. Markdown only.`
+  ].filter((line) => line !== "").join("\n");
+}
+
+// packages/meta-prompting/dist/clarification-prompts.js
+function buildClarificationPrompt(input) {
+  const ctx = PRD_CONTEXT_CONFIGS[input.prd_context];
+  const priorBlock = input.prior_qa.length ? input.prior_qa.map((qa) => `Round ${input.round - input.prior_qa.length + 1}:
+Q: ${qa.question}
+A: ${qa.answer ?? "(no answer)"}`).join("\n\n") : "(no prior questions)";
+  return [
+    `<role>You are eliciting requirements for a ${ctx.displayName} PRD.</role>`,
+    "",
+    `<feature>${input.feature_description}</feature>`,
+    "",
+    `<round>${input.round} of ${ctx.clarificationRange[1]}</round>`,
+    "",
+    `<prior_questions_and_answers>`,
+    priorBlock,
+    `</prior_questions_and_answers>`,
+    "",
+    input.recall_summary ? `<codebase_context>
+${input.recall_summary.slice(0, 2e3)}
+</codebase_context>` : "",
+    "",
+    `<task>`,
+    `Generate ONE clarification question that:`,
+    `- Addresses the highest-uncertainty area not yet covered`,
+    `- Cannot be answered by reading prior answers or codebase context above`,
+    `- Has a concrete answer (not "tell me more about X")`,
+    `</task>`,
+    "",
+    `<output_format>`,
+    `Return EXACTLY ONE JSON object, nothing else:`,
+    `{`,
+    `  "question": "<the question to ask the user>",`,
+    `  "options": ["<option 1>", "<option 2>", "<option 3>"] | null,`,
+    `  "rationale": "<why this question now, in one sentence>"`,
+    `}`,
+    `If options is non-null, the user picks from a fixed set. Otherwise freeform.`,
+    `</output_format>`
+  ].filter((l) => l !== "").join("\n");
+}
+
+// packages/meta-prompting/dist/jira-prompts.js
+var RULES = [
+  "1. Output ONLY a markdown document. No JSON, no preamble, no fences.",
+  "2. AC IDs MUST match the AC-XXX IDs in the source. NEVER create new AC numbering.",
+  "3. Each ticket: ID (TICKET-NNN), Title, Description, Acceptance Criteria (referencing AC-XXX), Story Points (Fibonacci), Depends On, Source.",
+  "4. SP totals: Epic SP = sum of story SPs. Phase SP = sum of stories in phase. Grand total = sum of phases.",
+  "5. NEVER list a ticket as a self-dependency.",
+  "6. Distribute SP unevenly \u2014 real complexity is uneven.",
+  "7. Group tickets into Phases (Phase 1, Phase 2, ...) reflecting delivery order.",
+  "8. End with a Summary table: | Phase | Story Count | Total SP |."
+];
+function buildJiraPrompt(input) {
+  const sourceBlock = input.source_sections.filter((s) => s.content).map((s) => `## Source: ${s.section_type}
+
+${s.content}`).join("\n\n");
+  return [
+    `<role>You generate JIRA tickets from a PRD.</role>`,
+    "",
+    `<feature>${input.feature_description}</feature>`,
+    "",
+    `<source_prd>`,
+    sourceBlock,
+    `</source_prd>`,
+    "",
+    `<rules>`,
+    RULES.join("\n"),
+    `</rules>`,
+    "",
+    `Produce the JIRA ticket document now.`
+  ].join("\n");
+}
+
+// packages/orchestration/dist/handlers/protocol-ids.js
+var QUESTION_ID_CONTINUE = "clarification_continue";
+var CLARIFICATION_COMPOSE_INV_PREFIX = "clarification_compose_inv_";
+var SECTION_GENERATE_INV_PREFIX = "section_generate_";
+var SELF_CHECK_JUDGE_INV_PREFIX = "self_check_judge_";
+var JIRA_GENERATION_INV_ID = "jira_generation_engineer";
+function clarificationComposeInvocationId(round) {
+  return `${CLARIFICATION_COMPOSE_INV_PREFIX}${round}`;
+}
+
+// packages/orchestration/dist/handlers/clarification.js
+var QUESTION_ID_ANSWER = "clarification_answer";
+var COMPOSE_BATCH_PREFIX = "clarification_compose_";
+function composeBatchId(round) {
+  return `${COMPOSE_BATCH_PREFIX}${round}`;
+}
+var composeInvocationId = clarificationComposeInvocationId;
+function isComposeResult(result, round) {
+  return result?.kind === "subagent_batch_result" && result.batch_id === composeBatchId(round);
+}
+function tryParseGeneratedQuestion(rawText) {
+  try {
+    const obj = extractJsonObject(rawText);
+    if (typeof obj.question !== "string" || !obj.question.trim())
+      return null;
+    const options = Array.isArray(obj.options) && obj.options.every((o) => typeof o === "string") ? obj.options : null;
+    const rationale = typeof obj.rationale === "string" ? obj.rationale : "";
+    return { question: obj.question.trim(), options, rationale };
+  } catch {
+    return null;
+  }
+}
+function composeAction(state, round) {
+  const prompt = buildClarificationPrompt({
+    feature_description: state.feature_description,
+    prd_context: state.prd_context,
+    round,
+    prior_qa: state.clarifications.map((c) => ({
+      question: c.question,
+      answer: c.answer
+    })),
+    recall_summary: ""
+  });
+  return {
+    kind: "spawn_subagents",
+    purpose: "draft",
+    batch_id: composeBatchId(round),
+    invocations: [
+      {
+        invocation_id: composeInvocationId(round),
+        subagent_type: "zetetic-team-subagents:engineer",
+        description: `Compose clarification question (round ${round})`,
+        prompt,
+        isolation: "none"
+      }
+    ]
+  };
+}
+function askComposedQuestion(turn) {
+  const optionsForUser = turn.options && turn.options.length >= 2 && turn.options.length <= 4 ? turn.options.map((o) => ({ label: o })) : null;
+  return {
+    kind: "ask_user",
+    question_id: QUESTION_ID_ANSWER,
+    header: `Round ${turn.round}: ${turn.question}`,
+    description: turn.rationale || "Answer freeform if no options listed.",
+    options: optionsForUser,
+    multi_select: false
+  };
+}
+function computeBounds(state) {
+  const config2 = PRD_CONTEXT_CONFIGS[state.prd_context];
+  const tierCaps = TIER_CAPABILITIES[state.license_tier];
+  const max = Math.min(config2.clarificationRange[1], tierCaps.maxClarificationRounds);
+  const min = Math.min(config2.clarificationRange[0], max);
+  return { min, max };
+}
+function handleProceedOrContinue(state, result) {
+  const choice = (result.freeform ?? result.selected[0] ?? "").toLowerCase();
+  if (choice.includes("proceed") || choice === "yes") {
+    return {
+      state: { ...state, proceed_signal: true, current_step: "budget" },
+      action: {
+        kind: "emit_message",
+        message: `Clarification complete (${state.clarifications.length} rounds).`
+      }
+    };
+  }
+  return {
+    state,
+    action: composeAction(state, state.clarifications.length + 1)
+  };
+}
+function recordAnswerAndDispatch(state, result, bounds) {
+  const lastTurn = state.clarifications[state.clarifications.length - 1];
+  if (!lastTurn || lastTurn.answer !== void 0)
+    return null;
+  const updatedTurn = {
+    ...lastTurn,
+    answer: result.freeform ?? result.selected.join(", "),
+    answered_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const clarifications = [...state.clarifications.slice(0, -1), updatedTurn];
+  const completed = clarifications.length;
+  if (completed >= bounds.max) {
+    return {
+      state: {
+        ...state,
+        clarifications,
+        proceed_signal: true,
+        current_step: "budget"
+      },
+      action: {
+        kind: "emit_message",
+        message: `Reached max clarification rounds (${bounds.max}). Proceeding.`
+      }
+    };
+  }
+  if (completed < bounds.min) {
+    return {
+      state: { ...state, clarifications },
+      action: composeAction({ ...state, clarifications }, completed + 1)
+    };
+  }
+  return {
+    state: { ...state, clarifications },
+    action: {
+      kind: "ask_user",
+      question_id: QUESTION_ID_CONTINUE,
+      header: `Asked ${completed} questions. Proceed?`,
+      description: `Min for ${state.prd_context}: ${bounds.min}. Max: ${bounds.max}. 'proceed' to generate the PRD, 'continue' for more questions.`,
+      options: [
+        { label: "proceed", description: "Generate the PRD now" },
+        { label: "continue", description: "Ask another question" }
+      ],
+      multi_select: false
+    }
+  };
+}
+function handleComposedQuestion(state, result, expectedRound) {
+  const response = result.responses.find((r) => r.invocation_id === composeInvocationId(expectedRound));
+  const generated = response?.raw_text ? tryParseGeneratedQuestion(response.raw_text) : null;
+  const turn = generated ? {
+    round: expectedRound,
+    question: generated.question,
+    options: generated.options,
+    rationale: generated.rationale,
+    asked_at: (/* @__PURE__ */ new Date()).toISOString()
+  } : {
+    round: expectedRound,
+    question: response?.error ?? `What is the most important detail about "${state.feature_description}" that should drive this PRD?`,
+    options: null,
+    rationale: generated ? "" : "Subagent did not return a parseable question; using fallback.",
+    asked_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  return appendTurnAndAsk(state, turn);
+}
+var handleClarification = ({ state, result }) => {
+  if (!state.prd_context) {
+    return {
+      state,
+      action: {
+        kind: "failed",
+        reason: "Clarification reached without PRD context",
+        step: "clarification"
+      }
+    };
+  }
+  const bounds = computeBounds(state);
+  const expectedRound = state.clarifications.length + 1;
+  if (result?.kind === "user_answer" && result.question_id === QUESTION_ID_CONTINUE) {
+    return handleProceedOrContinue(state, result);
+  }
+  if (result?.kind === "user_answer" && result.question_id === QUESTION_ID_ANSWER) {
+    const out = recordAnswerAndDispatch(state, result, bounds);
+    if (out)
+      return out;
+  }
+  if (isComposeResult(result, expectedRound)) {
+    return handleComposedQuestion(state, result, expectedRound);
+  }
+  return { state, action: composeAction(state, expectedRound) };
+};
+function appendTurnAndAsk(state, turn) {
+  const clarifications = [
+    ...state.clarifications,
+    {
+      round: turn.round,
+      question: turn.question,
+      asked_at: turn.asked_at
+    }
+  ];
+  return {
+    state: { ...state, clarifications },
+    action: askComposedQuestion(turn)
+  };
+}
+
+// packages/orchestration/dist/handlers/budget.js
+var handleBudget = ({ state }) => {
+  if (!state.proceed_signal) {
+    return {
+      state,
+      action: {
+        kind: "failed",
+        reason: "budget step reached without proceed_signal \u2014 clarification did not exit cleanly",
+        step: "budget"
+      }
+    };
+  }
+  return {
+    state: { ...state, current_step: "section_generation" },
+    action: {
+      kind: "emit_message",
+      message: "Budget allocated. Starting section generation."
+    }
+  };
+};
+
+// packages/orchestration/dist/handlers/section-generation.js
+var MAX_ATTEMPTS = 3;
+var RETRIEVE_PREFIX = "section_retrieve_";
+function correlationFor(prefix, sectionType) {
+  return `${prefix}${sectionType}`;
+}
+function ensureSectionsInitialized(state) {
+  if (state.sections.length > 0 || !state.prd_context)
+    return state;
+  const planned = SECTIONS_BY_CONTEXT[state.prd_context];
+  const cap = TIER_CAPABILITIES[state.license_tier].maxSections;
+  const allowed = planned.slice(0, cap);
+  const sections = allowed.map((section_type) => ({
+    section_type,
+    status: "pending",
+    attempt: 0,
+    violation_count: 0,
+    last_violations: []
+  }));
+  return { ...state, sections };
+}
+function findActiveSection(state) {
+  return state.sections.find((s) => s.status !== "passed" && s.status !== "failed");
+}
+function replaceSection(state, next) {
+  return {
+    ...state,
+    sections: state.sections.map((s) => s.section_type === next.section_type ? next : s)
+  };
+}
+function recallAction(feature, sectionType) {
+  const template = SECTION_RECALL_TEMPLATES[sectionType];
+  const query = template.replace("{feature}", feature);
+  return {
+    kind: "call_cortex_tool",
+    tool_name: "recall",
+    /**
+     * source: provisional heuristic. 8 results × ~500 tokens/memory ≈ 4K
+     * tokens of retrieval context per section, which fits comfortably
+     * inside the per-section retrieval budget computed by
+     * mcp-server/context-budget.ts (~2-5K depending on section weight).
+     * The proper fix is to read `cortexMaxResults` from the budget
+     * allocation in PipelineState — tracked under HIGH-3 follow-through;
+     * Phase 4.5 wires the budget into the state. Cross-audit code-reviewer
+     * H6 (Phase 3+4, 2026-04).
+     */
+    arguments: { query, max_results: 8 },
+    correlation_id: correlationFor(RETRIEVE_PREFIX, sectionType)
+  };
+}
+function draftAction(state, section, recall_summary, prior_violations) {
+  const display = SECTION_DISPLAY_NAMES[section.section_type];
+  if (!state.prd_context) {
+    throw new Error(`section-generation reached without prd_context`);
+  }
+  const prompt = buildSectionPrompt({
+    section_type: section.section_type,
+    feature_description: state.feature_description,
+    prd_context: state.prd_context,
+    recall_summary,
+    clarification_qa: state.clarifications.filter((c) => Boolean(c.answer)).map((c) => ({ question: c.question, answer: c.answer })),
+    prior_violations: [...prior_violations],
+    attempt: section.attempt,
+    // Phase 4 strategy-wiring (2026-04): pass the persisted assignment
+    // so every retry uses the SAME strategies the selector chose at the
+    // pending → retrieving transition.
+    strategy_assignment: section.strategy_assignment
+  });
+  return {
+    kind: "spawn_subagents",
+    purpose: "draft",
+    batch_id: correlationFor(SECTION_GENERATE_INV_PREFIX, section.section_type),
+    invocations: [
+      {
+        invocation_id: correlationFor(SECTION_GENERATE_INV_PREFIX, section.section_type),
+        subagent_type: "zetetic-team-subagents:engineer",
+        description: `Draft section: ${display}`,
+        prompt,
+        isolation: "none"
+      }
+    ]
+  };
+}
+function failNoPrdContext(state) {
+  return {
+    state: appendError(state, "[section_generation] prd_context is null", "structural"),
+    action: {
+      kind: "failed",
+      reason: "section_generation reached without prd_context",
+      step: "section_generation"
+    }
+  };
+}
+function advanceToJira(init) {
+  return {
+    state: { ...init, current_step: "jira_generation" },
+    action: {
+      kind: "emit_message",
+      message: "All sections processed. Generating JIRA tickets."
+    }
+  };
+}
+function buildExecutionResults(active, prdContext, licenseTier, passed) {
+  if (active.status !== "passed" && active.status !== "failed")
+    return [];
+  const assignment = active.strategy_assignment;
+  if (!assignment)
+    return [];
+  if (licenseTier === "free")
+    return [];
+  const strategies = assignment.required.length > 0 ? assignment.required : assignment.optional[0] ? [assignment.optional[0]] : [];
+  if (strategies.length === 0)
+    return [];
+  const attempts = Math.max(1, active.attempt);
+  const actualConfidenceGain = passed ? assignment.expectedImprovement : 0;
+  const retryCount = Math.max(0, attempts - 1);
+  return strategies.map((strategy) => ({
+    strategy,
+    assignment,
+    actualConfidenceGain,
+    wasCompliant: passed,
+    retryCount,
+    prdContext
+  }));
+}
+function chooseStrategyForSection(state, section_type) {
+  const display = SECTION_DISPLAY_NAMES[section_type];
+  return selectStrategy({
+    claim: `${display}: ${state.feature_description}`,
+    context: section_type,
+    licenseTier: state.license_tier,
+    hasCodebase: state.codebase_indexed
+  });
+}
+function startRetrieving(init, active) {
+  const assignment = active.strategy_assignment ?? chooseStrategyForSection(init, active.section_type);
+  const next = {
+    ...active,
+    status: "retrieving",
+    strategy_assignment: assignment
+  };
+  return {
+    state: replaceSection(init, next),
+    action: recallAction(init.feature_description, active.section_type)
+  };
+}
+function advanceFromRecall(init, active, data) {
+  const recallSummary = summarizeRecall(data);
+  const next = {
+    ...active,
+    status: "generating",
+    attempt: active.attempt + 1
+  };
+  const updated = replaceSection(init, next);
+  return {
+    state: updated,
+    action: draftAction(updated, next, recallSummary, active.last_violations)
+  };
+}
+function processDraft(init, active, result) {
+  const draft = collectDraftText(result, active.section_type);
+  if (!draft) {
+    return failSection(init, active, "Subagent returned empty draft");
+  }
+  return validateAndAdvance(init, active, draft);
+}
+function reissueStalled(init, active) {
+  if (active.status === "retrieving") {
+    return {
+      state: init,
+      action: recallAction(init.feature_description, active.section_type)
+    };
+  }
+  return {
+    state: init,
+    action: draftAction(init, active, "", active.last_violations)
+  };
+}
+var handleSectionGeneration = ({ state, result }) => {
+  if (!state.prd_context) {
+    return failNoPrdContext(state);
+  }
+  const init = ensureSectionsInitialized(state);
+  const active = findActiveSection(init);
+  if (!active) {
+    return advanceToJira(init);
+  }
+  if (active.status === "pending") {
+    return startRetrieving(init, active);
+  }
+  if (active.status === "retrieving" && result?.kind === "tool_result" && result.correlation_id === correlationFor(RETRIEVE_PREFIX, active.section_type)) {
+    return advanceFromRecall(init, active, result.data);
+  }
+  if (active.status === "generating" && result?.kind === "subagent_batch_result" && result.batch_id === correlationFor(SECTION_GENERATE_INV_PREFIX, active.section_type)) {
+    return processDraft(init, active, result);
+  }
+  return reissueStalled(init, active);
+};
+var RECALL_MAX_RESULTS_INCLUDED = 8;
+var RECALL_RESULT_TRUNCATE_CHARS = 800;
+var RECALL_TRUNCATION_MARKER = "...";
+function summarizeRecall(data) {
+  if (!data || typeof data !== "object")
+    return "";
+  const results = data.results;
+  if (!Array.isArray(results))
+    return "";
+  return results.slice(0, RECALL_MAX_RESULTS_INCLUDED).map((r) => r.content).filter((c) => typeof c === "string" && c.length > 0).map((c) => c.length > RECALL_RESULT_TRUNCATE_CHARS ? c.slice(0, RECALL_RESULT_TRUNCATE_CHARS) + RECALL_TRUNCATION_MARKER : c).join("\n---\n");
+}
+function collectDraftText(result, sectionType) {
+  const expectedId = correlationFor(SECTION_GENERATE_INV_PREFIX, sectionType);
+  const response = result.responses.find((r) => r.invocation_id === expectedId);
+  if (!response)
+    return null;
+  if (response.error)
+    return null;
+  return response.raw_text?.trim() ?? null;
+}
+function validateAndAdvance(state, active, draft) {
+  const report = validateSection(draft, active.section_type);
+  const violations = report.violations.map((v) => `[${v.rule}] ${v.message}`);
+  if (violations.length === 0) {
+    const next2 = {
+      ...active,
+      status: "passed",
+      content: draft,
+      violation_count: 0,
+      last_violations: []
+    };
+    let stateWithSection = replaceSection(state, next2);
+    if (state.prd_context) {
+      const execs = buildExecutionResults(next2, state.prd_context, state.license_tier, true);
+      if (execs.length > 0) {
+        stateWithSection = {
+          ...stateWithSection,
+          strategy_executions: [...stateWithSection.strategy_executions, ...execs]
+        };
+      }
+    }
+    return {
+      state: stateWithSection,
+      action: {
+        kind: "emit_message",
+        message: `\u2713 ${SECTION_DISPLAY_NAMES[active.section_type]} passed validation (attempt ${active.attempt}).`
+      }
+    };
+  }
+  if (active.attempt >= MAX_ATTEMPTS) {
+    return failSection(state, active, `Failed validation after ${MAX_ATTEMPTS} attempts. Violations: ${violations.join("; ")}`, draft, violations);
+  }
+  const next = {
+    ...active,
+    status: "generating",
+    content: draft,
+    attempt: active.attempt + 1,
+    violation_count: violations.length,
+    last_violations: [...violations]
+  };
+  const updatedState = replaceSection(state, next);
+  return {
+    state: updatedState,
+    action: draftAction(updatedState, next, "", violations)
+  };
+}
+function failSection(state, active, reason, draft, violations = []) {
+  const next = {
+    ...active,
+    status: "failed",
+    content: draft ?? active.content,
+    violation_count: violations.length || active.violation_count,
+    last_violations: [...violations]
+  };
+  const stateWithSection = replaceSection(state, next);
+  let stateWithError = appendError(stateWithSection, `[section_generation:${active.section_type}] ${reason}`, "section_failure");
+  if (state.prd_context) {
+    const execs = buildExecutionResults(next, state.prd_context, state.license_tier, false);
+    if (execs.length > 0) {
+      stateWithError = {
+        ...stateWithError,
+        strategy_executions: [...stateWithError.strategy_executions, ...execs]
+      };
+    }
+  }
+  return {
+    state: stateWithError,
+    action: {
+      kind: "emit_message",
+      level: "warn",
+      message: `\u2717 ${SECTION_DISPLAY_NAMES[active.section_type]}: ${reason}`
+    }
+  };
+}
+
+// packages/orchestration/dist/handlers/jira-generation.js
+var BATCH_ID = "jira_generation";
+function gatherSourceSections(state) {
+  const wanted = [
+    "requirements",
+    "user_stories",
+    "acceptance_criteria"
+  ];
+  return state.sections.filter((s) => wanted.includes(s.section_type) && s.content).map((s) => ({
+    section_type: s.section_type,
+    content: s.content
+  }));
+}
+var handleJiraGeneration = ({ state, result }) => {
+  if (result?.kind === "subagent_batch_result" && result.batch_id === BATCH_ID) {
+    const response = result.responses.find((r) => r.invocation_id === JIRA_GENERATION_INV_ID);
+    if (!response || response.error || !response.raw_text) {
+      const withError = appendError(
+        state,
+        `[jira_generation] failed: ${response?.error ?? "no response"}`,
+        // The handler tolerates this (warns + continues to file_export).
+        // Tagging as "upstream_failure" keeps the structural-error gate
+        // from firing on a recoverable subagent flake (cross-audit
+        // curie H1, Phase 3+4 follow-up, 2026-04).
+        "upstream_failure"
+      );
+      return {
+        state: { ...withError, current_step: "file_export" },
+        action: {
+          kind: "emit_message",
+          level: "warn",
+          message: "JIRA generation failed; proceeding to file export anyway."
+        }
+      };
+    }
+    const jiraMarkdown = response.raw_text.trim();
+    const updated = {
+      ...state,
+      sections: [
+        ...state.sections,
+        {
+          section_type: "jira_tickets",
+          status: "passed",
+          attempt: 1,
+          violation_count: 0,
+          last_violations: [],
+          content: jiraMarkdown
+        }
+      ],
+      current_step: "file_export"
+    };
+    return {
+      state: updated,
+      action: {
+        kind: "emit_message",
+        message: "JIRA tickets generated. Writing files."
+      }
+    };
+  }
+  const sourceMaterial = gatherSourceSections(state);
+  if (sourceMaterial.length === 0) {
+    return {
+      state: { ...state, current_step: "file_export" },
+      action: {
+        kind: "emit_message",
+        message: "No source sections for JIRA generation. Skipping."
+      }
+    };
+  }
+  return {
+    state,
+    action: {
+      kind: "spawn_subagents",
+      purpose: "draft",
+      batch_id: BATCH_ID,
+      invocations: [
+        {
+          invocation_id: JIRA_GENERATION_INV_ID,
+          subagent_type: "zetetic-team-subagents:engineer",
+          description: "Generate JIRA tickets from PRD",
+          prompt: buildJiraPrompt({
+            feature_description: state.feature_description,
+            source_sections: sourceMaterial
+          }),
+          isolation: "none"
+        }
+      ]
+    }
+  };
+};
+
+// packages/orchestration/dist/handlers/file-export.js
+var OUTPUT_DIR = "prd-output";
+function joinSections(state, types) {
+  return state.sections.filter((s) => types.includes(s.section_type) && s.content).sort((a, b) => SECTION_ORDER[a.section_type] - SECTION_ORDER[b.section_type]).map((s) => `## ${SECTION_DISPLAY_NAMES[s.section_type]}
+
+${s.content.trim()}`).join("\n\n");
+}
+function jiraContent(state) {
+  const last = [...state.sections].reverse().find((s) => s.section_type === "jira_tickets" && s.content);
+  return last?.content?.trim() ?? "";
+}
+function buildFileSet(state) {
+  const slug = state.run_id.slice(0, 8);
+  const base = `${OUTPUT_DIR}/${slug}`;
+  return [
+    {
+      path: `${base}/01-prd.md`,
+      content: () => [
+        `# PRD: ${state.feature_description}`,
+        "",
+        `Run ID: ${state.run_id}`,
+        `Context: ${state.prd_context ?? "unknown"}`,
+        `License Tier: ${state.license_tier}`,
+        "",
+        joinSections(state, [
+          "overview",
+          "goals",
+          "requirements",
+          "user_stories",
+          "technical_specification",
+          "acceptance_criteria"
+        ])
+      ].join("\n")
+    },
+    {
+      path: `${base}/02-data-model.md`,
+      content: () => joinSections(state, ["data_model"]) || "_No data model section._"
+    },
+    {
+      path: `${base}/03-api-spec.md`,
+      content: () => joinSections(state, ["api_specification"]) || "_No API spec section._"
+    },
+    {
+      path: `${base}/04-security.md`,
+      content: () => joinSections(state, [
+        "security_considerations",
+        "performance_requirements"
+      ]) || "_No security/performance sections._"
+    },
+    {
+      path: `${base}/05-testing.md`,
+      content: () => joinSections(state, ["testing", "acceptance_criteria"]) || "_No testing section._"
+    },
+    {
+      path: `${base}/06-deployment.md`,
+      content: () => joinSections(state, ["deployment", "timeline", "risks"]) || "_No deployment section._"
+    },
+    {
+      path: `${base}/07-jira-tickets.md`,
+      content: () => jiraContent(state) || "_No JIRA tickets generated._"
+    },
+    {
+      path: `${base}/08-source-code.md`,
+      content: () => joinSections(state, ["source_code"]) || "_Source code section not generated in this run._"
+    },
+    {
+      path: `${base}/09-test-code.md`,
+      content: () => joinSections(state, ["test_code"]) || "_Test code section not generated in this run._"
+    }
+  ];
+}
+var handleFileExport = ({ state, result }) => {
+  let nextState = state;
+  if (result && result.kind !== "file_written") {
+    nextState = appendError(state, `[file_export] unexpected result kind '${result.kind}'; re-issuing write`, "structural");
+  }
+  if (result?.kind === "file_written") {
+    if (!state.written_files.includes(result.path)) {
+      nextState = {
+        ...state,
+        written_files: [...state.written_files, result.path]
+      };
+    }
+  }
+  const files = buildFileSet(nextState);
+  const done = new Set(nextState.written_files);
+  const remaining = files.filter((f) => !done.has(f.path));
+  if (remaining.length === 0) {
+    return {
+      state: { ...nextState, current_step: "self_check" },
+      action: {
+        kind: "emit_message",
+        message: `All ${files.length} files written. Running self-check.`
+      }
+    };
+  }
+  const next = remaining[0];
+  return {
+    state: nextState,
+    action: {
+      kind: "write_file",
+      path: next.path,
+      content: next.content()
+    }
+  };
+};
+
+// packages/verification/dist/judge-selector.js
+function genius(name) {
+  return { kind: "genius", name };
+}
+function team(name) {
+  return { kind: "team", name };
+}
+var PANELS = {
+  // Substitutability, near-decomposability, pattern fit
+  architecture: {
+    genius: [genius("liskov"), genius("simon"), genius("alexander")],
+    team: [team("code-reviewer"), team("architect")],
+    high_stakes: true
+  },
+  // Order-of-magnitude sanity, queuing limits, efficiency bounds
+  performance: {
+    genius: [genius("fermi"), genius("erlang"), genius("carnot")],
+    team: [team("code-reviewer")],
+    high_stakes: true
+  },
+  // Invariant reasoning, happens-before, contract substitutability
+  correctness: {
+    genius: [genius("dijkstra"), genius("lamport"), genius("liskov")],
+    team: [team("test-engineer"), team("engineer")],
+    high_stakes: true
+  },
+  // Correctness discipline, error archaeology, integrity audit
+  security: {
+    genius: [genius("dijkstra"), genius("wu"), genius("feynman")],
+    team: [team("security-auditor")],
+    high_stakes: true
+  },
+  // Mass-balance accounting, contract substitutability, predictive table
+  data_model: {
+    genius: [genius("lavoisier"), genius("liskov"), genius("mendeleev")],
+    team: [team("dba"), team("code-reviewer")],
+    high_stakes: true
+  },
+  // Falsifiability, integrity audit, error archaeology
+  test_coverage: {
+    genius: [genius("popper"), genius("feynman"), genius("wu")],
+    team: [team("test-engineer")],
+    high_stakes: false
+  },
+  // Order-of-magnitude + conservation
+  story_point_arithmetic: {
+    genius: [genius("fermi"), genius("lavoisier")],
+    team: [],
+    high_stakes: false
+  },
+  // Four-causes interrogation, claim-evidence-warrant chains
+  fr_traceability: {
+    genius: [genius("aristotle"), genius("toulmin")],
+    team: [team("code-reviewer")],
+    high_stakes: false
+  },
+  // Fragility classification, debiasing, falsifiability
+  risk: {
+    genius: [genius("taleb"), genius("kahneman"), genius("popper")],
+    team: [],
+    high_stakes: false
+  },
+  // Exhaustive-space audit, gaps-in-the-table
+  acceptance_criteria_completeness: {
+    genius: [genius("borges"), genius("mendeleev")],
+    team: [team("test-engineer")],
+    high_stakes: false
+  },
+  // Generative consistency rules, exhaustive enumeration
+  cross_file_consistency: {
+    genius: [genius("panini"), genius("euler")],
+    team: [team("code-reviewer")],
+    high_stakes: true
+  }
+};
+function selectJudges(claim) {
+  const panel = PANELS[claim.claim_type];
+  return [...panel.genius, ...panel.team];
+}
+
+// packages/verification/dist/claim-extractor.js
+function snippet2(content, line, before = 2, after = 2) {
+  const lines = content.split(/\r?\n/);
+  const idx = lines.findIndex((l) => l.trim() === line.trim());
+  if (idx === -1)
+    return line;
+  const start = Math.max(0, idx - before);
+  const end = Math.min(lines.length, idx + after + 1);
+  return lines.slice(start, end).join("\n");
+}
+function* matchAllLines(re, content) {
+  for (const line of content.split(/\r?\n/)) {
+    const m = line.match(re);
+    if (m)
+      yield m;
+  }
+}
+var FR_LINE_RE = /^\s*(?:-|\*|\|)?\s*(FR-\d{3,})\s*[|:\-–—]\s*(.+?)\s*(?:\||$)/i;
+var extractRequirements = ({ content, section_type }) => {
+  const claims = [];
+  for (const m of matchAllLines(FR_LINE_RE, content)) {
+    const id = m[1].toUpperCase();
+    const text = m[2].trim();
+    if (!text)
+      continue;
+    claims.push({
+      claim_id: id,
+      claim_type: "fr_traceability",
+      text: `Functional requirement: ${text}`,
+      evidence: snippet2(content, m[0]),
+      source_section: section_type
+    });
+  }
+  return claims;
+};
+var AC_LINE_RE = /^\s*(?:-|\*|\|)?\s*(AC-\d{3,})\s*[|:\-–—]\s*(.+?)\s*(?:\||$)/i;
+var extractAcceptanceCriteria = ({ content, section_type }) => {
+  const claims = [];
+  for (const m of matchAllLines(AC_LINE_RE, content)) {
+    const id = m[1].toUpperCase();
+    const text = m[2].trim();
+    if (!text)
+      continue;
+    claims.push({
+      claim_id: id,
+      claim_type: "acceptance_criteria_completeness",
+      text: `Acceptance criterion: ${text}`,
+      evidence: snippet2(content, m[0]),
+      source_section: section_type
+    });
+  }
+  return claims;
+};
+var NFR_PATTERNS = [
+  { re: /\b(?:p\d{2}|p99|p95|p50)\s*[<>=≤≥]+\s*(\d+(?:\.\d+)?\s*(?:ms|s|µs|us))/gi, subtype: "LATENCY" },
+  { re: /\b(\d+(?:\.\d+)?\s*(?:rps|req\/s|qps|requests?\/(?:sec|second)))/gi, subtype: "THROUGHPUT" },
+  { re: /\b(\d+(?:\.\d+)?\s*fps)/gi, subtype: "FRAMERATE" },
+  { re: /\b(\d+(?:\.\d+)?\s*(?:GB|MB|TB|KB)\b)/gi, subtype: "STORAGE" }
+];
+var extractPerformance = ({ content, section_type }) => {
+  const claims = [];
+  for (const { re, subtype } of NFR_PATTERNS) {
+    let counter = 0;
+    for (const m of content.matchAll(re)) {
+      counter += 1;
+      claims.push({
+        claim_id: `NFR-${subtype}-${counter.toString().padStart(2, "0")}`,
+        claim_type: "performance",
+        text: `Performance target: ${m[0]}`,
+        evidence: snippet2(content, m[0], 1, 1),
+        source_section: section_type
+      });
+    }
+  }
+  return claims;
+};
+var ARCH_PATTERNS = [
+  { re: /ports?[\s\-]?(?:and|\/)?[\s\-]?adapters?/i, label: "ports-and-adapters" },
+  { re: /clean\s+architecture/i, label: "clean-architecture" },
+  { re: /hexagonal/i, label: "hexagonal" },
+  { re: /domain[\s-]+driven\s+design|\bDDD\b/i, label: "ddd" },
+  { re: /event[\s-]+driven/i, label: "event-driven" },
+  { re: /micro[\s-]?services?/i, label: "microservices" },
+  { re: /repository\s+pattern/i, label: "repository-pattern" },
+  { re: /CQRS/i, label: "cqrs" }
+];
+var extractArchitecture = ({ content, section_type }) => {
+  const claims = [];
+  for (const { re, label } of ARCH_PATTERNS) {
+    if (re.test(content)) {
+      const m = content.match(re);
+      claims.push({
+        claim_id: `ARCH-${label.toUpperCase()}`,
+        claim_type: "architecture",
+        text: `Architecture pattern claim: ${label}`,
+        evidence: snippet2(content, m[0], 3, 3),
+        source_section: section_type
+      });
+    }
+  }
+  return claims;
+};
+var SECURITY_KEYWORDS = [
+  "authentication",
+  "authorization",
+  "encryption",
+  "secrets",
+  "PII",
+  "OAuth",
+  "JWT",
+  "TLS",
+  "AES",
+  "SHA",
+  "hash",
+  "token",
+  "session"
+];
+var extractSecurity = ({ content, section_type }) => {
+  const claims = [];
+  const lower = content.toLowerCase();
+  let counter = 0;
+  for (const kw of SECURITY_KEYWORDS) {
+    if (lower.includes(kw.toLowerCase())) {
+      counter += 1;
+      claims.push({
+        claim_id: `SEC-${counter.toString().padStart(2, "0")}-${kw.toUpperCase()}`,
+        claim_type: "security",
+        text: `Security claim involving ${kw}`,
+        evidence: extractParagraphContaining(content, kw),
+        source_section: section_type
+      });
+    }
+  }
+  return claims;
+};
+function extractParagraphContaining(content, keyword) {
+  const lower = content.toLowerCase();
+  const lowerKw = keyword.toLowerCase();
+  const idx = lower.indexOf(lowerKw);
+  if (idx === -1)
+    return content.slice(0, 400);
+  const start = Math.max(0, content.lastIndexOf("\n\n", idx));
+  let end = content.indexOf("\n\n", idx);
+  if (end === -1)
+    end = Math.min(content.length, idx + 400);
+  return content.slice(start, end).trim();
+}
+var DDL_RE = /(CREATE\s+(?:TABLE|TYPE|ENUM|INDEX|VIEW)\s+\w+[\s\S]*?;)/gi;
+var extractDataModel = ({ content, section_type }) => {
+  const claims = [];
+  let counter = 0;
+  for (const m of content.matchAll(DDL_RE)) {
+    counter += 1;
+    const ddl = m[1];
+    const nameMatch = ddl.match(/CREATE\s+(?:TABLE|TYPE|ENUM|INDEX|VIEW)\s+(\w+)/i);
+    const name = nameMatch?.[1] ?? "anonymous";
+    claims.push({
+      claim_id: `DDL-${counter.toString().padStart(2, "0")}-${name.toUpperCase()}`,
+      claim_type: "data_model",
+      text: `Schema definition: ${name}`,
+      evidence: ddl.slice(0, 600),
+      source_section: section_type
+    });
+  }
+  return claims;
+};
+var TEST_FN_RE = /(?:func|def|fn|it|test)\s+(test_?\w+|\w*Test\w*)\s*\(/gi;
+var extractTests = ({ content, section_type }) => {
+  const claims = [];
+  let counter = 0;
+  for (const m of content.matchAll(TEST_FN_RE)) {
+    counter += 1;
+    claims.push({
+      claim_id: `TEST-${counter.toString().padStart(3, "0")}-${m[1].slice(0, 32)}`,
+      claim_type: "test_coverage",
+      text: `Test function: ${m[1]}`,
+      evidence: snippet2(content, m[0], 2, 4),
+      source_section: section_type
+    });
+  }
+  return claims;
+};
+var RISK_LINE_RE = /^\s*(?:-|\*)\s*(?:\*\*Risk\*\*[:|]?\s*)?(.+?(?:risk|failure|hazard|threat|attack|vulnerab).+)$/i;
+var extractRisks = ({ content, section_type }) => {
+  const claims = [];
+  let counter = 0;
+  for (const m of matchAllLines(RISK_LINE_RE, content)) {
+    counter += 1;
+    claims.push({
+      claim_id: `RISK-${counter.toString().padStart(2, "0")}`,
+      claim_type: "risk",
+      text: m[1].trim(),
+      evidence: snippet2(content, m[0]),
+      source_section: section_type
+    });
+  }
+  return claims;
+};
+var SP_TOTAL_RE = /total\s*[:|=]\s*(\d+)\s*(?:sp|story\s*points?)?/gi;
+var extractStoryPoints = ({ content, section_type }) => {
+  const claims = [];
+  let counter = 0;
+  for (const m of content.matchAll(SP_TOTAL_RE)) {
+    counter += 1;
+    claims.push({
+      claim_id: `SP-TOTAL-${counter.toString().padStart(2, "0")}`,
+      claim_type: "story_point_arithmetic",
+      text: `Story-point total claim: ${m[0]}`,
+      evidence: snippet2(content, m[0]),
+      source_section: section_type
+    });
+  }
+  return claims;
+};
+var EXTRACTORS_BY_SECTION = {
+  requirements: [extractRequirements],
+  user_stories: [extractStoryPoints],
+  technical_specification: [extractArchitecture],
+  acceptance_criteria: [extractAcceptanceCriteria],
+  data_model: [extractDataModel],
+  api_specification: [extractRequirements],
+  // FR-style endpoint claims
+  security_considerations: [extractSecurity],
+  performance_requirements: [extractPerformance],
+  testing: [extractTests],
+  test_code: [extractTests],
+  risks: [extractRisks],
+  timeline: [extractStoryPoints]
+};
+function extractClaims(sectionType, content) {
+  const extractors = EXTRACTORS_BY_SECTION[sectionType] ?? [];
+  const claims = [];
+  for (const ex of extractors) {
+    claims.push(...ex({ section_type: sectionType, content }));
+  }
+  return dedupeById(claims);
+}
+function extractClaimsFromDocument(sections) {
+  const claims = [];
+  for (const s of sections) {
+    claims.push(...extractClaims(s.type, s.content));
+  }
+  return dedupeById(claims);
+}
+function dedupeById(claims) {
+  const seen = /* @__PURE__ */ new Map();
+  for (const c of claims) {
+    if (!seen.has(c.claim_id))
+      seen.set(c.claim_id, c);
+  }
+  return Array.from(seen.values());
+}
+
+// packages/verification/dist/consensus.js
+var VERDICT_SEVERITY = {
+  PASS: 0,
+  "SPEC-COMPLETE": 1,
+  "NEEDS-RUNTIME": 2,
+  INCONCLUSIVE: 3,
+  FAIL: 4
+};
+var VERDICTS = [
+  "PASS",
+  "SPEC-COMPLETE",
+  "NEEDS-RUNTIME",
+  "INCONCLUSIVE",
+  "FAIL"
+];
+var DEFAULT_CONFIG = {
+  strategy: "weighted_average",
+  // source: see ConsensusConfig.fail_threshold doc-comment.
+  fail_threshold: 0.5
+};
+var DEFAULT_RELIABILITY_PRIOR_MEAN = 0.7;
+function clampUnit(x) {
+  if (!Number.isFinite(x))
+    return 0;
+  return Math.min(1, Math.max(0, x));
+}
+function consensus(claim_id, verdicts, config2 = {}) {
+  if (verdicts.length === 0) {
+    return {
+      claim_id,
+      verdict: "INCONCLUSIVE",
+      confidence: 0,
+      unanimous: false,
+      dissenting: [],
+      distribution: emptyDistribution(),
+      strategy: config2.strategy ?? DEFAULT_CONFIG.strategy,
+      judges: []
+    };
+  }
+  const strategy = config2.strategy ?? DEFAULT_CONFIG.strategy;
+  switch (strategy) {
+    case "weighted_average":
+      return weightedAverage(claim_id, verdicts, config2);
+    case "bayesian":
+      return bayesian(claim_id, verdicts, config2);
+  }
+}
+function weightedAverage(claim_id, verdicts, config2) {
+  const distribution = emptyDistribution();
+  let totalWeight = 0;
+  for (const v of verdicts) {
+    const w = clampUnit(v.confidence);
+    distribution[v.verdict] += w;
+    totalWeight += w;
+  }
+  if (totalWeight === 0) {
+    for (const v of verdicts)
+      distribution[v.verdict] += 1;
+    totalWeight = verdicts.length;
+  }
+  const failThreshold = config2.fail_threshold ?? DEFAULT_CONFIG.fail_threshold;
+  const failWeight = distribution.FAIL;
+  const failFrac = totalWeight > 0 ? failWeight / totalWeight : 0;
+  let chosen;
+  if (failFrac >= failThreshold) {
+    chosen = "FAIL";
+  } else {
+    chosen = pickMaxVerdict(distribution);
+  }
+  const confidence = totalWeight > 0 ? distribution[chosen] / totalWeight : 0;
+  const unanimous = verdicts.every((v) => v.verdict === chosen);
+  const dissenting = verdicts.filter((v) => v.verdict !== chosen);
+  return {
+    claim_id,
+    verdict: chosen,
+    confidence,
+    unanimous,
+    dissenting,
+    distribution: normalizeDistribution(distribution, totalWeight),
+    strategy: "weighted_average",
+    judges: verdicts.map((v) => v.judge)
+  };
+}
+var NO_INFORMATION_FLOOR = 0.2;
+function bayesian(claim_id, verdicts, config2) {
+  let posterior = uniformPrior();
+  const reliabilityMap = config2.reliability ?? /* @__PURE__ */ new Map();
+  for (const v of verdicts) {
+    const key = agentKey(v.judge);
+    const rawReliability = reliabilityMap.get(key) ?? DEFAULT_RELIABILITY_PRIOR_MEAN;
+    const reliability = clampUnit(rawReliability);
+    const confidence2 = clampUnit(v.confidence);
+    const adjustedReliability = reliability * confidence2;
+    if (adjustedReliability <= NO_INFORMATION_FLOOR) {
+      continue;
+    }
+    posterior = updatePosterior(posterior, v.verdict, adjustedReliability);
+  }
+  const distribution = {
+    PASS: 0,
+    "SPEC-COMPLETE": 0,
+    "NEEDS-RUNTIME": 0,
+    INCONCLUSIVE: 0,
+    FAIL: 0
+  };
+  for (const v of VERDICTS) {
+    distribution[v] = posterior[v];
+  }
+  const chosen = pickMaxVerdict(distribution);
+  const confidence = distribution[chosen];
+  const unanimous = verdicts.every((v) => v.verdict === chosen);
+  const dissenting = verdicts.filter((v) => v.verdict !== chosen);
+  return {
+    claim_id,
+    verdict: chosen,
+    confidence,
+    unanimous,
+    dissenting,
+    distribution,
+    strategy: "bayesian",
+    judges: verdicts.map((v) => v.judge)
+  };
+}
+function uniformPrior() {
+  return {
+    PASS: 0.2,
+    "SPEC-COMPLETE": 0.2,
+    "NEEDS-RUNTIME": 0.2,
+    INCONCLUSIVE: 0.2,
+    FAIL: 0.2
+  };
+}
+function updatePosterior(prior, observed, reliability) {
+  const r = clampUnit(reliability);
+  const likelihood = {
+    PASS: 0,
+    "SPEC-COMPLETE": 0,
+    "NEEDS-RUNTIME": 0,
+    INCONCLUSIVE: 0,
+    FAIL: 0
+  };
+  const other = (1 - r) / 4;
+  for (const v of VERDICTS) {
+    likelihood[v] = v === observed ? r : other;
+  }
+  const posterior = {
+    PASS: 0,
+    "SPEC-COMPLETE": 0,
+    "NEEDS-RUNTIME": 0,
+    INCONCLUSIVE: 0,
+    FAIL: 0
+  };
+  let total = 0;
+  for (const v of VERDICTS) {
+    posterior[v] = prior[v] * likelihood[v];
+    total += posterior[v];
+  }
+  if (total > 0) {
+    for (const v of VERDICTS)
+      posterior[v] /= total;
+  }
+  return posterior;
+}
+function emptyDistribution() {
+  return {
+    PASS: 0,
+    "SPEC-COMPLETE": 0,
+    "NEEDS-RUNTIME": 0,
+    INCONCLUSIVE: 0,
+    FAIL: 0
+  };
+}
+function normalizeDistribution(d, total) {
+  if (total <= 0)
+    return d;
+  const out = emptyDistribution();
+  for (const v of VERDICTS)
+    out[v] = d[v] / total;
+  return out;
+}
+function pickMaxVerdict(d) {
+  let best = "PASS";
+  let bestScore = -Infinity;
+  for (const v of VERDICTS) {
+    const s = d[v];
+    if (s > bestScore || s === bestScore && VERDICT_SEVERITY[v] > VERDICT_SEVERITY[best]) {
+      best = v;
+      bestScore = s;
+    }
+  }
+  return best;
+}
+function agentKey(agent) {
+  return `${agent.kind}:${agent.name}`;
+}
+
+// packages/verification/dist/orchestrator.js
+function planSectionVerification(sectionType, content, options = {}) {
+  const claims = extractClaims(sectionType, content);
+  const judge_requests = buildRequests(claims, options, content);
+  return { claims, judge_requests };
+}
+function planDocumentVerification(sections, options = {}) {
+  const claims = extractClaimsFromDocument(sections);
+  const concatenated = sections.map((s) => `## ${s.type}
+
+${s.content}`).join("\n\n");
+  const judge_requests = buildRequests(claims, options, concatenated);
+  return { claims, judge_requests };
+}
+function buildRequests(claims, options, prdExcerpt) {
+  const requests = [];
+  const includePrd = options.include_prd_excerpt !== false;
+  for (const claim of claims) {
+    const judges = selectJudges(claim);
+    for (const judge of judges) {
+      requests.push({
+        judge,
+        claim,
+        context: {
+          prd_excerpt: includePrd ? prdExcerpt : void 0,
+          codebase_excerpts: [...options.codebase_excerpts ?? []],
+          memory_excerpts: [...options.memory_excerpts ?? []]
+        }
+      });
+    }
+  }
+  return requests;
+}
+function concludeSection(sectionType, verdicts, consensusConfig = {}) {
+  return concludeFromVerdicts(sectionType, verdicts, consensusConfig);
+}
+function concludeDocument(verdicts, consensusConfig = {}) {
+  return concludeFromVerdicts("document", verdicts, consensusConfig);
+}
+function concludeFromVerdicts(scope, verdicts, consensusConfig) {
+  const byClaim = /* @__PURE__ */ new Map();
+  for (const v of verdicts) {
+    const list = byClaim.get(v.claim_id) ?? [];
+    list.push(v);
+    byClaim.set(v.claim_id, list);
+  }
+  const results = [];
+  for (const [claim_id, vs] of byClaim) {
+    results.push(consensus(claim_id, vs, consensusConfig));
+  }
+  const distribution = {
+    PASS: 0,
+    "SPEC-COMPLETE": 0,
+    "NEEDS-RUNTIME": 0,
+    INCONCLUSIVE: 0,
+    FAIL: 0
+  };
+  for (const r of results)
+    distribution[r.verdict] += 1;
+  const failures = results.filter((r) => r.verdict === "FAIL");
+  const warnings = results.filter((r) => r.verdict === "INCONCLUSIVE" || r.verdict === "NEEDS-RUNTIME" || r.verdict === "SPEC-COMPLETE");
+  const passRate = results.length > 0 ? distribution.PASS / results.length : 0;
+  const SUSPICIOUS_MIN_CLUSTER = 5;
+  const SUSPICIOUS_PASS_RATE = 1;
+  const distribution_suspicious = results.length >= SUSPICIOUS_MIN_CLUSTER && passRate >= SUSPICIOUS_PASS_RATE;
+  return {
+    section_type: scope,
+    claims_evaluated: results.length,
+    judges_invoked: verdicts.length,
+    results,
+    distribution,
+    failures,
+    warnings,
+    distribution_suspicious
+  };
+}
+
+// packages/verification/dist/judge-prompt.js
+var VERDICT_TAXONOMY = `
+| Verdict | Meaning | When to use |
+|---------|---------|-------------|
+| PASS | Claim is structurally complete AND verifiable from the document | FR traceability, AC completeness, SP arithmetic, structural checks |
+| SPEC-COMPLETE | A test or measurement method is specified, but runtime data is needed to confirm | NFR performance targets (latency, fps, throughput), scalability limits |
+| NEEDS-RUNTIME | Claim cannot be verified at design time at all | Load test results, p95 latency under prod traffic, real-world storage usage |
+| INCONCLUSIVE | Claim depends on an unresolved open question or external factor | Claims referencing OQ-XXX, vendor SLA, regulatory interpretation |
+| FAIL | Claim is structurally invalid or contradicts other claims | Arithmetic errors, orphan references, circular dependencies |
+
+NFR claims about latency, fps, throughput, or storage MUST NOT receive PASS.
+They receive SPEC-COMPLETE (if a test method is specified) or NEEDS-RUNTIME.
+`.trim();
+var RESPONSE_SCHEMA = `
+{
+  "verdict": "PASS" | "SPEC-COMPLETE" | "NEEDS-RUNTIME" | "INCONCLUSIVE" | "FAIL",
+  "rationale": "<one paragraph: why you reached this verdict>",
+  "caveats": ["<short caveat>", "..."],
+  "confidence": <number in [0, 1]>
+}
+`.trim();
+function buildJudgePrompt(req) {
+  const { judge, claim, context } = req;
+  const judgeDescription = judge.kind === "genius" ? `Apply the ${judge.name} reasoning pattern to evaluate the claim.` : `Apply your ${judge.name} role expertise to evaluate the claim.`;
+  const prdExcerpt = context.prd_excerpt ? `<prd_excerpt>
+${context.prd_excerpt}
+</prd_excerpt>
+
+` : "";
+  const codebaseSection = context.codebase_excerpts.length ? `<codebase_context>
+${context.codebase_excerpts.join("\n---\n")}
+</codebase_context>
+
+` : "";
+  const memorySection = context.memory_excerpts.length ? `<memory_context>
+${context.memory_excerpts.join("\n---\n")}
+</memory_context>
+
+` : "";
+  const prompt = [
+    `You are acting as a verification judge for a PRD.`,
+    judgeDescription,
+    "",
+    `<claim>`,
+    `id: ${claim.claim_id}`,
+    `type: ${claim.claim_type}`,
+    `source_section: ${claim.source_section ?? "(unspecified)"}`,
+    `text: ${claim.text}`,
+    `</claim>`,
+    "",
+    `<evidence>`,
+    claim.evidence,
+    `</evidence>`,
+    "",
+    prdExcerpt + codebaseSection + memorySection,
+    `<verdict_taxonomy>`,
+    VERDICT_TAXONOMY,
+    `</verdict_taxonomy>`,
+    "",
+    `Return EXACTLY ONE JSON object matching this schema and nothing else (no prose before or after, no markdown fences):`,
+    "",
+    RESPONSE_SCHEMA,
+    "",
+    `Constraints:`,
+    `- Do NOT default to PASS. If you would assign PASS to every claim of this type, you are not doing your job.`,
+    `- NFR claims (latency, throughput, fps, storage) MUST NOT receive PASS. Use SPEC-COMPLETE or NEEDS-RUNTIME.`,
+    `- "rationale" must be specific to THIS claim, not a generic rubric.`,
+    `- "confidence" reflects how sure you are about the verdict, not how confident you are about the claim.`
+  ].join("\n");
+  return {
+    description: `Judge ${claim.claim_id} (${judge.kind}:${judge.name})`,
+    subagent_type: agentSubagentType(judge),
+    prompt
+  };
+}
+
+// packages/orchestration/dist/handlers/self-check.js
+var VERIFY_BATCH_ID = "self_check_verify";
+var RawVerdictSchema = external_exports.object({
+  verdict: VerdictSchema,
+  rationale: external_exports.string(),
+  caveats: external_exports.array(external_exports.string()).default([]),
+  confidence: external_exports.number().min(0).max(1)
+});
+function invocationIdFor(idx) {
+  return `${SELF_CHECK_JUDGE_INV_PREFIX}${idx.toString().padStart(4, "0")}`;
+}
+function gatherSections(state) {
+  return state.sections.filter((s) => s.content && s.section_type !== "jira_tickets").map((s) => ({ type: s.section_type, content: s.content }));
+}
+function buildVerifyAction(requests) {
+  return {
+    kind: "spawn_subagents",
+    purpose: "judge",
+    batch_id: VERIFY_BATCH_ID,
+    invocations: requests.map((req, idx) => {
+      const built = buildJudgePrompt(req);
+      return {
+        invocation_id: invocationIdFor(idx),
+        subagent_type: agentSubagentType(req.judge),
+        description: built.description,
+        prompt: built.prompt,
+        isolation: "none"
+      };
+    })
+  };
+}
+function parseVerdicts(index, batchResult) {
+  const byId = /* @__PURE__ */ new Map();
+  for (const r of batchResult.responses) {
+    if (byId.has(r.invocation_id)) {
+      byId.set(r.invocation_id, {
+        invocation_id: r.invocation_id,
+        error: `duplicate invocation_id in batch: ${r.invocation_id}`
+      });
+    } else {
+      byId.set(r.invocation_id, r);
+    }
+  }
+  const out = [];
+  for (const entry of index) {
+    const response = byId.get(entry.invocation_id);
+    if (!response || response.error || !response.raw_text) {
+      out.push({
+        judge: entry.request.judge,
+        claim_id: entry.request.claim.claim_id,
+        verdict: "INCONCLUSIVE",
+        rationale: response?.error ?? "no response",
+        caveats: ["judge_invocation_failed"],
+        confidence: 0
+      });
+      continue;
+    }
+    try {
+      const obj = extractJsonObject(response.raw_text);
+      const parsed = RawVerdictSchema.parse(obj);
+      out.push({
+        judge: entry.request.judge,
+        claim_id: entry.request.claim.claim_id,
+        verdict: parsed.verdict,
+        rationale: parsed.rationale,
+        caveats: parsed.caveats,
+        confidence: parsed.confidence
+      });
+    } catch (err) {
+      out.push({
+        judge: entry.request.judge,
+        claim_id: entry.request.claim.claim_id,
+        verdict: "INCONCLUSIVE",
+        rationale: `parse failure: ${err.message}`,
+        caveats: ["parse_error"],
+        confidence: 0
+      });
+    }
+  }
+  return out;
+}
+function finalize(state, verdicts = []) {
+  const sections = gatherSections(state);
+  const docReport = validateDocument(sections);
+  const verificationReport = concludeDocument(verdicts);
+  const sectionsPassed = state.sections.filter((s) => s.status === "passed").length;
+  const sectionsFailed = state.sections.filter((s) => s.status === "failed").length;
+  const sectionsTotal = state.sections.length;
+  const docCritical = docReport.violations.filter((v) => v.isCritical).length;
+  const summary = [
+    `Self-check complete.`,
+    `Sections: ${sectionsPassed}/${sectionsTotal} passed, ${sectionsFailed} failed.`,
+    `Deterministic violations: ${docReport.violations.length} (${docCritical} critical)`,
+    `Hard-output score: ${docReport.totalScore.toFixed(2)} / 1.00`,
+    `Multi-judge claims: ${verificationReport.claims_evaluated}`,
+    `  PASS:           ${verificationReport.distribution.PASS}`,
+    `  SPEC-COMPLETE:  ${verificationReport.distribution["SPEC-COMPLETE"]}`,
+    `  NEEDS-RUNTIME:  ${verificationReport.distribution["NEEDS-RUNTIME"]}`,
+    `  INCONCLUSIVE:   ${verificationReport.distribution.INCONCLUSIVE}`,
+    `  FAIL:           ${verificationReport.distribution.FAIL}`,
+    verificationReport.distribution_suspicious ? `  \u26A0 Distribution suspicious \u2014 100% PASS suggests confirmatory bias.` : ""
+  ].filter((l) => l !== "").join("\n");
+  return {
+    state: { ...state, current_step: "complete" },
+    action: {
+      kind: "done",
+      summary,
+      artifacts: state.sections.map((s) => `${s.section_type}: ${s.status}`),
+      // Typed verification surface (Phase 3+4 cross-audit closure). Callers
+      // MUST consume this field, not regex-parse `summary`. The string
+      // remains as a human-readable artifact only.
+      verification: {
+        claims_evaluated: verificationReport.claims_evaluated,
+        distribution: verificationReport.distribution,
+        distribution_suspicious: verificationReport.distribution_suspicious
+      }
+    }
+  };
+}
+function handleSelfCheckPhaseA(state) {
+  const sections = gatherSections(state);
+  if (sections.length === 0) {
+    return finalize(state);
+  }
+  const plan = planDocumentVerification(sections);
+  if (plan.judge_requests.length === 0) {
+    return finalize(state);
+  }
+  return {
+    state: {
+      ...state,
+      verification_plan: {
+        batch_id: VERIFY_BATCH_ID,
+        claim_ids: plan.judge_requests.map((r) => r.claim.claim_id),
+        judges: plan.judge_requests.map((r) => r.judge)
+      }
+    },
+    action: buildVerifyAction(plan.judge_requests)
+  };
+}
+function handleSelfCheckPhaseB(state, result) {
+  const snapshot = state.verification_plan;
+  if (!snapshot || snapshot.batch_id !== VERIFY_BATCH_ID) {
+    return finalize(state);
+  }
+  const verdicts = parseVerdictsFromSnapshot(snapshot, state, result);
+  let stateAfter = { ...state, verification_plan: null };
+  const mismatchSeen = /* @__PURE__ */ new Set();
+  for (const v of verdicts) {
+    for (const caveat of v.caveats) {
+      if (caveat.startsWith("mismatch_kind:") && !mismatchSeen.has(caveat)) {
+        mismatchSeen.add(caveat);
+        stateAfter = appendError(stateAfter, `[self_check] plan mismatch detected \u2014 ${caveat}`, "structural");
+      }
+    }
+  }
+  return finalize(stateAfter, verdicts);
+}
+var handleSelfCheck = ({ state, result }) => {
+  if (result?.kind === "subagent_batch_result" && result.batch_id === VERIFY_BATCH_ID) {
+    return handleSelfCheckPhaseB(state, result);
+  }
+  return handleSelfCheckPhaseA(state);
+};
+function parseVerdictsFromSnapshot(snapshot, state, batchResult) {
+  const sections = gatherSections(state);
+  const rederived = planDocumentVerification(sections).judge_requests;
+  const sameLength = rederived.length === snapshot.claim_ids.length;
+  const sameOrder = sameLength && rederived.every((r, i) => r.claim.claim_id === snapshot.claim_ids[i]);
+  if (sameOrder) {
+    const index = rederived.map((req, idx) => ({
+      request: req,
+      invocation_id: invocationIdFor(idx)
+    }));
+    return parseVerdicts(index, batchResult);
+  }
+  const snapshotSet = new Set(snapshot.claim_ids);
+  const rederivedIds = rederived.map((r) => r.claim.claim_id);
+  const sameSet = sameLength && rederivedIds.every((id) => snapshotSet.has(id));
+  const mismatchKind = sameSet ? "ordering_regression" : "content_mutation";
+  const byId = new Map(batchResult.responses.map((r) => [r.invocation_id, r]));
+  const out = [];
+  for (let idx = 0; idx < snapshot.claim_ids.length; idx++) {
+    const claim_id = snapshot.claim_ids[idx];
+    const judge = snapshot.judges[idx];
+    const response = byId.get(invocationIdFor(idx));
+    out.push({
+      judge,
+      claim_id,
+      verdict: "INCONCLUSIVE",
+      rationale: response?.error ?? "Plan mismatch between Phase A and Phase B \u2014 original verdict cannot be parsed without JudgeRequest context",
+      caveats: ["plan_mismatch", `mismatch_kind:${mismatchKind}`],
+      confidence: 0
+    });
+  }
+  return out;
+}
+
+// packages/orchestration/dist/runner.js
+var HANDLERS = {
+  license_gate: handleLicenseGate,
+  context_detection: handleContextDetection,
+  input_analysis: handleInputAnalysis,
+  feasibility_gate: handleFeasibilityGate,
+  clarification: handleClarification,
+  budget: handleBudget,
+  section_generation: handleSectionGeneration,
+  jira_generation: handleJiraGeneration,
+  file_export: handleFileExport,
+  self_check: handleSelfCheck,
+  complete: ({ state }) => ({
+    state,
+    action: {
+      kind: "done",
+      summary: "Pipeline already complete.",
+      artifacts: []
+    }
+  })
+};
+var COALESCE_CAP = 16;
+function step(input) {
+  const messages = [];
+  let currentState = input.state;
+  let pendingResult = input.result;
+  for (let i = 0; i < COALESCE_CAP; i++) {
+    const out = invoke(currentState, pendingResult);
+    currentState = out.state;
+    pendingResult = void 0;
+    if (out.action.kind === "emit_message") {
+      const level = out.action.level ?? "info";
+      messages.push({ text: out.action.message, level });
+      if (currentState.current_step === "complete") {
+        return {
+          state: touch(currentState),
+          action: terminalFromMessages(messages),
+          messages
+        };
+      }
+      continue;
+    }
+    return {
+      state: touch(currentState),
+      action: out.action,
+      // narrowed: kind !== "emit_message"
+      messages
+    };
+  }
+  const stateWithError = appendError(currentState, `[runner] coalesce cap (${COALESCE_CAP}) exceeded; suspected handler loop on step '${currentState.current_step}'`, "structural");
+  return {
+    state: touch(stateWithError),
+    action: {
+      kind: "failed",
+      reason: `Runner exceeded emit_message coalesce cap (${COALESCE_CAP}). The pipeline may have an infinite handler loop on step '${currentState.current_step}'.`,
+      step: currentState.current_step
+    },
+    messages
+  };
+}
+function terminalFromMessages(messages) {
+  const errorMsgs = messages.filter((m) => m.level === "error");
+  if (errorMsgs.length > 0) {
+    return {
+      kind: "failed",
+      reason: errorMsgs.map((m) => m.text).join("\n"),
+      step: "complete"
+    };
+  }
+  const summary = messages.map((m) => m.level === "info" ? m.text : `[${m.level.toUpperCase()}] ${m.text}`).join("\n");
+  return { kind: "done", summary, artifacts: [] };
+}
+function invoke(state, result) {
+  const handler = HANDLERS[state.current_step];
+  if (!handler) {
+    return {
+      state,
+      action: {
+        kind: "failed",
+        reason: `No handler for step '${state.current_step}'`,
+        step: state.current_step
+      }
+    };
+  }
+  try {
+    return handler({ state, result });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      state: appendError(state, `[${state.current_step}] ${message}`, "structural"),
+      action: {
+        kind: "failed",
+        reason: message,
+        step: state.current_step
+      }
+    };
+  }
+}
+
+// packages/orchestration/dist/run-store.js
+var InMemoryRunStore = class {
+  runs = /* @__PURE__ */ new Map();
+  get(runId) {
+    return this.runs.get(runId);
+  }
+  set(state) {
+    this.runs.set(state.run_id, state);
+  }
+  delete(runId) {
+    this.runs.delete(runId);
+  }
+  list() {
+    return Array.from(this.runs.values());
+  }
+};
+
+// packages/mcp-server/dist/context-budget.js
 var SECTION_GENERATION_TOKENS = {
   overview: 1500,
   goals: 1e3,
@@ -26501,30 +30062,25 @@ var SKILL_MD_OVERHEAD = 35e3;
 var CONVERSATION_OVERHEAD = 5e3;
 var VALIDATION_RESERVE_RATIO = 0.1;
 var TOKENS_PER_CORTEX_MEMORY = 500;
+var RETRIEVAL_BUDGET_RATIO = 0.4;
+var GENERATION_BUDGET_RATIO = 0.5;
+var UNKNOWN_SECTION_WEIGHT = 0.5;
+var UNKNOWN_SECTION_GEN_TOKENS = 2e3;
 function calculateContextBudget(prdContext, completedSections = [], contextWindowSize = DEFAULT_CONTEXT_WINDOW) {
-  const config2 = PRD_CONTEXT_CONFIGS[prdContext];
   const overheadEstimate = SKILL_MD_OVERHEAD + CONVERSATION_OVERHEAD;
   const validationReserve = Math.floor(contextWindowSize * VALIDATION_RESERVE_RATIO);
   const totalBudget = contextWindowSize - overheadEstimate - validationReserve;
   const completedSet = new Set(completedSections);
-  const allSections = Object.keys(SECTION_GENERATION_TOKENS);
-  const remainingSections = allSections.filter((s) => !completedSet.has(s));
-  const retrievalBudget = Math.floor(totalBudget * 0.4);
-  const generationBudget = Math.floor(totalBudget * 0.5);
-  const totalWeight = remainingSections.reduce(
-    (sum, s) => sum + (SECTION_RETRIEVAL_WEIGHT[s] ?? 0.5),
-    0
-  );
+  const plannedSections = SECTIONS_BY_CONTEXT[prdContext];
+  const remainingSections = plannedSections.filter((s) => !completedSet.has(s));
+  const retrievalBudget = Math.floor(totalBudget * RETRIEVAL_BUDGET_RATIO);
+  const generationBudget = Math.floor(totalBudget * GENERATION_BUDGET_RATIO);
+  const totalWeight = remainingSections.reduce((sum, s) => sum + (SECTION_RETRIEVAL_WEIGHT[s] ?? UNKNOWN_SECTION_WEIGHT), 0);
   const sections = remainingSections.map((sectionType) => {
-    const weight = SECTION_RETRIEVAL_WEIGHT[sectionType] ?? 0.5;
-    const genTokens = SECTION_GENERATION_TOKENS[sectionType] ?? 2e3;
-    const retrievalTokens = Math.floor(
-      retrievalBudget * (weight / totalWeight)
-    );
-    const cortexMaxResults = Math.max(
-      1,
-      Math.floor(retrievalTokens / TOKENS_PER_CORTEX_MEMORY)
-    );
+    const weight = SECTION_RETRIEVAL_WEIGHT[sectionType] ?? UNKNOWN_SECTION_WEIGHT;
+    const genTokens = SECTION_GENERATION_TOKENS[sectionType] ?? UNKNOWN_SECTION_GEN_TOKENS;
+    const retrievalTokens = totalWeight > 0 ? Math.floor(retrievalBudget * (weight / totalWeight)) : 0;
+    const cortexMaxResults = Math.max(1, Math.floor(retrievalTokens / TOKENS_PER_CORTEX_MEMORY));
     return {
       sectionType,
       retrievalTokens,
@@ -26544,28 +30100,14 @@ function calculateContextBudget(prdContext, completedSections = [], contextWindo
       tokensPerMemory: TOKENS_PER_CORTEX_MEMORY,
       totalRetrievalBudget: retrievalBudget
     },
+    generationBudget,
     validationReserve,
     overheadEstimate
   };
 }
-var SECTION_RECALL_TEMPLATES = {
-  requirements: "public API surfaces exports interfaces contracts for {feature}",
-  user_stories: "user workflows interaction patterns use cases for {feature}",
-  technical_specification: "architecture patterns module structure dependencies composition for {feature}",
-  data_model: "database schema tables relationships migrations data types for {feature}",
-  api_specification: "REST GraphQL endpoints routes handlers middleware for {feature}",
-  security_considerations: "authentication authorization encryption secrets validation for {feature}",
-  performance_requirements: "latency throughput caching optimization benchmarks for {feature}",
-  testing: "test patterns fixtures assertions coverage test utilities for {feature}",
-  deployment: "deployment configuration environment infrastructure CI/CD for {feature}",
-  risks: "error handling edge cases failure modes recovery fallback for {feature}",
-  timeline: "complexity dependencies blocked-by implementation order for {feature}",
-  overview: "project purpose architecture overview high-level design for {feature}",
-  goals: "objectives success metrics KPIs business value for {feature}",
-  acceptance_criteria: "acceptance criteria validation rules business rules for {feature}"
-};
+var SECTION_RECALL_TEMPLATES2 = SECTION_RECALL_TEMPLATES;
 
-// packages/mcp-server/src/failure-mapper.ts
+// packages/mcp-server/dist/failure-mapper.js
 var RULE_TO_CATEGORY = {
   // Architecture
   clean_architecture: "missing_architecture",
@@ -26673,9 +30215,7 @@ function mapFailuresToRetrievals(violations) {
   for (const category of categorySet) {
     const template = CATEGORY_TO_QUERY[category];
     if (template.query && template.maxResults > 0) {
-      const representative = violations.find(
-        (v) => (RULE_TO_CATEGORY[v.rule] ?? "uncategorized") === category
-      );
+      const representative = violations.find((v) => (RULE_TO_CATEGORY[v.rule] ?? "uncategorized") === category);
       correctiveRetrievals.push({
         query: template.query,
         maxResults: template.maxResults,
@@ -26689,9 +30229,7 @@ function mapFailuresToRetrievals(violations) {
     "ungrounded_claim",
     "uncategorized"
   ]);
-  const hasRetrievableFailures = [...categorySet].some(
-    (c) => !nonRetrievableCategories.has(c)
-  );
+  const hasRetrievableFailures = [...categorySet].some((c) => !nonRetrievableCategories.has(c));
   const failureSummary = [
     `${violations.length} violations across ${categorySet.size} categories.`,
     hasRetrievableFailures ? `${correctiveRetrievals.length} corrective retrievals recommended.` : "Failures are structural (arithmetic/reasoning) \u2014 no retrieval will help. Fix the generation logic."
@@ -26703,94 +30241,252 @@ function mapFailuresToRetrievals(violations) {
   };
 }
 
-// packages/mcp-server/src/pipeline-state.ts
-var currentState = null;
-function initializePipeline(licenseTier, featureDescription, codebasePath) {
-  currentState = {
-    runId: crypto.randomUUID(),
-    currentStep: "license_gate",
-    prdContext: null,
-    licenseTier,
-    featureDescription,
-    codebasePath: codebasePath ?? null,
-    codebaseIndexed: false,
-    sections: [],
-    clarificationRounds: 0,
-    tokensConsumed: 0,
-    startedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    errors: []
-  };
-  return currentState;
-}
-function getPipelineState() {
-  return currentState;
-}
-function updatePipelineState(updates) {
-  if (!currentState) return null;
-  if (updates.currentStep !== void 0) currentState.currentStep = updates.currentStep;
-  if (updates.prdContext !== void 0) currentState.prdContext = updates.prdContext;
-  if (updates.codebaseIndexed !== void 0) currentState.codebaseIndexed = updates.codebaseIndexed;
-  if (updates.clarificationRounds !== void 0) currentState.clarificationRounds = updates.clarificationRounds;
-  if (updates.tokensConsumed !== void 0) currentState.tokensConsumed = updates.tokensConsumed;
-  if (updates.featureDescription !== void 0) currentState.featureDescription = updates.featureDescription;
-  currentState.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-  return currentState;
-}
-function updateSectionStatus(sectionType, status, violationCount, lastViolations) {
-  if (!currentState) return null;
-  let section = currentState.sections.find((s) => s.sectionType === sectionType);
-  if (!section) {
-    section = {
-      sectionType,
-      status: "pending",
-      attempt: 0,
-      violationCount: 0,
-      lastViolations: []
+// packages/mcp-server/dist/budget-tools.js
+function registerBudgetTools(server2) {
+  server2.tool("coordinate_context_budget", "Calculate token budget allocation for PRD generation. Returns per-section retrieval limits for Cortex recall, generation budgets, and section-specific query templates. Call this BEFORE starting section generation.", {
+    prd_context: external_exports.enum(["proposal", "feature", "bug", "incident", "poc", "mvp", "release", "cicd"]).describe("The PRD context type"),
+    completed_sections: external_exports.array(external_exports.string()).default([]).describe("Section types already generated"),
+    context_window_size: external_exports.number().int().default(2e5).describe("Total context window size in tokens")
+  }, async ({ prd_context, completed_sections, context_window_size }) => {
+    const budget = calculateContextBudget(prd_context, completed_sections, context_window_size);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ budget, recallTemplates: SECTION_RECALL_TEMPLATES2 }, null, 2)
+        }
+      ]
     };
-    currentState.sections.push(section);
-  }
-  section.status = status;
-  if (status === "generating" || status === "retrying") {
-    section.attempt++;
-  }
-  if (violationCount !== void 0) section.violationCount = violationCount;
-  if (lastViolations !== void 0) section.lastViolations = lastViolations;
-  currentState.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-  return currentState;
-}
-function addPipelineError(error2) {
-  if (currentState) {
-    currentState.errors.push(`[${(/* @__PURE__ */ new Date()).toISOString()}] ${error2}`);
-    currentState.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-  }
-}
-function getPipelineStateSummary() {
-  if (!currentState) return null;
-  const completed = currentState.sections.filter((s) => s.status === "passed").length;
-  const failed = currentState.sections.filter((s) => s.status === "failed").length;
-  const total = currentState.sections.length;
-  const lines = [
-    `Run: ${currentState.runId.slice(0, 8)}`,
-    `Step: ${currentState.currentStep}`,
-    `Context: ${currentState.prdContext ?? "not set"}`,
-    `Codebase: ${currentState.codebaseIndexed ? "indexed" : "not indexed"}`,
-    `Sections: ${completed}/${total} passed, ${failed} failed`,
-    `Clarification rounds: ${currentState.clarificationRounds}`,
-    `Tokens consumed: ~${currentState.tokensConsumed}`
-  ];
-  if (currentState.errors.length > 0) {
-    lines.push(`Errors: ${currentState.errors.length}`);
-    lines.push(`  Last: ${currentState.errors[currentState.errors.length - 1]}`);
-  }
-  return lines.join("\n");
+  });
+  server2.tool("map_failure_to_retrieval", "When validate_prd_section returns violations, call this to get corrective Cortex recall queries. Closes the validation\u2192retrieval feedback loop so retries use better context.", {
+    // Validate at the MCP boundary using the canonical domain schema
+    // (HardOutputRuleViolationSchema). Pre-fix this used a hand-written
+    // loose schema and an `as any` cast at the call site, defeating the
+    // type system at the layer boundary (cross-audit code-reviewer C3 +
+    // dijkstra §3.2, Phase 3+4, 2026-04).
+    violations: external_exports.array(HardOutputRuleViolationSchema).describe("Violations from validate_prd_section")
+  }, async ({ violations }) => {
+    const result = mapFailuresToRetrievals(violations);
+    return {
+      content: [
+        { type: "text", text: JSON.stringify(result, null, 2) }
+      ]
+    };
+  });
 }
 
-// packages/mcp-server/src/index.ts
+// packages/mcp-server/dist/pipeline-tools.js
+var runStore = new InMemoryRunStore();
+var _repo = void 0;
+var _tracker = null;
+function getTracker() {
+  if (_repo === void 0) {
+    _repo = tryCreateEvidenceRepository();
+    if (_repo)
+      _tracker = new EffectivenessTracker(_repo);
+  }
+  return _tracker;
+}
+function drainStrategyExecutions(state) {
+  if (state.strategy_executions.length === 0)
+    return state;
+  const tracker = getTracker();
+  if (tracker) {
+    for (const exec of state.strategy_executions) {
+      try {
+        tracker.recordExecution({ ...exec, sessionId: state.run_id });
+      } catch {
+      }
+    }
+  }
+  return { ...state, strategy_executions: [] };
+}
+var inFlight = /* @__PURE__ */ new Set();
+function generateRunId() {
+  return "run_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+}
+function envelope(state, action, messages = []) {
+  return {
+    run_id: state.run_id,
+    current_step: state.current_step,
+    /** Banners/status lines emitted while advancing to `action`. Display before acting. */
+    messages,
+    action,
+    state_summary: {
+      sections: state.sections.map((s) => ({
+        section_type: s.section_type,
+        status: s.status,
+        attempt: s.attempt,
+        violation_count: s.violation_count
+      })),
+      clarification_rounds: state.clarifications.length,
+      errors: state.errors.length
+    }
+  };
+}
+function registerPipelineTools(server2, resolveLicenseTier2) {
+  server2.tool("start_pipeline", "Initialize a new PRD pipeline run. Returns run_id and the first NextAction the host must execute.", {
+    feature_description: external_exports.string().describe("What the PRD is about \u2014 passed to all prompts"),
+    codebase_path: external_exports.string().optional().describe("Absolute path to the codebase. Triggers index_codebase via automatised-pipeline."),
+    license_tier_override: LicenseTierSchema.optional().describe("Override resolved license tier (testing only)")
+  }, async ({ feature_description, codebase_path, license_tier_override }) => {
+    const tier = license_tier_override ?? resolveLicenseTier2();
+    const run_id = generateRunId();
+    const initial = newPipelineState({
+      run_id,
+      license_tier: tier,
+      feature_description,
+      codebase_path: codebase_path ?? null
+    });
+    const { state, action, messages } = step({ state: initial });
+    const drained = drainStrategyExecutions(state);
+    runStore.set(drained);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(envelope(drained, action, messages), null, 2)
+        }
+      ]
+    };
+  });
+  server2.tool("submit_action_result", "Feed an ActionResult to the pipeline runner; receive the next NextAction.", {
+    run_id: external_exports.string(),
+    // Use the canonical ActionResultSchema directly. Pre-fix this duplicated
+    // the discriminated union inline; adding a new ActionResult kind would
+    // have required updating both the canonical schema in orchestration AND
+    // this inline copy with no compile-time enforcement of synchrony
+    // (cross-audit feynman HIGH-1, Phase 3+4 follow-up, 2026-04).
+    result: ActionResultSchema
+  }, async ({ run_id, result }) => {
+    if (inFlight.has(run_id)) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              error: `concurrent submission rejected for run_id ${run_id}`
+            })
+          }
+        ],
+        isError: true
+      };
+    }
+    inFlight.add(run_id);
+    try {
+      const current = runStore.get(run_id);
+      if (!current) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ error: `unknown run_id: ${run_id}` })
+            }
+          ],
+          isError: true
+        };
+      }
+      const out = step({ state: current, result });
+      const drained = drainStrategyExecutions(out.state);
+      runStore.set(drained);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(envelope(drained, out.action, out.messages), null, 2)
+          }
+        ]
+      };
+    } finally {
+      inFlight.delete(run_id);
+    }
+  });
+  server2.tool("get_pipeline_state", "Read the current pipeline state by run_id.", {
+    run_id: external_exports.string(),
+    format: external_exports.enum(["full", "summary"]).default("summary")
+  }, async ({ run_id, format }) => {
+    const state = runStore.get(run_id);
+    if (!state) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ error: `unknown run_id: ${run_id}` })
+          }
+        ],
+        isError: true
+      };
+    }
+    const body = format === "full" ? JSON.stringify(state, null, 2) : JSON.stringify(envelope(state, null), null, 2);
+    return { content: [{ type: "text", text: body }] };
+  });
+  server2.tool("plan_section_verification", "Extract claims from a PRD section and select judges. Returns JudgeRequest[] the host must execute via Agent tool in parallel.", {
+    section_type: SectionTypeSchema,
+    content: external_exports.string(),
+    codebase_excerpts: external_exports.array(external_exports.string()).default([]),
+    memory_excerpts: external_exports.array(external_exports.string()).default([])
+  }, async ({ section_type, content, codebase_excerpts, memory_excerpts }) => {
+    const plan = planSectionVerification(section_type, content, {
+      codebase_excerpts,
+      memory_excerpts,
+      include_prd_excerpt: true
+    });
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(plan, null, 2)
+        }
+      ]
+    };
+  });
+  server2.tool("plan_document_verification", "Same as plan_section_verification but across all sections of a document.", {
+    sections: external_exports.array(external_exports.object({
+      type: SectionTypeSchema,
+      content: external_exports.string()
+    })).min(1),
+    codebase_excerpts: external_exports.array(external_exports.string()).default([]),
+    memory_excerpts: external_exports.array(external_exports.string()).default([])
+  }, async ({ sections, codebase_excerpts, memory_excerpts }) => {
+    const plan = planDocumentVerification(sections, {
+      codebase_excerpts,
+      memory_excerpts,
+      include_prd_excerpt: true
+    });
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(plan, null, 2)
+        }
+      ]
+    };
+  });
+  server2.tool("conclude_verification", "Aggregate JudgeVerdict[] from spawned subagents into a VerificationReport (consensus + dissent).", {
+    scope: external_exports.enum(["section", "document"]).default("section"),
+    section_type: SectionTypeSchema.optional(),
+    verdicts: external_exports.array(JudgeVerdictSchema),
+    consensus_strategy: external_exports.enum(["weighted_average", "bayesian"]).default("weighted_average")
+  }, async ({ scope, section_type, verdicts, consensus_strategy }) => {
+    const report = scope === "document" ? concludeDocument(verdicts, { strategy: consensus_strategy }) : concludeSection(section_type ?? "overview", verdicts, {
+      strategy: consensus_strategy
+    });
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(report, null, 2)
+        }
+      ]
+    };
+  });
+}
+
+// packages/mcp-server/dist/index.js
 var __dirname = dirname(fileURLToPath(import.meta.url));
 function resolveLicenseTier() {
   const homedir2 = process.env.HOME ?? process.env.USERPROFILE ?? "";
-  const licensePath = join2(homedir2, ".aiprd", "license.json");
+  const licensePath = join3(homedir2, ".aiprd", "license.json");
   if (existsSync2(licensePath)) {
     try {
       const data = JSON.parse(readFileSync(licensePath, "utf-8"));
@@ -26800,7 +30496,7 @@ function resolveLicenseTier() {
     } catch {
     }
   }
-  const trialPath = join2(homedir2, ".aiprd", "trial.json");
+  const trialPath = join3(homedir2, ".aiprd", "trial.json");
   if (existsSync2(trialPath)) {
     try {
       const data = JSON.parse(readFileSync(trialPath, "utf-8"));
@@ -26813,12 +30509,12 @@ function resolveLicenseTier() {
   }
   return "free";
 }
-var PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT ?? join2(__dirname, "..", "..", "..");
+var PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT ?? join3(__dirname, "..", "..", "..");
 function loadSkillConfig() {
   const configPaths = [
     process.env.PRD_GEN_SKILL_CONFIG,
-    join2(PLUGIN_ROOT, "skill-config.json"),
-    join2(PLUGIN_ROOT, "packages", "skill", "skill-config.json")
+    join3(PLUGIN_ROOT, "skill-config.json"),
+    join3(PLUGIN_ROOT, "packages", "skill", "skill-config.json")
   ].filter(Boolean);
   for (const p of configPaths) {
     if (existsSync2(p)) {
@@ -26829,8 +30525,8 @@ function loadSkillConfig() {
 }
 function loadSkillMd() {
   const skillPaths = [
-    join2(PLUGIN_ROOT, "skills", "ai-prd-generator", "SKILL.md"),
-    join2(PLUGIN_ROOT, "packages", "skill", "SKILL.md")
+    join3(PLUGIN_ROOT, "skills", "ai-prd-generator", "SKILL.md"),
+    join3(PLUGIN_ROOT, "packages", "skill", "SKILL.md")
   ];
   for (const p of skillPaths) {
     if (existsSync2(p)) {
@@ -26843,400 +30539,195 @@ var server = new McpServer({
   name: "prd-gen",
   version: "0.1.0"
 });
-var _evidenceRepo = null;
+var _evidenceRepo = void 0;
 function getEvidenceRepo() {
-  if (!_evidenceRepo) {
-    _evidenceRepo = new EvidenceRepository();
+  if (_evidenceRepo === void 0) {
+    _evidenceRepo = tryCreateEvidenceRepository();
   }
   return _evidenceRepo;
 }
-server.tool(
-  "validate_license",
-  "Resolve the current license tier (free/trial/licensed)",
-  {},
-  async () => {
-    const tier = resolveLicenseTier();
-    const capabilities = TIER_CAPABILITIES[tier];
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({ tier, capabilities }, null, 2)
-        }
-      ]
-    };
-  }
-);
-server.tool(
-  "get_license_features",
-  "Get feature capabilities for the current license tier",
-  {},
-  async () => {
-    const tier = resolveLicenseTier();
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(TIER_CAPABILITIES[tier], null, 2)
-        }
-      ]
-    };
-  }
-);
-server.tool(
-  "get_config",
-  "Get the full skill configuration",
-  {},
-  async () => {
-    const config2 = loadSkillConfig();
-    return {
-      content: [{ type: "text", text: JSON.stringify(config2, null, 2) }]
-    };
-  }
-);
-server.tool(
-  "read_skill_config",
-  "Read the SKILL.md content that drives PRD generation",
-  {},
-  async () => {
-    const skillMd = loadSkillMd();
-    return {
-      content: [{ type: "text", text: skillMd }]
-    };
-  }
-);
-server.tool(
-  "check_health",
-  "Check system health \u2014 verify all components are accessible",
-  {},
-  async () => {
-    const tier = resolveLicenseTier();
-    const configAvailable = loadSkillConfig().version !== void 0;
-    const skillAvailable = loadSkillMd() !== "SKILL.md not found";
-    let dbHealthy = false;
-    try {
-      const repo = getEvidenceRepo();
+server.tool("validate_license", "Resolve the current license tier (free/trial/licensed)", {}, async () => {
+  const tier = resolveLicenseTier();
+  const capabilities = TIER_CAPABILITIES[tier];
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({ tier, capabilities }, null, 2)
+      }
+    ]
+  };
+});
+server.tool("get_license_features", "Get feature capabilities for the current license tier", {}, async () => {
+  const tier = resolveLicenseTier();
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(TIER_CAPABILITIES[tier], null, 2)
+      }
+    ]
+  };
+});
+server.tool("get_config", "Get the full skill configuration", {}, async () => {
+  const config2 = loadSkillConfig();
+  return {
+    content: [{ type: "text", text: JSON.stringify(config2, null, 2) }]
+  };
+});
+server.tool("read_skill_config", "Read the SKILL.md content that drives PRD generation", {}, async () => {
+  const skillMd = loadSkillMd();
+  return {
+    content: [{ type: "text", text: skillMd }]
+  };
+});
+server.tool("check_health", "Check system health \u2014 verify all components are accessible", {}, async () => {
+  const tier = resolveLicenseTier();
+  const configAvailable = loadSkillConfig().version !== void 0;
+  const skillAvailable = loadSkillMd() !== "SKILL.md not found";
+  let dbHealthy = false;
+  try {
+    const repo = getEvidenceRepo();
+    if (repo) {
       repo.getQualityHistory(1);
       dbHealthy = true;
-    } catch {
-      dbHealthy = false;
     }
+  } catch {
+    dbHealthy = false;
+  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          status: "ok",
+          licenseTier: tier,
+          configAvailable,
+          skillAvailable,
+          evidenceDbHealthy: dbHealthy,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        }, null, 2)
+      }
+    ]
+  };
+});
+server.tool("get_prd_context_info", "Get configuration for a specific PRD context type", {
+  context: external_exports.enum([
+    "proposal",
+    "feature",
+    "bug",
+    "incident",
+    "poc",
+    "mvp",
+    "release",
+    "cicd"
+  ]).describe("The PRD context type")
+}, async ({ context }) => {
+  const config2 = PRD_CONTEXT_CONFIGS[context];
+  return {
+    content: [{ type: "text", text: JSON.stringify(config2, null, 2) }]
+  };
+});
+server.tool("list_available_strategies", "List thinking strategies available for the current license tier", {}, async () => {
+  const tier = resolveLicenseTier();
+  const capabilities = TIER_CAPABILITIES[tier];
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          tier,
+          strategies: capabilities.allowedStrategies,
+          tiers: STRATEGY_TIERS
+        }, null, 2)
+      }
+    ]
+  };
+});
+server.tool("validate_prd_section", "Run deterministic Hard Output Rules validation on a single PRD section. Returns violations found \u2014 zero LLM calls, pure regex/parsing.", {
+  content: external_exports.string().describe("The markdown content of the PRD section"),
+  section_type: SectionTypeSchema.describe("The type of PRD section being validated")
+}, async ({ content, section_type }) => {
+  const report = validateSection(content, section_type);
+  return {
+    content: [
+      { type: "text", text: JSON.stringify(report, null, 2) }
+    ]
+  };
+});
+server.tool("validate_prd_document", "Run full document validation including cross-section checks (SP arithmetic, AC numbering, FR-AC coverage, test traceability). Returns comprehensive validation report.", {
+  sections: external_exports.array(external_exports.object({
+    // Validate at MCP boundary so the cast at the call site is
+    // unnecessary. Pre-fix: `z.string()` + `s.type as SectionType`.
+    // Cross-audit code-reviewer H5 (Phase 3+4, 2026-04).
+    type: SectionTypeSchema.describe("Section type"),
+    content: external_exports.string().describe("Section content")
+  })).describe("Array of PRD sections to validate")
+}, async ({ sections }) => {
+  const report = validateDocument(sections);
+  return {
+    content: [
+      { type: "text", text: JSON.stringify(report, null, 2) }
+    ]
+  };
+});
+server.tool("get_quality_history", "Get historical PRD quality scores from the evidence repository", {
+  limit: external_exports.number().int().min(1).max(200).default(20).describe("Maximum number of records to return")
+}, async ({ limit }) => {
+  const repo = getEvidenceRepo();
+  if (!repo) {
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(
-            {
-              status: "ok",
-              licenseTier: tier,
-              configAvailable,
-              skillAvailable,
-              evidenceDbHealthy: dbHealthy,
-              timestamp: (/* @__PURE__ */ new Date()).toISOString()
-            },
-            null,
-            2
-          )
+          text: JSON.stringify({
+            error: "Evidence repository unavailable (better-sqlite3 not loaded)"
+          })
         }
-      ]
+      ],
+      isError: true
     };
   }
-);
-server.tool(
-  "get_prd_context_info",
-  "Get configuration for a specific PRD context type",
-  {
-    context: external_exports.enum([
-      "proposal",
-      "feature",
-      "bug",
-      "incident",
-      "poc",
-      "mvp",
-      "release",
-      "cicd"
-    ]).describe("The PRD context type")
-  },
-  async ({ context }) => {
-    const config2 = PRD_CONTEXT_CONFIGS[context];
-    return {
-      content: [{ type: "text", text: JSON.stringify(config2, null, 2) }]
-    };
-  }
-);
-server.tool(
-  "list_available_strategies",
-  "List thinking strategies available for the current license tier",
-  {},
-  async () => {
-    const tier = resolveLicenseTier();
-    const capabilities = TIER_CAPABILITIES[tier];
+  const history = repo.getQualityHistory(limit);
+  return {
+    content: [
+      { type: "text", text: JSON.stringify(history, null, 2) }
+    ]
+  };
+});
+server.tool("get_strategy_effectiveness", "Get strategy performance data \u2014 actual vs expected improvement, compliance rate", {
+  min_executions: external_exports.number().int().min(1).default(5).describe("Minimum executions required to include a strategy")
+}, async ({ min_executions }) => {
+  const repo = getEvidenceRepo();
+  if (!repo) {
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(
-            {
-              tier,
-              strategies: capabilities.allowedStrategies,
-              tiers: STRATEGY_TIERS
-            },
-            null,
-            2
-          )
+          text: JSON.stringify({
+            error: "Evidence repository unavailable (better-sqlite3 not loaded)"
+          })
         }
-      ]
+      ],
+      isError: true
     };
   }
-);
-server.tool(
-  "validate_prd_section",
-  "Run deterministic Hard Output Rules validation on a single PRD section. Returns violations found \u2014 zero LLM calls, pure regex/parsing.",
-  {
-    content: external_exports.string().describe("The markdown content of the PRD section"),
-    section_type: external_exports.enum([
-      "overview",
-      "goals",
-      "requirements",
-      "user_stories",
-      "technical_specification",
-      "acceptance_criteria",
-      "data_model",
-      "api_specification",
-      "security_considerations",
-      "performance_requirements",
-      "testing",
-      "deployment",
-      "risks",
-      "timeline",
-      "source_code",
-      "test_code"
-    ]).describe("The type of PRD section being validated")
-  },
-  async ({ content, section_type }) => {
-    const report = validateSection(content, section_type);
-    return {
-      content: [
-        { type: "text", text: JSON.stringify(report, null, 2) }
-      ]
-    };
-  }
-);
-server.tool(
-  "validate_prd_document",
-  "Run full document validation including cross-section checks (SP arithmetic, AC numbering, FR-AC coverage, test traceability). Returns comprehensive validation report.",
-  {
-    sections: external_exports.array(
-      external_exports.object({
-        type: external_exports.string().describe("Section type"),
-        content: external_exports.string().describe("Section content")
-      })
-    ).describe("Array of PRD sections to validate")
-  },
-  async ({ sections }) => {
-    const typedSections = sections.map((s) => ({
-      type: s.type,
-      content: s.content
-    }));
-    const report = validateDocument(typedSections);
-    return {
-      content: [
-        { type: "text", text: JSON.stringify(report, null, 2) }
-      ]
-    };
-  }
-);
-server.tool(
-  "get_quality_history",
-  "Get historical PRD quality scores from the evidence repository",
-  {
-    limit: external_exports.number().int().min(1).max(200).default(20).describe("Maximum number of records to return")
-  },
-  async ({ limit }) => {
-    const repo = getEvidenceRepo();
-    const history = repo.getQualityHistory(limit);
-    return {
-      content: [
-        { type: "text", text: JSON.stringify(history, null, 2) }
-      ]
-    };
-  }
-);
-server.tool(
-  "get_strategy_effectiveness",
-  "Get strategy performance data \u2014 actual vs expected improvement, compliance rate",
-  {
-    min_executions: external_exports.number().int().min(1).default(5).describe("Minimum executions required to include a strategy")
-  },
-  async ({ min_executions }) => {
-    const repo = getEvidenceRepo();
-    const performance = repo.getStrategyPerformance(min_executions);
-    const adjustments = repo.getHistoricalAdjustments(min_executions);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            {
-              performance,
-              adjustments: Object.fromEntries(adjustments)
-            },
-            null,
-            2
-          )
-        }
-      ]
-    };
-  }
-);
-server.tool(
-  "coordinate_context_budget",
-  "Calculate token budget allocation for PRD generation. Returns per-section retrieval limits for Cortex recall, generation budgets, and section-specific query templates. Call this BEFORE starting section generation.",
-  {
-    prd_context: external_exports.enum(["proposal", "feature", "bug", "incident", "poc", "mvp", "release", "cicd"]).describe("The PRD context type"),
-    completed_sections: external_exports.array(external_exports.string()).default([]).describe("Section types already generated"),
-    context_window_size: external_exports.number().int().default(2e5).describe("Total context window size in tokens")
-  },
-  async ({ prd_context, completed_sections, context_window_size }) => {
-    const budget = calculateContextBudget(
-      prd_context,
-      completed_sections,
-      context_window_size
-    );
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            { budget, recallTemplates: SECTION_RECALL_TEMPLATES },
-            null,
-            2
-          )
-        }
-      ]
-    };
-  }
-);
-server.tool(
-  "map_failure_to_retrieval",
-  "When validate_prd_section returns violations, call this to get corrective Cortex recall queries. Closes the validation\u2192retrieval feedback loop so retries use better context.",
-  {
-    violations: external_exports.array(
-      external_exports.object({
-        rule: external_exports.string(),
-        message: external_exports.string(),
-        isCritical: external_exports.boolean(),
-        scorePenalty: external_exports.number(),
-        sectionType: external_exports.string().nullable(),
-        offendingContent: external_exports.string().nullable(),
-        location: external_exports.string().nullable()
-      })
-    ).describe("Violations from validate_prd_section")
-  },
-  async ({ violations }) => {
-    const result = mapFailuresToRetrievals(violations);
-    return {
-      content: [
-        { type: "text", text: JSON.stringify(result, null, 2) }
-      ]
-    };
-  }
-);
-server.tool(
-  "initialize_pipeline",
-  "Start a new PRD generation pipeline. Creates a tracked run with unique ID. Call at the beginning of /generate-prd.",
-  {
-    feature_description: external_exports.string().describe("What the PRD is about"),
-    codebase_path: external_exports.string().optional().describe("Path to the codebase being analyzed")
-  },
-  async ({ feature_description, codebase_path }) => {
-    const tier = resolveLicenseTier();
-    const state = initializePipeline(tier, feature_description, codebase_path);
-    return {
-      content: [
-        { type: "text", text: JSON.stringify(state, null, 2) }
-      ]
-    };
-  }
-);
-server.tool(
-  "get_pipeline_state",
-  "Get current pipeline state \u2014 which step, which sections done, errors, budget consumed. Use the summary format to save context tokens.",
-  {
-    format: external_exports.enum(["full", "summary"]).default("summary").describe("'summary' for compact view, 'full' for complete state")
-  },
-  async ({ format }) => {
-    if (format === "summary") {
-      const summary = getPipelineStateSummary();
-      return {
-        content: [
-          {
-            type: "text",
-            text: summary ?? "No active pipeline. Call initialize_pipeline first."
-          }
-        ]
-      };
-    }
-    const state = getPipelineState();
-    return {
-      content: [
-        {
-          type: "text",
-          text: state ? JSON.stringify(state, null, 2) : "No active pipeline. Call initialize_pipeline first."
-        }
-      ]
-    };
-  }
-);
-server.tool(
-  "update_pipeline_state",
-  "Update pipeline progress \u2014 advance step, mark sections, record errors. Call after each pipeline action.",
-  {
-    current_step: external_exports.enum([
-      "license_gate",
-      "context_detection",
-      "input_analysis",
-      "feasibility_gate",
-      "clarification",
-      "section_generation",
-      "jira_generation",
-      "file_export",
-      "self_check",
-      "complete"
-    ]).optional().describe("Advance to this pipeline step"),
-    prd_context: external_exports.enum(["proposal", "feature", "bug", "incident", "poc", "mvp", "release", "cicd"]).optional().describe("Set the detected PRD context"),
-    codebase_indexed: external_exports.boolean().optional().describe("Mark codebase as indexed in Cortex"),
-    section_type: external_exports.string().optional().describe("Section to update"),
-    section_status: external_exports.enum(["pending", "generating", "validating", "passed", "failed", "retrying"]).optional().describe("New status for the section"),
-    violation_count: external_exports.number().optional().describe("Number of violations found"),
-    error: external_exports.string().optional().describe("Record an error")
-  },
-  async (params) => {
-    if (params.error) {
-      addPipelineError(params.error);
-    }
-    if (params.section_type && params.section_status) {
-      updateSectionStatus(
-        params.section_type,
-        params.section_status,
-        params.violation_count
-      );
-    }
-    const updates = {};
-    if (params.current_step) updates.currentStep = params.current_step;
-    if (params.prd_context) updates.prdContext = params.prd_context;
-    if (params.codebase_indexed !== void 0) updates.codebaseIndexed = params.codebase_indexed;
-    if (Object.keys(updates).length > 0) {
-      updatePipelineState(updates);
-    }
-    const summary = getPipelineStateSummary();
-    return {
-      content: [
-        { type: "text", text: summary ?? "No active pipeline." }
-      ]
-    };
-  }
-);
+  const performance = repo.getStrategyPerformance(min_executions);
+  const adjustments = repo.getHistoricalAdjustments(min_executions);
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          performance,
+          adjustments: Object.fromEntries(adjustments)
+        }, null, 2)
+      }
+    ]
+  };
+});
+registerBudgetTools(server);
+registerPipelineTools(server, resolveLicenseTier);
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);

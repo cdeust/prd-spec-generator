@@ -1,22 +1,25 @@
 {
-  "name": "ai-prd-generator",
-  "description": "PRD generator with 64 deterministic validation rules, 8 PRD types, research-backed strategy selection, and 11 MCP tools including real-time section validation",
-  "version": "2.0.0",
+  "name": "prd-spec-generator",
+  "description": "Stateless reducer that turns a feature description into a 9-file PRD. Multi-judge verification with weighted-average + Bayesian consensus. Deterministic Hard Output Rules validation. Research-evidence-backed strategy selection that closes a feedback loop into the EvidenceRepository.",
+  "version": "0.2.0",
   "author": {
     "name": "Clement Deust",
-    "email": "admin@ai-architect.tools",
-    "url": "https://ai-architect.tools"
+    "email": "admin@ai-architect.tools"
   },
-  "homepage": "https://ai-architect.tools",
-  "license": "Commercial",
+  "homepage": "https://github.com/cdeust/prd-spec-generator",
+  "repository": "https://github.com/cdeust/prd-spec-generator",
+  "license": "MIT",
   "keywords": [
     "prd",
     "product-requirements",
-    "documentation",
+    "mcp",
+    "claude-code",
     "verification",
     "validation",
-    "jira",
-    "testing",
-    "codebase-analysis"
-  ]
+    "consensus",
+    "multi-judge",
+    "stateless-reducer",
+    "ai-architect"
+  ],
+  "mcpServers": "./.mcp.json"
 }

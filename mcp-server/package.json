@@ -1,0 +1,8 @@
+{
+  "name": "@prd-gen/mcp-server-bundle",
+  "version": "0.2.0",
+  "description": "Self-contained ESM bundle of the prd-spec-generator MCP server. Built by `pnpm bundle` from the workspace TypeScript source. The marketplace .mcp.json runs index.js directly via `node`.",
+  "type": "module",
+  "main": "./index.js",
+  "private": true
+}

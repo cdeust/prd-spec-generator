@@ -169,7 +169,7 @@ function concludeFromVerdicts(
    * a 100%-PASS run is statistically distinguishable from "small-N noise."
    * The exact 1.0 threshold is conservative; a softer threshold (e.g. 0.95)
    * with a larger minimum cluster is on the Phase 4.5 calibration list.
-   * Refinement requires K≥100 labelled runs (PHASE_4_PLAN.md §4.5).
+   * Refinement requires K≥100 labelled runs (docs/PHASE_4_PLAN.md §4.5).
    */
   const SUSPICIOUS_MIN_CLUSTER = 5;
   const SUSPICIOUS_PASS_RATE = 1.0;

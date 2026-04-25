@@ -23,7 +23,7 @@ import {
  * source: provisional heuristic — initial values derived from a single
  * production PRD (SnippetLibraryCRUD, 2026-Q1) by counting tokens in the
  * generated section. Phase 4.5 will recalibrate from a corpus of K≥30
- * real PRD outputs to set per-section P95 (PHASE_4_PLAN.md §4.5). Until
+ * real PRD outputs to set per-section P95 (docs/PHASE_4_PLAN.md §4.5). Until
  * then these are upper-bound estimates; the budget is conservative.
  */
 const SECTION_GENERATION_TOKENS: Partial<Record<SectionType, number>> = {

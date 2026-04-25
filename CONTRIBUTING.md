@@ -58,9 +58,9 @@ process is automated — agents do the audits — but the discipline is real:
    be deferred with explicit follow-up tasks.
 4. **Re-run the cycle** if any structural change was made in step 3.
 
-The Phase 3+4 audit cycle is documented in `docs/PHASE_4_PLAN.md` and the
-cross-audit findings are visible in commit history. Every PR description
-should reference which audits ran and what was found.
+The Phase 3+4 audit cycle is documented in [`docs/PHASE_4_PLAN.md`](docs/PHASE_4_PLAN.md)
+and the cross-audit findings are visible in commit history. Every PR
+description should reference which audits ran and what was found.
 
 ---
 
@@ -112,8 +112,10 @@ Full text in [`rules/coding-standards.md`](https://github.com/cdeust/zetetic-tea
 
 ## Code of Conduct
 
-This project follows the [Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
-See [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+This project follows [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). Same
+standard applies to issues, PRs, and review discussion as to the project's
+own audit cycle: cite, disagree on merits, and acknowledge what you can't
+verify.
 
 ---
 

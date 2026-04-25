@@ -1,0 +1,39 @@
+{
+  "name": "prd-spec-generator-marketplace",
+  "owner": {
+    "name": "Clement Deust",
+    "email": "admin@ai-architect.tools"
+  },
+  "metadata": {
+    "description": "prd-spec-generator — turn a feature description into a 9-file PRD via a stateless reducer with multi-judge verification, deterministic validation, and research-evidence-backed strategy selection",
+    "version": "0.2.0"
+  },
+  "plugins": [
+    {
+      "name": "prd-spec-generator",
+      "source": "./",
+      "description": "10 packages · 11 MCP tools · 9 pipeline steps · multi-judge verification · 258 tests · every constant sourced",
+      "version": "0.2.0",
+      "author": {
+        "name": "Clement Deust",
+        "email": "admin@ai-architect.tools"
+      },
+      "homepage": "https://github.com/cdeust/prd-spec-generator",
+      "repository": "https://github.com/cdeust/prd-spec-generator",
+      "license": "MIT",
+      "keywords": [
+        "prd",
+        "product-requirements",
+        "mcp",
+        "claude-code",
+        "verification",
+        "validation",
+        "consensus",
+        "multi-judge",
+        "stateless-reducer",
+        "ai-architect"
+      ],
+      "category": "documentation"
+    }
+  ]
+}
