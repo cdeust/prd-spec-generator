@@ -184,3 +184,96 @@ describe("validateDocument cross-section checks", () => {
     expect(report.violations.length).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe("validateSection — no_self_referencing_deps", () => {
+  // source: bug found 2026-04-26 during the wiki-grooming PRD run. The
+  // table-pattern regex was anchored only on `[^|]*`, which still matches
+  // newlines, so any FR-NNN appearing in a LATER row's "Depends On" cell
+  // falsely flagged the FIRST row as a self-reference. These tests pin the
+  // observable contract: cross-row references must NOT fire; same-row
+  // self-references MUST fire.
+
+  it("does NOT flag a row whose ID is referenced by a LATER row's depends-on cell", () => {
+    // FR-001 in row 1; FR-001 also appears in row 2's Depends On cell.
+    // That is a forward reference (FR-002 → FR-001), not a self-reference.
+    const content = `## Requirements
+
+| ID | Requirement | Priority | Depends On | Source |
+|---|---|---|---|---|
+| FR-001 | Load templates at startup. | P0 | — | user-request |
+| FR-002 | Validate pages against loaded templates. | P0 | FR-001 | user-request |
+| FR-003 | Write the report. | P0 | FR-002 | user-request |
+`;
+    const report = validateSection(content, "requirements");
+    const selfRefViolations = report.violations.filter(
+      (v) => v.rule === "no_self_referencing_deps",
+    );
+    expect(selfRefViolations).toEqual([]);
+  });
+
+  it("DOES flag a row whose ID appears in its OWN depends-on cell (genuine self-reference)", () => {
+    const content = `## Requirements
+
+| ID | Requirement | Priority | Depends On | Source |
+|---|---|---|---|---|
+| FR-001 | Load templates at startup. | P0 | FR-001 | user-request |
+`;
+    const report = validateSection(content, "requirements");
+    const selfRefViolations = report.violations.filter(
+      (v) => v.rule === "no_self_referencing_deps",
+    );
+    expect(selfRefViolations.length).toBeGreaterThan(0);
+    expect(
+      selfRefViolations.some((v) => (v.message ?? "").includes("FR-001")),
+    ).toBe(true);
+  });
+
+  it("DOES flag a prose self-reference within one sentence", () => {
+    const content = `## Requirements
+
+FR-005 depends on FR-005 to bootstrap itself, which is a logical impossibility.
+`;
+    const report = validateSection(content, "requirements");
+    const selfRefViolations = report.violations.filter(
+      (v) => v.rule === "no_self_referencing_deps",
+    );
+    expect(selfRefViolations.length).toBeGreaterThan(0);
+  });
+
+  it("does NOT flag two paragraphs each mentioning the same FR-NNN with 'depends on' between", () => {
+    // FR-007 appears twice but separated by a paragraph (newline) — the prose
+    // pattern must not span paragraph boundaries.
+    const content = `## Requirements
+
+FR-007 introduces the rule validator port.
+
+The rule validator depends on the kind router. Independently, FR-007 also
+exposes a per-rule extension point for future kinds.
+`;
+    const report = validateSection(content, "requirements");
+    const selfRefViolations = report.violations.filter(
+      (v) => v.rule === "no_self_referencing_deps",
+    );
+    expect(selfRefViolations).toEqual([]);
+  });
+
+  it("flags only the genuinely self-referencing row when both cross-row and self-row cases coexist", () => {
+    const content = `## Requirements
+
+| ID | Requirement | Priority | Depends On | Source |
+|---|---|---|---|---|
+| FR-001 | Load templates. | P0 | — | user-request |
+| FR-002 | Validate pages. | P0 | FR-001 | user-request |
+| FR-003 | Bootstrap itself. | P0 | FR-003 | user-request |
+`;
+    const report = validateSection(content, "requirements");
+    const selfRefViolations = report.violations.filter(
+      (v) => v.rule === "no_self_referencing_deps",
+    );
+    // Exactly one violation, on FR-003.
+    expect(selfRefViolations.length).toBe(1);
+    expect(
+      (selfRefViolations[0]?.message ?? "").includes("FR-003"),
+    ).toBe(true);
+  });
+});

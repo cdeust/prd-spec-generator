@@ -5,15 +5,34 @@ import type {
 import { makeViolation } from "./helpers.js";
 
 // Rule 2: No Self-Referencing Dependencies
+//
+// A row/sentence "references itself" only when the SAME identifier appears
+// twice within ONE row (markdown table) or ONE prose sentence — not across
+// row or paragraph boundaries.
+//
+// source: bug found 2026-04-26 during the wiki-grooming PRD run. The prior
+// regex used `[^|]*` between the two `\1` anchors, which still matches
+// newlines — so any FR-NNN appearing in column 1 of one row AND in
+// "Depends On" of any LATER row falsely flagged the first row as a
+// self-reference. Two fixes below:
+//
+//   1. Anchor the table-pattern to a single line. Use `[^|\n]*` (excludes
+//      both pipes and newlines) so the regex stops at row end and cannot
+//      walk forward into another row's cells.
+//   2. Anchor the prose pattern to a single sentence/line. Same swap to
+//      `[^|\n]*` plus a small bound on cross-clause distance so the regex
+//      cannot spuriously match an identifier that appears far away in a
+//      different paragraph.
 export function checkNoSelfReferencingDeps(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
   const violations: HardOutputRuleViolation[] = [];
 
-  // Check prose for self-referencing dependency patterns
+  // Prose pattern: <ID> ... (depends on|blocked by|requires) ... <SAME ID>,
+  // all within one line (no `\n` allowed between the two occurrences).
   const pattern =
-    /((?:STORY|US|EPIC|FR)-\d+)[^|]*(?:depends\s+on|blocked\s+by|requires)[^|]*\1/gi;
+    /((?:STORY|US|EPIC|FR)-\d+)[^|\n]{0,200}?(?:depends\s+on|blocked\s+by|requires)[^|\n]{0,200}?\1/gi;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(content)) !== null) {
     const storyId = match[1];
@@ -28,9 +47,11 @@ export function checkNoSelfReferencingDeps(
     );
   }
 
-  // Also check markdown table rows: | STORY-003 | ... | STORY-003 |
+  // Markdown-table pattern: | <ID> | ... | <SAME ID> | ... |, all on one
+  // physical line. `[^|\n]*` cannot walk past a row boundary because every
+  // row ends with a `\n` immediately followed by `|` of the next row.
   const tablePattern =
-    /^\s*\|\s*((?:STORY|US|EPIC|FR)-\d+)\s*\|(?:[^|]*\|)*[^|]*\1[^|]*\|/gm;
+    /^\s*\|\s*((?:STORY|US|EPIC|FR)-\d+)\s*\|(?:[^|\n]*\|)*[^|\n]*\1[^|\n]*\|/gm;
   while ((match = tablePattern.exec(content)) !== null) {
     const storyId = match[1];
     const alreadyReported = violations.some(

@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "prd-spec-generator — turn a feature description into a 9-file PRD via a stateless reducer with multi-judge verification, deterministic validation, and research-evidence-backed strategy selection",
-    "version": "0.2.1"
+    "version": "0.2.2"
   },
   "plugins": [
     {
       "name": "prd-spec-generator",
       "source": "./",
       "description": "10 packages · 17 MCP tools · 9 pipeline steps · multi-judge verification · 248 tests · every constant sourced",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "author": {
         "name": "Clement Deust",
         "email": "admin@ai-architect.tools"

@@ -22154,14 +22154,14 @@ function checkDocumentSPArithmetic(sections) {
 // packages/validation/dist/hard-output-rules/rules/quality-rules.js
 function checkNoSelfReferencingDeps(content, sectionType) {
   const violations = [];
-  const pattern = /((?:STORY|US|EPIC|FR)-\d+)[^|]*(?:depends\s+on|blocked\s+by|requires)[^|]*\1/gi;
+  const pattern = /((?:STORY|US|EPIC|FR)-\d+)[^|\n]{0,200}?(?:depends\s+on|blocked\s+by|requires)[^|\n]{0,200}?\1/gi;
   let match;
   while ((match = pattern.exec(content)) !== null) {
     const storyId = match[1];
     const matchText = match[0].substring(0, 120);
     violations.push(makeViolation("no_self_referencing_deps", sectionType, `${storyId} references itself in dependencies`, matchText));
   }
-  const tablePattern = /^\s*\|\s*((?:STORY|US|EPIC|FR)-\d+)\s*\|(?:[^|]*\|)*[^|]*\1[^|]*\|/gm;
+  const tablePattern = /^\s*\|\s*((?:STORY|US|EPIC|FR)-\d+)\s*\|(?:[^|\n]*\|)*[^|\n]*\1[^|\n]*\|/gm;
   while ((match = tablePattern.exec(content)) !== null) {
     const storyId = match[1];
     const alreadyReported = violations.some((v) => v.offendingContent?.includes(storyId) === true);
