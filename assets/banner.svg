@@ -9,16 +9,16 @@
   <!-- Background -->
   <rect width="820" height="340" rx="8" fill="#0d1117"/>
 
-  <!-- ASCII art title: PRD GEN -->
-  <text class="mono" x="32" y="52"  fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██████╗ ██████╗ ██████╗   ██████╗ ███████╗███╗   ██╗</text>
-  <text class="mono" x="32" y="70"  fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██╔══██╗██╔══██╗██╔══██╗ ██╔════╝ ██╔════╝████╗  ██║</text>
-  <text class="mono" x="32" y="88"  fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██████╔╝██████╔╝██║  ██║ ██║  ███╗█████╗  ██╔██╗ ██║</text>
-  <text class="mono" x="32" y="106" fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██╔═══╝ ██╔══██╗██║  ██║ ██║   ██║██╔══╝  ██║╚██╗██║</text>
-  <text class="mono" x="32" y="124" fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██║     ██║  ██║██████╔╝ ╚██████╔╝███████╗██║ ╚████║</text>
-  <text class="mono" x="32" y="142" fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">╚═╝     ╚═╝  ╚═╝╚═════╝   ╚═════╝ ╚══════╝╚═╝  ╚═══╝</text>
+  <!-- ASCII art title: PRD  GEN  (clear two-word gap) -->
+  <text class="mono" x="32" y="52"  fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██████╗ ██████╗ ██████╗        ██████╗ ███████╗███╗   ██╗</text>
+  <text class="mono" x="32" y="70"  fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██╔══██╗██╔══██╗██╔══██╗      ██╔════╝ ██╔════╝████╗  ██║</text>
+  <text class="mono" x="32" y="88"  fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██████╔╝██████╔╝██║  ██║      ██║  ███╗█████╗  ██╔██╗ ██║</text>
+  <text class="mono" x="32" y="106" fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██╔═══╝ ██╔══██╗██║  ██║      ██║   ██║██╔══╝  ██║╚██╗██║</text>
+  <text class="mono" x="32" y="124" fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██║     ██║  ██║██████╔╝      ╚██████╔╝███████╗██║ ╚████║</text>
+  <text class="mono" x="32" y="142" fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">╚═╝     ╚═╝  ╚═╝╚═════╝        ╚═════╝ ╚══════╝╚═╝  ╚═══╝</text>
 
-  <!-- Subtitle -->
-  <text class="mono" x="32" y="174" fill="#e0e0e0" font-size="14" font-weight="700">S P E C   G E N E R A T O R</text>
+  <!-- Subtitle (extra gap between SPEC and GENERATOR makes them read as two words) -->
+  <text class="mono" x="32" y="174" fill="#e0e0e0" font-size="14" font-weight="700">S P E C       G E N E R A T O R</text>
 
   <!-- Stats -->
   <text class="mono" x="32" y="208" fill="#e0e0e0" font-size="12">10 packages  ·  11 MCP tools  ·  9 pipeline steps  ·  258 tests</text>
