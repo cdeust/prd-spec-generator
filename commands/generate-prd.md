@@ -9,7 +9,7 @@ argument-hint: "[project-description]"
 
 ## Step 1 — Detect mode
 
-Check your available tools list. If a tool named `mcp__ai-prd-generator__validate_license` exists, you are in **Cowork mode**. Otherwise you are in **CLI Terminal mode**.
+Check your available tools list. If a tool named `mcp__prd-gen__validate_license` (or any `mcp__*__validate_license` prefix matching the `prd-gen` server registered in your `.mcp.json`) exists, you are in **Cowork mode**. Otherwise you are in **CLI Terminal mode**.
 
 ## Step 2 — Resolve license
 

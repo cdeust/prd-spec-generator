@@ -1,5 +1,5 @@
 ---
-name: ai-prd-generator
+name: prd-spec-generator
 version: 3.1.0
 description: Action-driven PRD generation. The MCP server runs a stateless 9-step pipeline reducer; the host (Claude Code) executes each substantive action and feeds the result back via submit_action_result, looping until done. Multi-judge verification combines genius reasoning patterns with zetetic team subagents. Grounded in the ai-architect ecosystem (automatised-pipeline MCP, Cortex MCP, zetetic-team-subagents).
 dependencies: node>=20
@@ -122,7 +122,7 @@ Every response from `start_pipeline` and `submit_action_result` has this shape:
 }
 ```
 
-**Execute:** Call the **automatised-pipeline MCP** tool named `tool_name` with `arguments` exactly as provided. The tool prefix is `mcp__<server-key>__<tool_name>` where `<server-key>` is the registration key in your project's `.mcp.json` for the automatised-pipeline server. Common conventions: `mcp__plugin_ai_automatised_pipeline__<tool_name>` or `mcp__automatised-pipeline__<tool_name>`. Inspect your `.mcp.json` to confirm.
+**Execute:** Call the **automatised-pipeline MCP** tool named `tool_name` with `arguments` exactly as provided. The tool prefix is `mcp__<server-key>__<tool_name>` where `<server-key>` is the registration key in your project's `.mcp.json` for the automatised-pipeline server. The default registration key is `ai-architect` (per the automatised-pipeline plugin's `.mcp.json`), so the prefix is typically `mcp__ai-architect__<tool_name>` or, when installed via marketplace, `mcp__plugin_<plugin_id>_ai-architect__<tool_name>`. Inspect your `.mcp.json` to confirm.
 
 **If the automatised-pipeline MCP is not registered in your project**, submit a tool_result with `success: false`. The pipeline will halt with a `failed` action; the user must register the dependency before re-running.
 
@@ -312,7 +312,7 @@ A correctly configured project has all four ecosystem dependencies registered in
 
 ## CORTEX MEMORY HOOKS (what gets remembered + recalled across sessions)
 
-Cortex is the persistent memory engine. The pipeline uses it on two surfaces — **recall during section generation** (already covered in the `call_cortex_tool` dispatch row above) and **storage of decisions/lessons that future sessions benefit from**. The host does not orchestrate this storage; Cortex's hooks (`PostToolUse`, `UserPromptSubmit`, `Stop`) capture it automatically when the Cortex plugin is installed.
+Cortex is the persistent memory engine. The pipeline uses it on two surfaces — **recall during section generation** (already covered in the `call_cortex_tool` dispatch row above) and **storage of decisions/lessons that future sessions benefit from**. The host does not orchestrate this storage; Cortex's hooks (`SessionStart`, `UserPromptSubmit`, `PostToolUse`, `SessionEnd`, `Notification`) capture it automatically when the Cortex plugin is installed.
 
 ### What recall pulls IN (during section generation)
 
@@ -332,14 +332,14 @@ The recall results land in the engineer subagent's prompt as `<codebase_context>
 
 ### What's worth storing OUT (for future PRDs)
 
-When this PRD reaches `done`, the Cortex `Stop` hook captures session content automatically. The most valuable artifacts to store:
+When this PRD reaches `done`, the Cortex `SessionEnd` hook captures session content automatically. The most valuable artifacts to store:
 
 1. **Clarification answers.** The Q&A turns in `state.clarifications` — these are the user's load-bearing decisions. Tag: `decision`, `feature:<feature_description>`.
 2. **Section-failure violations.** Each entry in `state.errors` with `error_kind: "section_failure"` represents a validator violation the engineer couldn't fix in 3 attempts. These are anti-patterns worth remembering. Tag: `lesson`, `failure-mode:<rule>`.
 3. **Strategy effectiveness.** Each `state.strategy_executions` entry records `(strategy, claim_characteristics, wasCompliant, actualConfidenceGain)`. This is the closed feedback loop — recorded automatically via `EffectivenessTracker.recordExecution` into the project's `EvidenceRepository` (separate from Cortex; SQLite-backed). Cortex is NOT the storage for this signal — it lives in `~/.prd-gen/evidence.db`.
 4. **Multi-judge verdict patterns.** `done.verification.distribution` per claim. A `distribution_suspicious=true` flag is itself worth remembering — it indicates the panel was likely too soft on this kind of claim. Tag: `lesson`, `verification:confirmatory-bias`.
 
-The host does NOT explicitly call `cortex.remember(...)` from the dispatch loop — Cortex's `PostToolUse` and `Stop` hooks observe the `done` action's `summary` + `verification` fields and store what's structured enough to retrieve later.
+The host does NOT explicitly call `cortex.remember(...)` from the dispatch loop — Cortex's `PostToolUse` and `SessionEnd` hooks observe the `done` action's `summary` + `verification` fields and store what's structured enough to retrieve later.
 
 ### Verification of recall freshness
 

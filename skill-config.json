@@ -269,7 +269,7 @@
     }
   },
   "plugin": {
-    "name": "ai-prd-generator",
+    "name": "prd-spec-generator",
     "version": "2.0.0",
     "mcp_server": {
       "transport": "stdio",

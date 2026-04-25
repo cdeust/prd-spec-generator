@@ -66,7 +66,7 @@ function loadSkillConfig() {
 }
 function loadSkillMd() {
     const skillPaths = [
-        join(PLUGIN_ROOT, "skills", "ai-prd-generator", "SKILL.md"),
+        join(PLUGIN_ROOT, "skills", "prd-spec-generator", "SKILL.md"),
         join(PLUGIN_ROOT, "packages", "skill", "SKILL.md"),
     ];
     for (const p of skillPaths) {

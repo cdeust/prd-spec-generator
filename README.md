@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/Node-20.x_·_22.x-339933.svg" alt="Node 20/22">
   <img src="https://img.shields.io/badge/Tests-258_passing-brightgreen" alt="258 tests">
   <img src="https://img.shields.io/badge/Packages-10-orange" alt="10 packages">
-  <img src="https://img.shields.io/badge/MCP_Tools-11-8A2BE2" alt="11 MCP tools">
+  <img src="https://img.shields.io/badge/MCP_Tools-19-8A2BE2" alt="19 MCP tools">
   <img src="https://img.shields.io/badge/Validators-Hard_Output_Rules-red" alt="Hard Output Rules">
 </p>
 
@@ -29,7 +29,7 @@ Every AI agent that drafts a PRD eventually invents a function that doesn't exis
 
 **prd-spec-generator** is a TypeScript MCP server that fixes this at the structural level. The pipeline is a stateless reducer (`step(state, result?) → next_state, action`) driven by a host (Claude Code or any MCP-speaking agent). Sections are produced one at a time, validated by deterministic Hard Output Rules before the host ever sees them, and every load-bearing claim is judged by a panel of genius reasoning agents drawn from `zetetic-team-subagents` against the codebase graph from `automatised-pipeline`.
 
-**10 packages. 11 MCP tools. 9 pipeline steps. Multi-judge verification with consensus. 258 tests. Every numeric constant traces to a citation, a benchmark, or a `// source: provisional heuristic` admission.**
+**10 packages. 19 MCP tools. 9 pipeline steps. Multi-judge verification with consensus. 258 tests. Every numeric constant traces to a citation, a benchmark, or a `// source: provisional heuristic` admission.**
 
 ---
 
@@ -75,7 +75,7 @@ claude plugin marketplace add cdeust/prd-spec-generator
 claude plugin install prd-spec-generator
 ```
 
-Restart your Claude Code session. The 11 MCP tools register on first
+Restart your Claude Code session. The 19 MCP tools register on first
 stdio handshake. Then:
 
 ```
@@ -103,7 +103,7 @@ claude plugin install zetetic-team-subagents
 ```
 
 Each plugin is independently useful; together they are the ai-architect
-ecosystem. See [companion-projects](#) above.
+ecosystem. See [Companion ecosystem](#companion-ecosystem) above.
 
 ### Building from source
 
@@ -162,29 +162,35 @@ Every step is independently testable (`stepOnce(state, result?)` returns the sam
 
 ---
 
-## The eleven MCP tools
+## The MCP tools
 
-Two surfaces. The first is the reducer — three tools that drive the full pipeline. The second is direct validation + budget tooling that other systems can consume without entering the pipeline.
+Three surfaces. The reducer drives the full pipeline; the validation + verification
++ budget tools can be consumed directly by other systems without entering the
+pipeline; the diagnostics surface exposes config + license + history.
 
 ```
-Reducer:
-  start_pipeline          Initialize a run; returns first NextAction
-  submit_action_result    Drive the reducer one step; returns next NextAction
-  get_pipeline_state      Read-only state snapshot for diagnostics
+Reducer (3):
+  start_pipeline             Initialize a run; returns first NextAction
+  submit_action_result       Drive the reducer one step; returns next NextAction
+  get_pipeline_state         Read-only state snapshot for diagnostics
 
-Validation:
+Validation (2):
   validate_prd_section       Hard Output Rules — single section
   validate_prd_document      Cross-section checks (SP/AC/FR/test traceability)
 
-Verification:
+Verification (3):
   plan_section_verification  Extract claims + select judge panels
-  conclude_section           Aggregate verdicts → ConsensusVerdict[]
   plan_document_verification Same, document-wide
-  conclude_document          Aggregate verdicts → VerificationReport
+  conclude_verification      Aggregate JudgeVerdict[] → VerificationReport
 
-Budget + feedback:
+Budget + feedback (2):
   coordinate_context_budget  Per-section token allocation
   map_failure_to_retrieval   Validation failure → corrective Cortex query
+
+Diagnostics (9):
+  validate_license, get_license_features, get_config, read_skill_config,
+  check_health, get_prd_context_info, list_available_strategies,
+  get_quality_history, get_strategy_effectiveness
 ```
 
 Each tool takes structured Zod-validated arguments and returns a typed response. No tool calls an LLM — section drafts and judge verdicts come back via the host's `spawn_subagents` action so the same pipeline runs against any agent runtime.
@@ -208,7 +214,7 @@ plan_document_verification(sections[])
 
 [host spawns the panel; each agent returns a JSON verdict]
 
-conclude_document(verdicts[])
+conclude_verification(verdicts[])
   → Per claim, runs consensus():
       strategy: weighted_average (default) | bayesian
       fail_threshold: 0.5  (≥50% confidence-weighted FAIL → forces FAIL)
@@ -250,7 +256,7 @@ orchestration     ← stateless reducer, 9 step handlers, runner
 ecosystem-adapters← StdioMcpClient, AutomatisedPipelineClient, CortexClient
                     │  the only package allowed to do I/O
                     ▼
-mcp-server        ← composition root; 11 tools registered;
+mcp-server        ← composition root; 19 tools registered;
                     │  evidence repository (better-sqlite3, optional)
                     ▼
 benchmark         ← pipeline KPI measurements + golden-fixture HOR scoring
@@ -394,7 +400,7 @@ packages/
 ├── strategy/              Thinking-strategy selector
 ├── orchestration/         Stateless reducer · 9 step handlers · runner · canned-dispatcher
 ├── ecosystem-adapters/    StdioMcpClient · AutomatisedPipelineClient · CortexClient
-├── mcp-server/            Composition root · 11 MCP tools registered
+├── mcp-server/            Composition root · 19 MCP tools registered
 ├── benchmark/             Pipeline KPI measurement · golden-fixture HOR scoring
 └── skill/                 SKILL.md · slash-command definitions
 ```
