@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 340" width="820" height="340">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&amp;display=swap');
+      .mono { font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="820" height="340" rx="8" fill="#0d1117"/>
+
+  <!-- ASCII art title: PRD GEN -->
+  <text class="mono" x="32" y="52"  fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██████╗ ██████╗ ██████╗   ██████╗ ███████╗███╗   ██╗</text>
+  <text class="mono" x="32" y="70"  fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██╔══██╗██╔══██╗██╔══██╗ ██╔════╝ ██╔════╝████╗  ██║</text>
+  <text class="mono" x="32" y="88"  fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██████╔╝██████╔╝██║  ██║ ██║  ███╗█████╗  ██╔██╗ ██║</text>
+  <text class="mono" x="32" y="106" fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██╔═══╝ ██╔══██╗██║  ██║ ██║   ██║██╔══╝  ██║╚██╗██║</text>
+  <text class="mono" x="32" y="124" fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">██║     ██║  ██║██████╔╝ ╚██████╔╝███████╗██║ ╚████║</text>
+  <text class="mono" x="32" y="142" fill="#7fbbb3" font-size="13" font-weight="700" xml:space="preserve">╚═╝     ╚═╝  ╚═╝╚═════╝   ╚═════╝ ╚══════╝╚═╝  ╚═══╝</text>
+
+  <!-- Subtitle -->
+  <text class="mono" x="32" y="174" fill="#e0e0e0" font-size="14" font-weight="700">S P E C   G E N E R A T O R</text>
+
+  <!-- Stats -->
+  <text class="mono" x="32" y="208" fill="#e0e0e0" font-size="12">10 packages  ·  11 MCP tools  ·  9 pipeline steps  ·  258 tests</text>
+
+  <!-- Pipeline chain -->
+  <text class="mono" x="32" y="244" fill="#bec3be" font-size="11">detect ── clarify ── budget ── recall ── draft ── verify ── export</text>
+  <text class="mono" x="32" y="260" fill="#96a09b" font-size="11">context  question   tokens   Cortex   judge   panel    9 files</text>
+  <text class="mono" x="32" y="276" fill="#96a09b" font-size="11">trigger  loop      split    memory   strategy  consensus  PRD</text>
+
+  <!-- Principles -->
+  <text class="mono" x="32" y="312" fill="#bec3be" font-size="10">stateless reducer  ·  every section validated before the host sees it  ·  every claim judged by a panel</text>
+
+  <!-- Ecosystem brand -->
+  <text class="mono" x="788" y="308" fill="#7fbbb3" font-size="10" opacity="0.6" text-anchor="end">powered by</text>
+  <text class="mono" x="788" y="322" fill="#7fbbb3" font-size="10" opacity="0.6" text-anchor="end">ai-architect.tools</text>
+</svg>

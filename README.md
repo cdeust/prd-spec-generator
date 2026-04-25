@@ -1,5 +1,5 @@
 <p align="center">
-  <strong>prd-spec-generator</strong> — a stateless reducer that turns a feature description into a PRD the rest of your pipeline can act on.
+  <img src="assets/banner.svg" alt="prd-spec-generator — a stateless reducer that turns a feature description into a PRD the rest of your pipeline can act on" width="100%"/>
 </p>
 
 <p align="center">
