@@ -1,11 +1,26 @@
 import type { HardOutputRuleViolation, SectionType } from "@prd-gen/core";
-import { findAbsenceViolation, makeViolation } from "./helpers.js";
+import {
+  findAbsenceViolation,
+  hasExplicitOptOut,
+  makeViolation,
+} from "./helpers.js";
 
 // Rule 33: Data Classification Required
 export function checkDataClassificationRequired(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "data classification",
+      "sensitivity",
+      "pii",
+      "personal data",
+      "sensitive data",
+    ])
+  ) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
     [
@@ -39,6 +54,18 @@ export function checkSensitiveDataProtection(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "sensitive data",
+      "sensitive data protection",
+      "pii",
+      "personal data",
+      "credentials",
+      "secrets",
+    ])
+  ) {
+    return [];
+  }
   const lowered = content.toLowerCase();
 
   const encryptionSignals = [
@@ -94,6 +121,18 @@ export function checkNoSensitiveDataInLogs(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "sensitive data",
+      "pii",
+      "personal data",
+      "log",
+      "credentials",
+      "tokens",
+    ])
+  ) {
+    return [];
+  }
   const lowered = content.toLowerCase();
 
   const noLogPIISignals = [
@@ -140,6 +179,17 @@ export function checkDataMinimization(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "data minimization",
+      "personal data",
+      "pii",
+      "user data",
+      "data collected",
+    ])
+  ) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
     [
@@ -169,6 +219,17 @@ export function checkAuditTrailRequired(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "audit",
+      "audit trail",
+      "compliance",
+      "authentication events",
+      "data access",
+    ])
+  ) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
     [
@@ -199,6 +260,18 @@ export function checkConsentAndErasureSupport(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "consent",
+      "erasure",
+      "personal data",
+      "gdpr",
+      "privacy compliance",
+      "user data",
+    ])
+  ) {
+    return [];
+  }
   const lowered = content.toLowerCase();
 
   const consentSignals = [

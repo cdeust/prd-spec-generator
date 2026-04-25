@@ -1,11 +1,26 @@
 import type { HardOutputRuleViolation, SectionType } from "@prd-gen/core";
-import { findAbsenceViolation, makeViolation } from "./helpers.js";
+import {
+  findAbsenceViolation,
+  hasExplicitOptOut,
+  makeViolation,
+} from "./helpers.js";
 
 // Rule 39: Structured Error Handling
 export function checkStructuredErrorHandling(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "error",
+      "exception",
+      "error handling",
+      "error propagation",
+      "swallowed exception",
+    ])
+  ) {
+    return [];
+  }
   const lowered = content.toLowerCase();
 
   const domainErrorSignals = [
@@ -57,6 +72,18 @@ export function checkResiliencePatterns(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "resilience",
+      "circuit breaker",
+      "retry",
+      "external dependency",
+      "remote call",
+      "transient",
+    ])
+  ) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
     [
@@ -87,6 +114,17 @@ export function checkGracefulDegradation(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "graceful degradation",
+      "degradation",
+      "fallback",
+      "dependency failure",
+      "cascading failure",
+    ])
+  ) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
     [
@@ -115,6 +153,19 @@ export function checkTransactionBoundaries(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "transaction",
+      "rollback",
+      "atomic",
+      "multi-step",
+      "read-only",
+      "no writes",
+      "database",
+    ])
+  ) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
     [
@@ -147,6 +198,17 @@ export function checkConsistentErrorFormat(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "error format",
+      "error response",
+      "error envelope",
+      "error code",
+      "error catalog",
+    ])
+  ) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
     [

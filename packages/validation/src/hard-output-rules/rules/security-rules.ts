@@ -2,6 +2,7 @@ import type { HardOutputRuleViolation, SectionType } from "@prd-gen/core";
 import {
   findAbsenceViolation,
   extractCodeBlocks,
+  hasExplicitOptOut,
   makeViolation,
 } from "./helpers.js";
 
@@ -195,6 +196,17 @@ export function checkAuthOnEveryEndpoint(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "authentication",
+      "authorization",
+      "endpoint",
+      "auth strategy",
+      "caller identity",
+    ])
+  ) {
+    return [];
+  }
   const lowered = content.toLowerCase();
 
   const authNSignals = [
@@ -365,6 +377,17 @@ export function checkRateLimitingRequired(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "rate limit",
+      "rate limiting",
+      "throttl",
+      "endpoint",
+      "abuse prevention",
+    ])
+  ) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
     [
@@ -394,6 +417,19 @@ export function checkSecureCommunication(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "tls",
+      "https",
+      "network i/o",
+      "network",
+      "secure communication",
+      "transport",
+      "encrypted channel",
+    ])
+  ) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
     [

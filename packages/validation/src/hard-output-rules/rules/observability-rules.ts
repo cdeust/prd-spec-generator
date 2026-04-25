@@ -1,5 +1,9 @@
 import type { HardOutputRuleViolation, SectionType } from "@prd-gen/core";
-import { findAbsenceViolation, makeViolation } from "./helpers.js";
+import {
+  findAbsenceViolation,
+  hasExplicitOptOut,
+  makeViolation,
+} from "./helpers.js";
 
 // Rule 59: Structured Logging
 export function checkStructuredLogging(
@@ -51,6 +55,19 @@ export function checkDistributedTracing(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "distributed tracing",
+      "tracing",
+      "correlation id",
+      "single-process",
+      "single process",
+      "cross-service",
+      "second hop",
+    ])
+  ) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
     [
@@ -81,6 +98,19 @@ export function checkNoPIIInObservability(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (
+    hasExplicitOptOut(content, [
+      "pii",
+      "observability",
+      "personal data",
+      "logs",
+      "metrics",
+      "traces",
+      "dashboards",
+    ])
+  ) {
+    return [];
+  }
   const lowered = content.toLowerCase();
 
   const piiProtectionSignals = [

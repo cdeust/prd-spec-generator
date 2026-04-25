@@ -185,6 +185,83 @@ describe("validateDocument cross-section checks", () => {
   });
 });
 
+describe("validateSection — explicit-opt-out for service-shaped rules", () => {
+  // source: bug found 2026-04-26 during the wiki-grooming PRD run on the
+  // Cortex repo. Local-CLI specs were forced to fail rules that only apply
+  // to network services (auth, rate limiting, TLS, GDPR consent, distributed
+  // tracing, sensitive-data protection, transaction boundaries, structured
+  // error handling). The fix added a `hasExplicitOptOut` helper that
+  // recognizes "N/A — by construction" framing and exempts the rule.
+
+  function specWithOptOuts(): string {
+    // A representative slice of the rules-affected topics, all explicitly
+    // opted out with "N/A — by construction" framing and a short reason.
+    return `## Technical Specification
+
+### Cross-Cutting Concerns
+
+#### Authentication and Authorization
+Authentication and authorization strategy: N/A — local CLI, no endpoint exposed.
+
+#### Rate Limiting
+Rate limiting strategy: N/A — no network endpoint to protect from abuse.
+
+#### Secure Communication
+TLS / secure communication: N/A — by construction, the tool performs no network I/O at runtime.
+
+#### Distributed Tracing
+Distributed tracing and correlation IDs: N/A — single-process job, no second hop.
+
+#### Sensitive Data Protection
+Sensitive data protection: by construction, no PII, secrets, or credentials are accepted as input or emitted as output.
+
+#### Consent and Erasure
+Consent management and data erasure (GDPR): N/A — no personal data is processed.
+
+#### Transaction Boundaries
+Transaction boundaries and rollback strategy: N/A — read-only tool, nothing to roll back. Idempotent by construction.
+
+#### Structured Error Handling
+Error handling: N/A — by construction the tool emits a single error envelope with stable error codes; no swallowed exceptions, error propagation through the orchestrator only.
+`;
+  }
+
+  it("does NOT flag service-shaped rules when each topic is explicitly opted out", () => {
+    const report = validateSection(specWithOptOuts(), "technical_specification");
+    const ruleNames = new Set(report.violations.map((v) => v.rule));
+    // The eight rules covered above must all be exempted by the opt-out helper.
+    for (const name of [
+      "auth_on_every_endpoint",
+      "rate_limiting_required",
+      "secure_communication",
+      "distributed_tracing",
+      "sensitive_data_protection",
+      "consent_and_erasure_support",
+      "transaction_boundaries",
+      "structured_error_handling",
+    ] as const) {
+      expect(ruleNames.has(name)).toBe(false);
+    }
+  });
+
+  it("STILL flags a service-shaped rule when no opt-out marker appears near the topic", () => {
+    // A spec that mentions a topic but does NOT include an opt-out marker
+    // nearby must still be flagged. This pins the helper's scope: mere
+    // mention of the topic is not enough — an explicit acknowledgement of
+    // non-applicability is required.
+    const noOptOut = `## Technical Specification
+
+The service exposes an HTTP API. Requests are handled synchronously.
+The team will document the protection strategy later.
+`;
+    const report = validateSection(noOptOut, "technical_specification");
+    const ruleNames = new Set(report.violations.map((v) => v.rule));
+    // rate_limiting_required: no rate-limit keywords AND no opt-out marker
+    // near any topic signal ⇒ the rule must still fire.
+    expect(ruleNames.has("rate_limiting_required")).toBe(true);
+  });
+});
+
 describe("validateSection — no_self_referencing_deps", () => {
   // source: bug found 2026-04-26 during the wiki-grooming PRD run. The
   // table-pattern regex was anchored only on `[^|]*`, which still matches

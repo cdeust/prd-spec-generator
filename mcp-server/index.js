@@ -22063,6 +22063,49 @@ function extractCodeBlocks(content) {
   }
   return blocks;
 }
+var OPT_OUT_WINDOW = 240;
+var OPT_OUT_MARKERS = [
+  "n/a",
+  "not applicable",
+  "by construction",
+  "no network",
+  "no database",
+  "no endpoint",
+  "no public surface",
+  "no public interface",
+  "no http",
+  "no rest",
+  "no graphql",
+  "no grpc",
+  "no users",
+  "no caller",
+  "no remote",
+  "no service",
+  "no api",
+  "absent surface",
+  "no attack surface",
+  "out of scope"
+];
+function hasExplicitOptOut(content, topicSignals) {
+  if (topicSignals.length === 0)
+    return false;
+  const lowered = content.toLowerCase();
+  for (const topic of topicSignals) {
+    const t = topic.toLowerCase();
+    let idx = lowered.indexOf(t);
+    while (idx !== -1) {
+      const start = Math.max(0, idx - OPT_OUT_WINDOW);
+      const end = Math.min(lowered.length, idx + t.length + OPT_OUT_WINDOW);
+      const window = lowered.substring(start, end);
+      for (const marker of OPT_OUT_MARKERS) {
+        if (window.includes(marker))
+          return true;
+      }
+      idx = lowered.indexOf(t, idx + t.length);
+    }
+  }
+  return false;
+}
 function extractTypeName(line) {
   const typeKeywords = [
     "struct",
@@ -22940,6 +22983,15 @@ function checkOutputEncodingInjectionPrevention(content, sectionType) {
   return violations;
 }
 function checkAuthOnEveryEndpoint(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "authentication",
+    "authorization",
+    "endpoint",
+    "auth strategy",
+    "caller identity"
+  ])) {
+    return [];
+  }
   const lowered = content.toLowerCase();
   const authNSignals = [
     "authentication",
@@ -23057,6 +23109,15 @@ function checkCryptographicStandards(content, sectionType) {
   return violations;
 }
 function checkRateLimitingRequired(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "rate limit",
+    "rate limiting",
+    "throttl",
+    "endpoint",
+    "abuse prevention"
+  ])) {
+    return [];
+  }
   return findAbsenceViolation(content, [
     "rate limit",
     "rate-limit",
@@ -23074,6 +23135,17 @@ function checkRateLimitingRequired(content, sectionType) {
   ], 1, "rate_limiting_required", sectionType, "Technical spec must specify rate limiting strategy \u2014 define request limits per user/IP, throttling behavior, and abuse prevention for public-facing endpoints.");
 }
 function checkSecureCommunication(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "tls",
+    "https",
+    "network i/o",
+    "network",
+    "secure communication",
+    "transport",
+    "encrypted channel"
+  ])) {
+    return [];
+  }
   return findAbsenceViolation(content, [
     "tls",
     "https",
@@ -23093,6 +23165,15 @@ function checkSecureCommunication(content, sectionType) {
 
 // packages/validation/dist/hard-output-rules/rules/data-protection-rules.js
 function checkDataClassificationRequired(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "data classification",
+    "sensitivity",
+    "pii",
+    "personal data",
+    "sensitive data"
+  ])) {
+    return [];
+  }
   return findAbsenceViolation(content, [
     "data classification",
     "classify",
@@ -23114,6 +23195,16 @@ function checkDataClassificationRequired(content, sectionType) {
   ], 2, "data_classification_required", sectionType, "Technical spec must classify all data entities \u2014 define sensitivity levels (public/internal/confidential/restricted) with handling rules per classification.");
 }
 function checkSensitiveDataProtection(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "sensitive data",
+    "sensitive data protection",
+    "pii",
+    "personal data",
+    "credentials",
+    "secrets"
+  ])) {
+    return [];
+  }
   const lowered = content.toLowerCase();
   const encryptionSignals = [
     "encrypt at rest",
@@ -23157,6 +23248,16 @@ function checkSensitiveDataProtection(content, sectionType) {
   return [];
 }
 function checkNoSensitiveDataInLogs(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "sensitive data",
+    "pii",
+    "personal data",
+    "log",
+    "credentials",
+    "tokens"
+  ])) {
+    return [];
+  }
   const lowered = content.toLowerCase();
   const noLogPIISignals = [
     "no pii in log",
@@ -23183,6 +23284,15 @@ function checkNoSensitiveDataInLogs(content, sectionType) {
   return [];
 }
 function checkDataMinimization(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "data minimization",
+    "personal data",
+    "pii",
+    "user data",
+    "data collected"
+  ])) {
+    return [];
+  }
   return findAbsenceViolation(content, [
     "data minimization",
     "minimal data",
@@ -23200,6 +23310,15 @@ function checkDataMinimization(content, sectionType) {
   ], 1, "data_minimization", sectionType, "Technical spec must address data minimization \u2014 collect and store only what's necessary, justify every sensitive field, define purpose limitation.");
 }
 function checkAuditTrailRequired(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "audit",
+    "audit trail",
+    "compliance",
+    "authentication events",
+    "data access"
+  ])) {
+    return [];
+  }
   return findAbsenceViolation(content, [
     "audit trail",
     "audit log",
@@ -23218,6 +23337,16 @@ function checkAuditTrailRequired(content, sectionType) {
   ], 1, "audit_trail_required", sectionType, "Technical spec must require audit trails for sensitive operations \u2014 log who/what/when for authentication events, data access, configuration changes, and admin actions.");
 }
 function checkConsentAndErasureSupport(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "consent",
+    "erasure",
+    "personal data",
+    "gdpr",
+    "privacy compliance",
+    "user data"
+  ])) {
+    return [];
+  }
   const lowered = content.toLowerCase();
   const consentSignals = [
     "consent",
@@ -23254,6 +23383,15 @@ function checkConsentAndErasureSupport(content, sectionType) {
 
 // packages/validation/dist/hard-output-rules/rules/resilience-rules.js
 function checkStructuredErrorHandling(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "error",
+    "exception",
+    "error handling",
+    "error propagation",
+    "swallowed exception"
+  ])) {
+    return [];
+  }
   const lowered = content.toLowerCase();
   const domainErrorSignals = [
     "domain error",
@@ -23291,6 +23429,16 @@ function checkStructuredErrorHandling(content, sectionType) {
   return [];
 }
 function checkResiliencePatterns(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "resilience",
+    "circuit breaker",
+    "retry",
+    "external dependency",
+    "remote call",
+    "transient"
+  ])) {
+    return [];
+  }
   return findAbsenceViolation(content, [
     "circuit breaker",
     "retry",
@@ -23309,6 +23457,15 @@ function checkResiliencePatterns(content, sectionType) {
   ], 2, "resilience_patterns", sectionType, "Technical spec must specify resilience patterns \u2014 circuit breaker for external dependencies, retry with exponential backoff, and timeout on every external call.");
 }
 function checkGracefulDegradation(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "graceful degradation",
+    "degradation",
+    "fallback",
+    "dependency failure",
+    "cascading failure"
+  ])) {
+    return [];
+  }
   return findAbsenceViolation(content, [
     "graceful degradation",
     "degrade gracefully",
@@ -23325,6 +23482,17 @@ function checkGracefulDegradation(content, sectionType) {
   ], 1, "graceful_degradation", sectionType, "Technical spec must define graceful degradation \u2014 specify fallback behavior when dependencies fail, prevent cascading failures, and define degraded operation modes.");
 }
 function checkTransactionBoundaries(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "transaction",
+    "rollback",
+    "atomic",
+    "multi-step",
+    "read-only",
+    "no writes",
+    "database"
+  ])) {
+    return [];
+  }
   return findAbsenceViolation(content, [
     "transaction",
     "transactional",
@@ -23345,6 +23513,15 @@ function checkTransactionBoundaries(content, sectionType) {
   ], 2, "transaction_boundaries", sectionType, "Technical spec must define transaction boundaries \u2014 specify transaction scope, isolation level, rollback strategy, and idempotency for multi-step operations.");
 }
 function checkConsistentErrorFormat(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "error format",
+    "error response",
+    "error envelope",
+    "error code",
+    "error catalog"
+  ])) {
+    return [];
+  }
   return findAbsenceViolation(content, [
     "error format",
     "error response format",
@@ -23774,6 +23951,17 @@ function checkStructuredLogging(content, sectionType) {
   return [];
 }
 function checkDistributedTracing(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "distributed tracing",
+    "tracing",
+    "correlation id",
+    "single-process",
+    "single process",
+    "cross-service",
+    "second hop"
+  ])) {
+    return [];
+  }
   return findAbsenceViolation(content, [
     "correlation id",
     "trace id",
@@ -23792,6 +23980,17 @@ function checkDistributedTracing(content, sectionType) {
   ], 1, "distributed_tracing", sectionType, "Technical spec should specify distributed tracing \u2014 correlation IDs for cross-service request tracking, trace context propagation, and observability integration.");
 }
 function checkNoPIIInObservability(content, sectionType) {
+  if (hasExplicitOptOut(content, [
+    "pii",
+    "observability",
+    "personal data",
+    "logs",
+    "metrics",
+    "traces",
+    "dashboards"
+  ])) {
+    return [];
+  }
   const lowered = content.toLowerCase();
   const piiProtectionSignals = [
     "no pii in log",
