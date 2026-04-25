@@ -2,8 +2,8 @@
  * Runner state — externalized so the host (Claude Code) can persist it
  * across MCP tool calls without re-injecting it into context every time.
  *
- * The v2 pipeline tools (start_pipeline_v2, submit_action_result,
- * get_pipeline_state_v2) are the canonical entry surface; this is the
+ * The pipeline tools (start_pipeline, submit_action_result,
+ * get_pipeline_state) are the canonical entry surface; this is the
  * single authoritative state shape.
  */
 

@@ -1,7 +1,7 @@
 /**
  * End-to-end smoke harness.
  *
- * Drives a full pipeline run from start_pipeline_v2 through to a `done` action,
+ * Drives a full pipeline run from start_pipeline through to a `done` action,
  * simulating the host (Claude Code). The harness:
  *
  *   - Issues canned, well-formed responses for every action kind the runner

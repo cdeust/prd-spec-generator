@@ -3,9 +3,9 @@
  *
  * Adds the new MCP tools that drive the full PRD workflow:
  *
- *   start_pipeline_v2     — initialize a pipeline run, return first NextAction
+ *   start_pipeline     — initialize a pipeline run, return first NextAction
  *   submit_action_result  — feed an ActionResult to the reducer, return next action
- *   get_pipeline_state_v2 — read current state by run_id
+ *   get_pipeline_state — read current state by run_id
  *   plan_section_verification    — emit JudgeRequest[] for a section
  *   plan_document_verification   — emit JudgeRequest[] across all sections
  *   conclude_verification        — aggregate JudgeVerdict[] → VerificationReport
@@ -133,10 +133,10 @@ export function registerPipelineTools(
   server: McpServer,
   resolveLicenseTier: () => LicenseTier,
 ): void {
-  // ─── start_pipeline_v2 ─────────────────────────────────────────────────────
+  // ─── start_pipeline ─────────────────────────────────────────────────────
 
   server.tool(
-    "start_pipeline_v2",
+    "start_pipeline",
     "Initialize a new PRD pipeline run. Returns run_id and the first NextAction the host must execute.",
     {
       feature_description: z
@@ -246,10 +246,10 @@ export function registerPipelineTools(
     },
   );
 
-  // ─── get_pipeline_state_v2 ─────────────────────────────────────────────────
+  // ─── get_pipeline_state ─────────────────────────────────────────────────
 
   server.tool(
-    "get_pipeline_state_v2",
+    "get_pipeline_state",
     "Read the current pipeline state by run_id.",
     {
       run_id: z.string(),

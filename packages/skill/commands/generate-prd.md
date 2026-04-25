@@ -1,44 +1,125 @@
 ---
 name: generate-prd
-description: Generate a production-ready PRD with verification and business KPIs
-allowed-tools: Bash, Read, Write, Glob, Grep, WebFetch, WebSearch
-argument-hint: "[project-description]"
+description: Action-driven PRD generation. The MCP server runs the pipeline; you (the host) drive the dispatch loop.
+allowed-tools: Bash, Read, Write, Glob, Grep, AskUserQuestion, Agent
+argument-hint: "[feature-description] [optional-codebase-path]"
 ---
 
-# Generate PRD
+# /generate-prd — Dispatcher Loop
 
-## Step 1 — Detect mode
+You are the host. Drive the pipeline by:
 
-Check your available tools list. If a tool named `mcp__ai-prd-generator__validate_license` exists, you are in **Cowork mode**. Otherwise you are in **CLI Terminal mode**.
+1. Calling `start_pipeline`.
+2. For each envelope returned: display every entry in `messages`, then execute `action`.
+3. Calling `submit_action_result(run_id, result)` with the result.
+4. Looping until `action.kind === "done"` or `"failed"`.
 
-## Step 2 — Resolve license
+**SKILL.md is the load-bearing reference for this protocol. Read it first.** The dispatch table in SKILL.md governs every action kind. This file is a quick-start driver only.
 
-**CLI Terminal mode:**
+---
 
-Use the Read tool to read the file `~/.aiprd/license-key`.
-- If the file exists and contains a key starting with `AIPRD-`, the tier is **licensed**. No API call needed. Proceed.
-- If the file does not exist or is empty, ask the user with AskUserQuestion: "No license key found. Would you like to enter a license key or continue with free tier?"
-  - **Enter license key** -> user provides an AIPRD- key. Validate it against the Polar.sh API (see validate-license command). If valid, save to `~/.aiprd/license-key` and set tier to **licensed**. If invalid, set tier to **free**.
-  - **Continue without** -> tier is **free**.
+## Step 1 — Parse $ARGUMENTS
 
-**Cowork mode:**
+Tokenize `$ARGUMENTS` on whitespace.
 
-Call `check_health` MCP tool. Note the `environment` field:
-- `environment: "cowork"` -> The plugin analyzes your codebase from **locally shared directories** using Glob, Grep, and Read tools. GitHub API and `gh` CLI are blocked. If no project folder is shared, ask the user to share one before proceeding with codebase analysis. WebFetch on public GitHub URLs is available as a fallback but may time out.
-- `environment: "cli"` -> Full access. Use `gh` CLI or MCP GitHub tools for repo analysis.
+- If the **first** token is an absolute path that exists on disk and is a directory: treat that token as `codebase_path`. Treat the **rest of the string** (everything after the first whitespace) as `feature_description`. If nothing follows the path, ask the user via `AskUserQuestion` for a feature description.
+- Otherwise: treat the entire `$ARGUMENTS` string as `feature_description`. `codebase_path` is omitted.
+- If `$ARGUMENTS` is empty: ask the user via `AskUserQuestion` for a feature description before continuing.
 
-Then call `validate_license` MCP tool.
+Example: `/generate-prd /Users/me/projects/myapp build OAuth login` →
+- `codebase_path = "/Users/me/projects/myapp"`
+- `feature_description = "build OAuth login"`
 
-## Step 3 — Display license tier banner and proceed
+Example: `/generate-prd build OAuth login` →
+- `codebase_path` omitted
+- `feature_description = "build OAuth login"`
 
-- **Licensed**: Full access to all 8 PRD types, 15 thinking strategies, and complete verification. Proceed.
-- **Trial**: Full access (14-day evaluation period) — show days remaining. Proceed.
-- **Free**: Limited to feature/bug PRD types, 2 thinking strategies, basic verification. Proceed with free tier limitations.
+---
 
-## Step 4 — Load the full skill instructions
+## Step 2 — Initialize
 
-**MANDATORY**: Use the Read tool to read the SKILL.md file from the skill package. This file contains the complete PRD generation workflow with all rules, confidence thresholds, clarification loop behavior, section generation, and verification logic. You MUST read it and follow every rule in it.
+Call:
+```
+start_pipeline({
+  feature_description: "<parsed description>",
+  codebase_path: "<parsed path, or omit>"
+})
+```
 
-If the user provided a project description in `$ARGUMENTS`, use it as the initial input. Otherwise, ask for a project description.
+Capture `run_id` from the response. Reuse it on every subsequent `submit_action_result`.
 
-Then follow the SKILL.md instructions from the beginning (starting at "CRITICAL WORKFLOW RULES") to execute the full workflow. Do NOT generate any PRD content without first completing the clarification loop as defined in the skill.
+---
+
+## Step 3 — Drive the loop
+
+For each envelope:
+
+1. Display every entry in `messages` (text at the given level — info, warn, or error). These are banners and status updates the runner produced while advancing internally; show them in order.
+2. Read `action.kind` and dispatch per the SKILL.md table:
+
+| action.kind | What you do | Result you submit back |
+|---|---|---|
+| `ask_user` | `AskUserQuestion` with `header`, `description`, `options` | `user_answer` (echo `question_id` verbatim; `selected[0]` is the chosen label string) |
+| `call_pipeline_tool` | Call the named tool on the **automatised-pipeline MCP** | `tool_result` (echo `correlation_id` verbatim) |
+| `call_cortex_tool` | Call the named tool on the **Cortex MCP** | `tool_result` (echo `correlation_id` verbatim) |
+| `spawn_subagents` | Issue ALL invocations in parallel via Agent tool, one message; do not modify prompts | `subagent_batch_result` (echo `batch_id` and each `invocation_id` verbatim) |
+| `write_file` | Write `content` to `path` (mkdir as needed) | `file_written` (echo `path` verbatim; `bytes` is UTF-8 byte length) |
+| `done` | Display `summary` + `artifacts`. **STOP** | (none — exit) |
+| `failed` | Display `reason` + `step`. **STOP** | (none — exit; optionally fetch full state) |
+
+3. Call `submit_action_result(run_id, result)` with the appropriate result.
+
+**Note:** `emit_message` will never appear as `action.kind`. The runner coalesces all status messages into the `messages` array on each response. You always have something concrete to do when you receive `action`.
+
+---
+
+## Step 4 — Concurrency rules
+
+- **Never** call `submit_action_result` concurrently for the same `run_id`. The in-flight guard rejects with `isError: true`.
+- **Always** issue `spawn_subagents` invocations in a single message with multiple parallel Agent tool calls.
+- **Never** modify a prompt, `correlation_id`, `invocation_id`, `batch_id`, `question_id`, `path`, or `subagent_type`. Echo them verbatim. They are the runner's routing tokens.
+- **Never** call `start_pipeline` / `submit_action_result` / `get_pipeline_state` from inside an Agent tool call (i.e., from inside a spawned subagent).
+
+---
+
+## Step 5 — Error transport
+
+If `submit_action_result` itself returns `isError: true`:
+
+- Display the error string from the response to the user.
+- Do not retry. Stop the loop.
+- If the message says "concurrent submission rejected", you have a host-side bug in your loop logic. Fix the loop before re-running.
+- If the message says "unknown run_id", the MCP server restarted and lost state. Begin a new run with `start_pipeline`.
+
+---
+
+## Step 6 — On `done`
+
+Show the user:
+- The `summary` field
+- The `artifacts` list (one entry per section)
+- The output directory path (the `path` of any `write_file` action you handled — typically `prd-output/<run_id_prefix>/`)
+
+---
+
+## Step 7 — On `failed`
+
+Show:
+- `reason`
+- `step` (which step failed)
+
+If the user asks for more detail, call:
+```
+get_pipeline_state({ run_id, format: "full" })
+```
+
+The `errors[]` field in the returned state contains the full diagnostic trail.
+
+`get_pipeline_state` is **read-only** and does not advance the pipeline. Use it for diagnosis only.
+
+---
+
+## Notes
+
+- The pipeline calls **automatised-pipeline MCP**, **Cortex MCP**, and **zetetic-team-subagents** on your behalf via `call_pipeline_tool`, `call_cortex_tool`, and `spawn_subagents` actions. Do not call them outside the dispatch table.
+- Tool prefixes (`mcp__<server-key>__<tool_name>`) depend on your project's `.mcp.json` registration keys. Inspect `.mcp.json` to derive the actual prefix; the convention examples in SKILL.md are illustrative.

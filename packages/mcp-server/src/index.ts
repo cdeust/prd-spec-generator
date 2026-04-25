@@ -437,10 +437,10 @@ server.tool(
 
 registerBudgetTools(server);
 
-// Legacy tools 14-16 (initialize_pipeline / get_pipeline_state /
-// update_pipeline_state) removed in v3.0.0. The v2 pipeline tools
-// (start_pipeline_v2 / submit_action_result / get_pipeline_state_v2,
-// registered below via registerPipelineTools) are the canonical surface.
+// Legacy tools (initialize_pipeline / update_pipeline_state) were removed
+// in v3.0.0. The pipeline tools (start_pipeline / submit_action_result /
+// get_pipeline_state, registered below via registerPipelineTools) are the
+// canonical surface.
 
 // ─── Pipeline / verification tools (orchestration + verification) ────────────
 

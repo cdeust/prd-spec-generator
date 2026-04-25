@@ -36,7 +36,7 @@ Every AI agent that drafts a PRD eventually invents a function that doesn't exis
 ## What an agent can ask it
 
 ```
-start_pipeline_v2(feature_description, license_tier, codebase_path?)
+start_pipeline(feature_description, license_tier, codebase_path?)
   → returns the first NextAction; the host executes it and feeds the result
     back via submit_action_result. Nine steps later: 9 PRD files written.
 
@@ -143,13 +143,13 @@ Every step is independently testable (`stepOnce(state, result?)` returns the sam
 
 ## The eleven MCP tools
 
-Two surfaces. The first is the v2 reducer — three tools that drive the full pipeline. The second is direct validation + budget tooling that other systems can consume without entering the pipeline.
+Two surfaces. The first is the reducer — three tools that drive the full pipeline. The second is direct validation + budget tooling that other systems can consume without entering the pipeline.
 
 ```
-Reducer (v2):
-  start_pipeline_v2          Initialize a run; returns first NextAction
-  submit_action_result       Drive the reducer one step; returns next NextAction
-  get_pipeline_state_v2      Read-only state snapshot for diagnostics
+Reducer:
+  start_pipeline          Initialize a run; returns first NextAction
+  submit_action_result    Drive the reducer one step; returns next NextAction
+  get_pipeline_state      Read-only state snapshot for diagnostics
 
 Validation:
   validate_prd_section       Hard Output Rules — single section

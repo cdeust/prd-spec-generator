@@ -5,10 +5,10 @@ description: Action-driven PRD generation. The MCP server runs a stateless 9-ste
 dependencies: node>=20
 license_tiers: trial, free, licensed
 prd_contexts: proposal, feature, bug, incident, poc, mvp, release, cicd
-mcp_tools_v2:
-  - start_pipeline_v2
+mcp_tools:
+  - start_pipeline
   - submit_action_result
-  - get_pipeline_state_v2 (read-only diagnostic; does not advance the pipeline)
+  - get_pipeline_state (read-only diagnostic; does not advance the pipeline)
   - plan_section_verification
   - plan_document_verification
   - conclude_verification
@@ -29,7 +29,7 @@ ecosystem:
 
 You (the host) drive a loop:
 
-1. Call `start_pipeline_v2` → receive an envelope with `{ run_id, messages, action, ... }`.
+1. Call `start_pipeline` → receive an envelope with `{ run_id, messages, action, ... }`.
 2. Display every entry in `messages` to the user.
 3. Execute `action` per the dispatch table below.
 4. Call `submit_action_result(run_id, result)` → receive next envelope.
@@ -41,7 +41,7 @@ You (the host) drive a loop:
 
 ## ENVELOPE SHAPE
 
-Every response from `start_pipeline_v2` and `submit_action_result` has this shape:
+Every response from `start_pipeline` and `submit_action_result` has this shape:
 
 ```json
 {
@@ -55,7 +55,7 @@ Every response from `start_pipeline_v2` and `submit_action_result` has this shap
 }
 ```
 
-- `run_id` — handle for `submit_action_result` and `get_pipeline_state_v2`. Caputre once from the first response and reuse.
+- `run_id` — handle for `submit_action_result` and `get_pipeline_state`. Caputre once from the first response and reuse.
 - `messages` — banners/status lines collected while the runner advanced internally to reach `action`. May be empty. Display each `text` at the given `level` (default `info`) before executing `action`.
 - `action` — what you must execute. **Never `emit_message`.** Always one of: `ask_user`, `call_pipeline_tool`, `call_cortex_tool`, `spawn_subagents`, `write_file`, `done`, `failed`.
 
@@ -67,7 +67,7 @@ Every response from `start_pipeline_v2` and `submit_action_result` has this shap
 |---|---|
 | **the host** | Claude Code (or another MCP-aware client) running this dispatcher loop |
 | **the project directory** | The codebase root where `.mcp.json` lives — distinct from "the host" |
-| **the runner** | The MCP server's stateless reducer behind the v2 tools |
+| **the runner** | The MCP server's stateless reducer behind the pipeline tools |
 | **the result** (always typed) | The `ActionResult` value the host passes to `submit_action_result` — exactly one of four `kind`s |
 | **agent output** | The raw text returned by an Agent tool call to a subagent — appears in `subagent_batch_result.responses[i].raw_text` |
 | **a judge** (`purpose: "judge"`) | A spawned subagent invocation that returns a `JudgeVerdict` JSON object. The same word also names the `judge` field inside `JudgeVerdict`, which holds the `AgentIdentity` of the agent that rendered the verdict. |
@@ -243,7 +243,7 @@ For a failed agent: include `error`. The runner records an `INCONCLUSIVE` verdic
 { "kind": "failed", "reason": "...", "step": "input_analysis" }
 ```
 
-**Execute:** Display `messages` (if any), then `reason` and the failing `step`. **Stop the loop.** If the user wants more detail, call `get_pipeline_state_v2(run_id, format: "full")` and show `state.errors[]`.
+**Execute:** Display `messages` (if any), then `reason` and the failing `step`. **Stop the loop.** If the user wants more detail, call `get_pipeline_state(run_id, format: "full")` and show `state.errors[]`.
 
 ---
 
@@ -254,7 +254,7 @@ For a failed agent: include `error`. The runner records an `INCONCLUSIVE` verdic
 | Cause | Recovery |
 |---|---|
 | Concurrent submission rejected — you called `submit_action_result` for the same `run_id` while a previous call was still in flight | The host implementation has a bug. Wait for the in-flight call to return, then submit ONCE. Do not retry blindly. |
-| Unknown `run_id` | The MCP server process restarted and lost in-memory state. The pipeline cannot be resumed — call `start_pipeline_v2` to begin a new run. |
+| Unknown `run_id` | The MCP server process restarted and lost in-memory state. The pipeline cannot be resumed — call `start_pipeline` to begin a new run. |
 
 In both cases, display the `error` field from the response to the user and stop.
 
@@ -268,7 +268,7 @@ In both cases, display the `error` field from the response to the user and stop.
 
 3. **Always issue `spawn_subagents` invocations in parallel.** One message; many Agent tool calls. (Performance, not correctness — but production-relevant.)
 
-4. **Never call `start_pipeline_v2`, `submit_action_result`, or `get_pipeline_state_v2` from inside an Agent tool call.** Subagents return their text; the host (not the subagent) submits the batch result.
+4. **Never call `start_pipeline`, `submit_action_result`, or `get_pipeline_state` from inside an Agent tool call.** Subagents return their text; the host (not the subagent) submits the batch result.
 
 5. **Stop the loop on `done` or `failed`.** Do not re-call `submit_action_result` afterwards.
 
@@ -313,7 +313,7 @@ A correctly configured project has all four ecosystem dependencies registered in
 ## MINIMAL WORKED LOOP (illustrative; not exhaustive)
 
 ```
-host: start_pipeline_v2({ feature_description: "build OAuth login", codebase_path: "/abs/path" })
+host: start_pipeline({ feature_description: "build OAuth login", codebase_path: "/abs/path" })
 
   → envelope { run_id, messages: [<license banner>, <PRD context detected: Feature>],
               action: { kind: "call_pipeline_tool", tool_name: "index_codebase",
