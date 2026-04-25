@@ -1,7 +1,7 @@
 {
   "name": "prd-spec-generator",
   "description": "Stateless reducer that turns a feature description into a 9-file PRD. Multi-judge verification with weighted-average + Bayesian consensus. Deterministic Hard Output Rules validation. Research-evidence-backed strategy selection that closes a feedback loop into the EvidenceRepository.",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "author": {
     "name": "Clement Deust",
     "email": "admin@ai-architect.tools"

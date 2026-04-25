@@ -27599,6 +27599,7 @@ var EffectivenessTracker = class {
 // packages/orchestration/dist/types/state.js
 var PipelineStepSchema = external_exports.enum([
   "banner",
+  "preflight",
   "context_detection",
   "input_analysis",
   "feasibility_gate",
@@ -27669,6 +27670,17 @@ var PipelineStateSchema = external_exports.object({
   /** Output directory passed to `index_codebase` so retries are idempotent. */
   codebase_output_dir: external_exports.string().nullable(),
   codebase_indexed: external_exports.boolean(),
+  /**
+   * Preflight gate state — `null` while preflight has not been attempted
+   * yet, `"ok"` once Cortex (and ai-architect, when a codebase is given)
+   * passed their liveness checks. Treated as a precondition: the runner
+   * may not enter section_generation while preflight is unset.
+   *
+   * source: missing-Cortex bug found 2026-04-26 — silent per-section
+   * recall failures should surface as ONE clear startup error, not as
+   * degraded generation across every section.
+   */
+  preflight_status: external_exports.enum(["ok", "skipped"]).nullable().default(null),
   sections: external_exports.array(SectionStatusSchema).default([]),
   clarifications: external_exports.array(ClarificationTurnSchema).default([]),
   /**
@@ -27748,6 +27760,7 @@ function newPipelineState(input) {
     codebase_graph_path: null,
     codebase_output_dir: null,
     codebase_indexed: false,
+    preflight_status: input.skip_preflight ? "skipped" : null,
     sections: [],
     clarifications: [],
     proceed_signal: false,
@@ -28017,11 +28030,135 @@ var handleBanner = ({ state }) => {
     state.codebase_path ? `Codebase: ${state.codebase_path}` : "Codebase: (none provided)"
   ].join("\n");
   return {
-    state: { ...state, current_step: "context_detection" },
+    state: { ...state, current_step: "preflight" },
     action: {
       kind: "emit_message",
       message,
       level: "info"
+    }
+  };
+};
+
+// packages/orchestration/dist/handlers/preflight.js
+var CORTEX_PROBE_CORRELATION = "preflight_cortex_probe";
+var AI_ARCHITECT_PROBE_CORRELATION = "preflight_ai_architect_probe";
+function adviseCortexInstall() {
+  return [
+    "Cortex MCP not reachable.",
+    "",
+    "The pipeline relies on Cortex for per-section memory recall during",
+    "section generation. Without it, every section is drafted without",
+    "prior-decision context \u2014 generation quality degrades silently.",
+    "",
+    "To install:",
+    "  /plugin marketplace add cdeust/cortex",
+    "  /plugin install cortex@cortex-plugins",
+    "  /reload-plugins",
+    "",
+    "If you genuinely want to run without Cortex, re-invoke",
+    "start_pipeline with skip_preflight: true (degraded mode)."
+  ].join("\n");
+}
+function adviseAiArchitectInstall() {
+  return [
+    "automatised-pipeline (ai-architect) MCP not reachable.",
+    "",
+    "A codebase_path was supplied, which requires the automatised-pipeline",
+    "MCP for index_codebase + downstream graph queries.",
+    "",
+    "To install:",
+    "  /plugin marketplace add cdeust/automatised-pipeline",
+    "  /plugin install automatised-pipeline@automatised-pipeline-marketplace",
+    "  /reload-plugins",
+    "",
+    "If you only need PRD generation without codebase analysis, omit",
+    "codebase_path on the next start_pipeline call."
+  ].join("\n");
+}
+var handlePreflight = ({ state, result }) => {
+  if (state.preflight_status === "skipped") {
+    return {
+      state: { ...state, current_step: "context_detection" },
+      action: {
+        kind: "emit_message",
+        message: "Preflight skipped (skip_preflight=true). Section generation will proceed without Cortex recall context if Cortex is unavailable.",
+        level: "warn"
+      }
+    };
+  }
+  if (state.preflight_status === "ok") {
+    return {
+      state: { ...state, current_step: "context_detection" },
+      action: {
+        kind: "emit_message",
+        message: "Preflight already passed. Proceeding to context detection."
+      }
+    };
+  }
+  if (result?.kind === "tool_result" && result.correlation_id === CORTEX_PROBE_CORRELATION) {
+    if (!result.success) {
+      return {
+        state: appendError(state, `preflight: cortex unreachable (${result.error ?? "unknown error"})`, "upstream_failure"),
+        action: {
+          kind: "failed",
+          reason: adviseCortexInstall(),
+          step: "preflight"
+        }
+      };
+    }
+    if (state.codebase_path) {
+      return {
+        state,
+        action: {
+          kind: "call_pipeline_tool",
+          tool_name: "health_check",
+          arguments: {},
+          correlation_id: AI_ARCHITECT_PROBE_CORRELATION
+        }
+      };
+    }
+    return {
+      state: {
+        ...state,
+        preflight_status: "ok",
+        current_step: "context_detection"
+      },
+      action: {
+        kind: "emit_message",
+        message: "Preflight passed: Cortex reachable. (no codebase \u2192 ai-architect probe skipped)"
+      }
+    };
+  }
+  if (result?.kind === "tool_result" && result.correlation_id === AI_ARCHITECT_PROBE_CORRELATION) {
+    if (!result.success) {
+      return {
+        state: appendError(state, `preflight: ai-architect unreachable (${result.error ?? "unknown error"})`, "upstream_failure"),
+        action: {
+          kind: "failed",
+          reason: adviseAiArchitectInstall(),
+          step: "preflight"
+        }
+      };
+    }
+    return {
+      state: {
+        ...state,
+        preflight_status: "ok",
+        current_step: "context_detection"
+      },
+      action: {
+        kind: "emit_message",
+        message: "Preflight passed: Cortex + ai-architect reachable."
+      }
+    };
+  }
+  return {
+    state,
+    action: {
+      kind: "call_cortex_tool",
+      tool_name: "memory_stats",
+      arguments: {},
+      correlation_id: CORTEX_PROBE_CORRELATION
     }
   };
 };
@@ -30029,6 +30166,7 @@ function parseVerdictsFromSnapshot(snapshot, state, batchResult) {
 // packages/orchestration/dist/runner.js
 var HANDLERS = {
   banner: handleBanner,
+  preflight: handlePreflight,
   context_detection: handleContextDetection,
   input_analysis: handleInputAnalysis,
   feasibility_gate: handleFeasibilityGate,
@@ -30445,13 +30583,15 @@ function envelope(state, action, messages = []) {
 function registerPipelineTools(server2) {
   server2.tool("start_pipeline", "Initialize a new PRD pipeline run. Returns run_id and the first NextAction the host must execute.", {
     feature_description: external_exports.string().describe("What the PRD is about \u2014 passed to all prompts"),
-    codebase_path: external_exports.string().optional().describe("Absolute path to the codebase. Triggers index_codebase via automatised-pipeline.")
-  }, async ({ feature_description, codebase_path }) => {
+    codebase_path: external_exports.string().optional().describe("Absolute path to the codebase. Triggers index_codebase via automatised-pipeline."),
+    skip_preflight: external_exports.boolean().optional().describe("If true, skip the preflight step that probes Cortex (and ai-architect when codebase_path is set). Default false. Use only when you accept degraded section generation without persistent memory recall.")
+  }, async ({ feature_description, codebase_path, skip_preflight }) => {
     const run_id = generateRunId();
     const initial = newPipelineState({
       run_id,
       feature_description,
-      codebase_path: codebase_path ?? null
+      codebase_path: codebase_path ?? null,
+      skip_preflight: skip_preflight ?? false
     });
     const { state, action, messages } = step({ state: initial });
     const drained = drainStrategyExecutions(state);

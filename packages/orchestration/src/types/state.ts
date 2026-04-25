@@ -20,6 +20,7 @@ import {
 
 export const PipelineStepSchema = z.enum([
   "banner",
+  "preflight",
   "context_detection",
   "input_analysis",
   "feasibility_gate",
@@ -121,6 +122,17 @@ export const PipelineStateSchema = z.object({
   /** Output directory passed to `index_codebase` so retries are idempotent. */
   codebase_output_dir: z.string().nullable(),
   codebase_indexed: z.boolean(),
+  /**
+   * Preflight gate state — `null` while preflight has not been attempted
+   * yet, `"ok"` once Cortex (and ai-architect, when a codebase is given)
+   * passed their liveness checks. Treated as a precondition: the runner
+   * may not enter section_generation while preflight is unset.
+   *
+   * source: missing-Cortex bug found 2026-04-26 — silent per-section
+   * recall failures should surface as ONE clear startup error, not as
+   * degraded generation across every section.
+   */
+  preflight_status: z.enum(["ok", "skipped"]).nullable().default(null),
   sections: z.array(SectionStatusSchema).default([]),
   clarifications: z.array(ClarificationTurnSchema).default([]),
   /**
@@ -201,6 +213,15 @@ export function newPipelineState(input: {
   run_id: string;
   feature_description: string;
   codebase_path?: string | null;
+  /**
+   * When true, the preflight step is skipped — the runner advances straight
+   * past missing-Cortex / missing-ai-architect checks. Use only when the
+   * caller has another mechanism for ensuring those MCPs are wired (or
+   * accepts degraded section generation without persistent memory recall).
+   *
+   * source: missing-Cortex bug found 2026-04-26.
+   */
+  skip_preflight?: boolean;
 }): PipelineState {
   const now = new Date().toISOString();
   return PipelineStateSchema.parse({
@@ -212,6 +233,7 @@ export function newPipelineState(input: {
     codebase_graph_path: null,
     codebase_output_dir: null,
     codebase_indexed: false,
+    preflight_status: input.skip_preflight ? "skipped" : null,
     sections: [],
     clarifications: [],
     proceed_signal: false,

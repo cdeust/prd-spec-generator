@@ -141,13 +141,20 @@ export function registerPipelineTools(server: McpServer): void {
         .string()
         .optional()
         .describe("Absolute path to the codebase. Triggers index_codebase via automatised-pipeline."),
+      skip_preflight: z
+        .boolean()
+        .optional()
+        .describe(
+          "If true, skip the preflight step that probes Cortex (and ai-architect when codebase_path is set). Default false. Use only when you accept degraded section generation without persistent memory recall.",
+        ),
     },
-    async ({ feature_description, codebase_path }) => {
+    async ({ feature_description, codebase_path, skip_preflight }) => {
       const run_id = generateRunId();
       const initial = newPipelineState({
         run_id,
         feature_description,
         codebase_path: codebase_path ?? null,
+        skip_preflight: skip_preflight ?? false,
       });
       const { state, action, messages } = step({ state: initial });
       // Drain BEFORE persist — same invariant as submit_action_result.

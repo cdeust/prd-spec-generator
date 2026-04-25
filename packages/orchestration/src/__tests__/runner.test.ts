@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { newPipelineState, step } from "../index.js";
 
+// These tests exercise the runner downstream of `preflight` — they assume
+// the Cortex / ai-architect probes have already passed. Use skip_preflight
+// so the runner advances straight to context_detection.
 const seed = (codebasePath?: string) =>
   newPipelineState({
     run_id: "test_run_001",
     feature_description: "build a feature for OAuth login",
     codebase_path: codebasePath ?? null,
+    skip_preflight: true,
   });
 
 describe("pipeline runner — emit_message coalescing", () => {

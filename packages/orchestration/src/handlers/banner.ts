@@ -25,7 +25,7 @@ export const handleBanner: StepHandler = ({ state }) => {
   ].join("\n");
 
   return {
-    state: { ...state, current_step: "context_detection" },
+    state: { ...state, current_step: "preflight" },
     action: {
       kind: "emit_message",
       message,

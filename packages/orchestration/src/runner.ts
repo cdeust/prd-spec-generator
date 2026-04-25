@@ -29,6 +29,7 @@ import {
 } from "./types/actions.js";
 import { type PipelineState, touch, appendError } from "./types/state.js";
 import { handleBanner } from "./handlers/banner.js";
+import { handlePreflight } from "./handlers/preflight.js";
 import { handleContextDetection } from "./handlers/context-detection.js";
 import { handleInputAnalysis } from "./handlers/input-analysis.js";
 import { handleFeasibilityGate } from "./handlers/feasibility-gate.js";
@@ -65,6 +66,7 @@ export type StepHandler = (input: StepInput) => {
 
 const HANDLERS: Record<PipelineState["current_step"], StepHandler> = {
   banner: handleBanner,
+  preflight: handlePreflight,
   context_detection: handleContextDetection,
   input_analysis: handleInputAnalysis,
   feasibility_gate: handleFeasibilityGate,

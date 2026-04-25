@@ -835,13 +835,13 @@ describe("banner", () => {
   // Pre-fix the handler had zero direct tests; only smoke runs exercised it
   // and they asserted nothing about the emitted message.
 
-  it("emits the banner and advances to context_detection", () => {
+  it("emits the banner and advances to preflight", () => {
     const seed = newPipelineState({
       run_id: "inj_banner_run",
       feature_description: "x",
     });
     const out = stepOnce({ ...seed, current_step: "banner" });
-    expect(out.state.current_step).toBe("context_detection");
+    expect(out.state.current_step).toBe("preflight");
     const allText = out.messages.map((m) => m.text).join("\n");
     expect(allText).toContain("PRD Spec Generator");
     expect(allText).toContain("inj_banner_run");
@@ -930,5 +930,117 @@ describe("context_detection", () => {
       expect(out.action.step).toBe("context_detection");
       expect(out.action.reason.toLowerCase()).toContain("invalid");
     }
+  });
+});
+
+describe("preflight", () => {
+  // source: missing-Cortex bug found 2026-04-26 — silent per-section recall
+  // failures should surface as ONE clear startup error, not as degraded
+  // generation across every section.
+
+  it("issues a Cortex memory_stats probe as the first preflight action", () => {
+    const seed = newPipelineState({
+      run_id: "preflight_first_action",
+      feature_description: "x",
+    });
+    const out = stepOnce({ ...seed, current_step: "preflight" });
+    expect(out.action.kind).toBe("call_cortex_tool");
+    if (out.action.kind === "call_cortex_tool") {
+      expect(out.action.tool_name).toBe("memory_stats");
+      expect(out.action.correlation_id).toBe("preflight_cortex_probe");
+    }
+  });
+
+  it("emits a `failed` action with actionable setup advice when Cortex is unreachable", () => {
+    const seed = newPipelineState({
+      run_id: "preflight_cortex_down",
+      feature_description: "x",
+    });
+    const stateAtPreflight = { ...seed, current_step: "preflight" as const };
+    // First step issues the probe.
+    const probe = stepOnce(stateAtPreflight);
+    expect(probe.action.kind).toBe("call_cortex_tool");
+    if (probe.action.kind !== "call_cortex_tool") return;
+
+    // Host returns success: false (MCP not registered).
+    const after = stepOnce(probe.state, {
+      kind: "tool_result",
+      correlation_id: probe.action.correlation_id,
+      success: false,
+      error: "MCP server cortex not registered",
+    });
+    expect(after.action.kind).toBe("failed");
+    if (after.action.kind === "failed") {
+      expect(after.action.step).toBe("preflight");
+      expect(after.action.reason).toMatch(/cortex/i);
+      // The reason must mention how to fix it — install/marketplace/plugin.
+      expect(after.action.reason.toLowerCase()).toMatch(
+        /install|marketplace|plugin|skip_preflight/,
+      );
+    }
+  });
+
+  it("when codebase_path is set, probes ai-architect AFTER Cortex passes", () => {
+    const seed = newPipelineState({
+      run_id: "preflight_with_codebase",
+      feature_description: "x",
+      codebase_path: "/some/path",
+    });
+    const stateAtPreflight = { ...seed, current_step: "preflight" as const };
+    const probe = stepOnce(stateAtPreflight);
+    if (probe.action.kind !== "call_cortex_tool") {
+      throw new Error("expected first probe to be call_cortex_tool");
+    }
+    // Cortex returns success.
+    const afterCortex = stepOnce(probe.state, {
+      kind: "tool_result",
+      correlation_id: probe.action.correlation_id,
+      success: true,
+      data: {},
+    });
+    // Next probe must be ai-architect health_check.
+    expect(afterCortex.action.kind).toBe("call_pipeline_tool");
+    if (afterCortex.action.kind === "call_pipeline_tool") {
+      expect(afterCortex.action.tool_name).toBe("health_check");
+      expect(afterCortex.action.correlation_id).toBe(
+        "preflight_ai_architect_probe",
+      );
+    }
+  });
+
+  it("when codebase_path is NOT set, advances to context_detection right after Cortex passes (no ai-architect probe)", () => {
+    const seed = newPipelineState({
+      run_id: "preflight_no_codebase",
+      feature_description: "x",
+    });
+    const stateAtPreflight = { ...seed, current_step: "preflight" as const };
+    const probe = stepOnce(stateAtPreflight);
+    if (probe.action.kind !== "call_cortex_tool") {
+      throw new Error("expected first probe to be call_cortex_tool");
+    }
+    const afterCortex = stepOnce(probe.state, {
+      kind: "tool_result",
+      correlation_id: probe.action.correlation_id,
+      success: true,
+      data: {},
+    });
+    expect(afterCortex.state.current_step).not.toBe("preflight");
+    expect(afterCortex.state.preflight_status).toBe("ok");
+  });
+
+  it("skip_preflight=true short-circuits the preflight step (no probes) and marks status=skipped", () => {
+    const seed = newPipelineState({
+      run_id: "preflight_skipped",
+      feature_description: "x",
+      skip_preflight: true,
+    });
+    const out = stepOnce({ ...seed, current_step: "preflight" });
+    expect(out.state.preflight_status).toBe("skipped");
+    // current_step has advanced past preflight. Whether the runner stopped
+    // at context_detection or coalesced through it depends on subsequent
+    // handler behavior — the load-bearing assertion is that no probe was
+    // issued and the skipped status was recorded.
+    expect(out.action.kind).not.toBe("call_cortex_tool");
+    expect(out.action.kind).not.toBe("call_pipeline_tool");
   });
 });
