@@ -11,34 +11,25 @@ import {
   PRD_CONTEXT_CONFIGS,
   TIER_CAPABILITIES,
   STRATEGY_TIERS,
+  SectionTypeSchema,
   type LicenseTier,
   type PRDContext,
   type SectionType,
 } from "@prd-gen/core";
 
-// EvidenceRepository is optional — requires better-sqlite3 native module
-let EvidenceRepository: (new (dbPath?: string) => any) | null = null;
-try {
-  const mod = await import("@prd-gen/core");
-  EvidenceRepository = mod.EvidenceRepository;
-} catch {
-  // better-sqlite3 not available — run without persistence
-}
+import { tryCreateEvidenceRepository, type EvidenceRepository } from "@prd-gen/core";
+
+/**
+ * Minimal structural alias for the optional better-sqlite3-backed evidence
+ * repository. The factory `tryCreateEvidenceRepository` returns
+ * `EvidenceRepository | null` directly; we keep the alias name for
+ * historical readability of the lazy-init helper below.
+ */
+type EvidenceRepositoryLike = EvidenceRepository;
 
 import { validateSection, validateDocument } from "@prd-gen/validation";
-import {
-  calculateContextBudget,
-  SECTION_RECALL_TEMPLATES,
-} from "./context-budget.js";
-import { mapFailuresToRetrievals } from "./failure-mapper.js";
-import {
-  initializePipeline,
-  getPipelineState,
-  updatePipelineState,
-  updateSectionStatus,
-  addPipelineError,
-  getPipelineStateSummary,
-} from "./pipeline-state.js";
+import { registerBudgetTools } from "./budget-tools.js";
+import { registerPipelineTools } from "./pipeline-tools.js";
 
 /**
  * PRD Generator MCP Server — native TypeScript.
@@ -126,16 +117,14 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
-// Lazy-init evidence repository (only when better-sqlite3 is available)
-let _evidenceRepo: any = null;
-function getEvidenceRepo(): any | null {
-  if (!EvidenceRepository) return null;
-  if (!_evidenceRepo) {
-    try {
-      _evidenceRepo = new EvidenceRepository();
-    } catch {
-      return null;
-    }
+// Lazy-init evidence repository (only when better-sqlite3 is available).
+// `tryCreateEvidenceRepository` returns null if the native module is
+// missing — replaces the previous `await import + unknown cast` pattern
+// (cross-audit code-reviewer M7, Phase 3+4, 2026-04).
+let _evidenceRepo: EvidenceRepositoryLike | null | undefined = undefined;
+function getEvidenceRepo(): EvidenceRepositoryLike | null {
+  if (_evidenceRepo === undefined) {
+    _evidenceRepo = tryCreateEvidenceRepository();
   }
   return _evidenceRepo;
 }
@@ -313,18 +302,15 @@ server.tool(
   "Run deterministic Hard Output Rules validation on a single PRD section. Returns violations found — zero LLM calls, pure regex/parsing.",
   {
     content: z.string().describe("The markdown content of the PRD section"),
-    section_type: z
-      .enum([
-        "overview", "goals", "requirements", "user_stories",
-        "technical_specification", "acceptance_criteria", "data_model",
-        "api_specification", "security_considerations",
-        "performance_requirements", "testing", "deployment",
-        "risks", "timeline", "source_code", "test_code",
-      ])
-      .describe("The type of PRD section being validated"),
+    section_type: SectionTypeSchema.describe(
+      "The type of PRD section being validated",
+    ),
   },
   async ({ content, section_type }) => {
-    const report = validateSection(content, section_type as SectionType);
+    // section_type is already validated by SectionTypeSchema at the MCP
+    // boundary above. No cast required (cross-audit code-reviewer H5,
+    // Phase 3+4, 2026-04).
+    const report = validateSection(content, section_type);
     return {
       content: [
         { type: "text" as const, text: JSON.stringify(report, null, 2) },
@@ -342,18 +328,17 @@ server.tool(
     sections: z
       .array(
         z.object({
-          type: z.string().describe("Section type"),
+          // Validate at MCP boundary so the cast at the call site is
+          // unnecessary. Pre-fix: `z.string()` + `s.type as SectionType`.
+          // Cross-audit code-reviewer H5 (Phase 3+4, 2026-04).
+          type: SectionTypeSchema.describe("Section type"),
           content: z.string().describe("Section content"),
         }),
       )
       .describe("Array of PRD sections to validate"),
   },
   async ({ sections }) => {
-    const typedSections = sections.map((s) => ({
-      type: s.type as SectionType,
-      content: s.content,
-    }));
-    const report = validateDocument(typedSections);
+    const report = validateDocument(sections);
     return {
       content: [
         { type: "text" as const, text: JSON.stringify(report, null, 2) },
@@ -378,6 +363,19 @@ server.tool(
   },
   async ({ limit }) => {
     const repo = getEvidenceRepo();
+    if (!repo) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              error: "Evidence repository unavailable (better-sqlite3 not loaded)",
+            }),
+          },
+        ],
+        isError: true,
+      };
+    }
     const history = repo.getQualityHistory(limit);
     return {
       content: [
@@ -402,6 +400,19 @@ server.tool(
   },
   async ({ min_executions }) => {
     const repo = getEvidenceRepo();
+    if (!repo) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              error: "Evidence repository unavailable (better-sqlite3 not loaded)",
+            }),
+          },
+        ],
+        isError: true,
+      };
+    }
     const performance = repo.getStrategyPerformance(min_executions);
     const adjustments = repo.getHistoricalAdjustments(min_executions);
     return {
@@ -422,196 +433,18 @@ server.tool(
   },
 );
 
-// ─── Tool 12: coordinate_context_budget (NEW — Beer's S2) ────────────────────
+// ─── Budget + feedback tools (extracted to budget-tools.ts) ──────────────────
 
-server.tool(
-  "coordinate_context_budget",
-  "Calculate token budget allocation for PRD generation. Returns per-section retrieval limits for Cortex recall, generation budgets, and section-specific query templates. Call this BEFORE starting section generation.",
-  {
-    prd_context: z
-      .enum(["proposal", "feature", "bug", "incident", "poc", "mvp", "release", "cicd"])
-      .describe("The PRD context type"),
-    completed_sections: z
-      .array(z.string())
-      .default([])
-      .describe("Section types already generated"),
-    context_window_size: z
-      .number()
-      .int()
-      .default(200000)
-      .describe("Total context window size in tokens"),
-  },
-  async ({ prd_context, completed_sections, context_window_size }) => {
-    const budget = calculateContextBudget(
-      prd_context as PRDContext,
-      completed_sections,
-      context_window_size,
-    );
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(
-            { budget, recallTemplates: SECTION_RECALL_TEMPLATES },
-            null,
-            2,
-          ),
-        },
-      ],
-    };
-  },
-);
+registerBudgetTools(server);
 
-// ─── Tool 13: map_failure_to_retrieval (NEW — Feedback Loop) ─────────────────
+// Legacy tools 14-16 (initialize_pipeline / get_pipeline_state /
+// update_pipeline_state) removed in v3.0.0. The v2 pipeline tools
+// (start_pipeline_v2 / submit_action_result / get_pipeline_state_v2,
+// registered below via registerPipelineTools) are the canonical surface.
 
-server.tool(
-  "map_failure_to_retrieval",
-  "When validate_prd_section returns violations, call this to get corrective Cortex recall queries. Closes the validation→retrieval feedback loop so retries use better context.",
-  {
-    violations: z
-      .array(
-        z.object({
-          rule: z.string(),
-          message: z.string(),
-          isCritical: z.boolean(),
-          scorePenalty: z.number(),
-          sectionType: z.string().nullable(),
-          offendingContent: z.string().nullable(),
-          location: z.string().nullable(),
-        }),
-      )
-      .describe("Violations from validate_prd_section"),
-  },
-  async ({ violations }) => {
-    const result = mapFailuresToRetrievals(violations as any);
-    return {
-      content: [
-        { type: "text" as const, text: JSON.stringify(result, null, 2) },
-      ],
-    };
-  },
-);
+// ─── Pipeline / verification tools (orchestration + verification) ────────────
 
-// ─── Tool 14: initialize_pipeline (NEW — Pipeline State) ─────────────────────
-
-server.tool(
-  "initialize_pipeline",
-  "Start a new PRD generation pipeline. Creates a tracked run with unique ID. Call at the beginning of /generate-prd.",
-  {
-    feature_description: z.string().describe("What the PRD is about"),
-    codebase_path: z
-      .string()
-      .optional()
-      .describe("Path to the codebase being analyzed"),
-  },
-  async ({ feature_description, codebase_path }) => {
-    const tier = resolveLicenseTier();
-    const state = initializePipeline(tier, feature_description, codebase_path);
-    return {
-      content: [
-        { type: "text" as const, text: JSON.stringify(state, null, 2) },
-      ],
-    };
-  },
-);
-
-// ─── Tool 15: get_pipeline_state (NEW — Pipeline State) ──────────────────────
-
-server.tool(
-  "get_pipeline_state",
-  "Get current pipeline state — which step, which sections done, errors, budget consumed. Use the summary format to save context tokens.",
-  {
-    format: z
-      .enum(["full", "summary"])
-      .default("summary")
-      .describe("'summary' for compact view, 'full' for complete state"),
-  },
-  async ({ format }) => {
-    if (format === "summary") {
-      const summary = getPipelineStateSummary();
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: summary ?? "No active pipeline. Call initialize_pipeline first.",
-          },
-        ],
-      };
-    }
-    const state = getPipelineState();
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: state
-            ? JSON.stringify(state, null, 2)
-            : "No active pipeline. Call initialize_pipeline first.",
-        },
-      ],
-    };
-  },
-);
-
-// ─── Tool 16: update_pipeline_state (NEW — Pipeline State) ───────────────────
-
-server.tool(
-  "update_pipeline_state",
-  "Update pipeline progress — advance step, mark sections, record errors. Call after each pipeline action.",
-  {
-    current_step: z
-      .enum([
-        "license_gate", "context_detection", "input_analysis",
-        "feasibility_gate", "clarification", "section_generation",
-        "jira_generation", "file_export", "self_check", "complete",
-      ])
-      .optional()
-      .describe("Advance to this pipeline step"),
-    prd_context: z
-      .enum(["proposal", "feature", "bug", "incident", "poc", "mvp", "release", "cicd"])
-      .optional()
-      .describe("Set the detected PRD context"),
-    codebase_indexed: z
-      .boolean()
-      .optional()
-      .describe("Mark codebase as indexed in Cortex"),
-    section_type: z.string().optional().describe("Section to update"),
-    section_status: z
-      .enum(["pending", "generating", "validating", "passed", "failed", "retrying"])
-      .optional()
-      .describe("New status for the section"),
-    violation_count: z.number().optional().describe("Number of violations found"),
-    error: z.string().optional().describe("Record an error"),
-  },
-  async (params) => {
-    if (params.error) {
-      addPipelineError(params.error);
-    }
-
-    if (params.section_type && params.section_status) {
-      updateSectionStatus(
-        params.section_type as SectionType,
-        params.section_status,
-        params.violation_count,
-      );
-    }
-
-    const updates: Record<string, unknown> = {};
-    if (params.current_step) updates.currentStep = params.current_step;
-    if (params.prd_context) updates.prdContext = params.prd_context;
-    if (params.codebase_indexed !== undefined) updates.codebaseIndexed = params.codebase_indexed;
-
-    if (Object.keys(updates).length > 0) {
-      updatePipelineState(updates as any);
-    }
-
-    const summary = getPipelineStateSummary();
-    return {
-      content: [
-        { type: "text" as const, text: summary ?? "No active pipeline." },
-      ],
-    };
-  },
-);
+registerPipelineTools(server, resolveLicenseTier);
 
 // ─── Start Server ────────────────────────────────────────────────────────────
 

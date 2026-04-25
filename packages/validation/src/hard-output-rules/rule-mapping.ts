@@ -131,6 +131,10 @@ const SECTION_RULES: Record<SectionType, readonly HardOutputRule[]> = {
   goals: [],
   source_code: [],
   test_code: [],
+  // jira_tickets is a synthetic bucket emitted by jira-generation; its
+  // rules apply to the source sections (requirements / acceptance_criteria),
+  // not to the JIRA markdown itself.
+  jira_tickets: [],
 };
 
 export function rulesForSection(sectionType: SectionType): HardOutputRule[] {

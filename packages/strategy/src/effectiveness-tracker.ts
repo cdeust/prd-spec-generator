@@ -1,6 +1,8 @@
 import type { ThinkingStrategy, PRDContext } from "@prd-gen/core";
+import { ThinkingStrategySchema, PRDContextSchema } from "@prd-gen/core";
 import type { EvidenceRepository, StrategyExecution } from "@prd-gen/core";
-import type { StrategyAssignment } from "./selector.js";
+import { z } from "zod";
+import { StrategyAssignmentSchema, type StrategyAssignment } from "./selector.js";
 
 /**
  * Effectiveness tracker -- records execution results to EvidenceRepository.
@@ -21,6 +23,28 @@ export interface ExecutionResult {
   readonly prdContext: PRDContext;
   readonly sessionId?: string;
 }
+
+/**
+ * Zod schema for ExecutionResult — used by orchestration to persist the
+ * results of section terminal transitions (passed/failed) into a queue
+ * on PipelineState. The composition root (mcp-server) drains the queue
+ * and forwards each entry to `recordExecution()` once the optional
+ * EvidenceRepository is available.
+ *
+ * source: Phase 4 strategy-wiring (2026-04). Decoupling the orchestration
+ * layer (pure reducer) from the EvidenceRepository (infrastructure)
+ * preserves Clean Architecture §2.2 — orchestration produces the data,
+ * infrastructure persists it.
+ */
+export const ExecutionResultSchema = z.object({
+  strategy: ThinkingStrategySchema,
+  assignment: StrategyAssignmentSchema,
+  actualConfidenceGain: z.number(),
+  wasCompliant: z.boolean(),
+  retryCount: z.number().int().nonnegative(),
+  prdContext: PRDContextSchema,
+  sessionId: z.string().optional(),
+});
 
 export interface EffectivenessReport {
   readonly totalMeasurements: number;

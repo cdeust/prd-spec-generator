@@ -3,10 +3,33 @@ import { homedir } from "node:os";
 import { mkdirSync, existsSync } from "node:fs";
 import type { ThinkingStrategy, PRDContext, HardOutputRule } from "../index.js";
 
-// Dynamic import — better-sqlite3 is optional (native module, may not be available)
-let Database: any = null;
+/**
+ * Minimal structural interface for the better-sqlite3 Database constructor
+ * and instance methods we actually use. Avoids `any` at the layer boundary
+ * (cross-audit code-reviewer H3, Phase 3+4, 2026-04). If we add new
+ * better-sqlite3 surface, extend this interface explicitly rather than
+ * reverting to `any`.
+ */
+interface BetterSqlite3Statement {
+  run(...params: unknown[]): { changes: number; lastInsertRowid: number | bigint };
+  get(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
+  iterate(...params: unknown[]): IterableIterator<unknown>;
+}
+interface BetterSqlite3Database {
+  prepare(sql: string): BetterSqlite3Statement;
+  exec(sql: string): void;
+  pragma(stmt: string): unknown;
+  close(): void;
+  transaction<T extends (...args: unknown[]) => unknown>(fn: T): T;
+}
+type BetterSqlite3Constructor = new (path: string) => BetterSqlite3Database;
+
+// Dynamic import — better-sqlite3 is optional (native module, may not be available).
+// Capture as the structural type so call sites get static checking.
+let Database: BetterSqlite3Constructor | null = null;
 try {
-  Database = (await import("better-sqlite3")).default;
+  Database = (await import("better-sqlite3")).default as unknown as BetterSqlite3Constructor;
 } catch {
   // better-sqlite3 not installed — EvidenceRepository will throw on construction
 }
@@ -63,7 +86,7 @@ export interface StrategyPerformanceSummary {
 // ─── Repository ──────────────────────────────────────────────────────────────
 
 export class EvidenceRepository {
-  private db: any;
+  private db: BetterSqlite3Database;
 
   constructor(dbPath?: string) {
     if (!Database) {
@@ -334,5 +357,28 @@ export class EvidenceRepository {
 
   close(): void {
     this.db.close();
+  }
+}
+
+/**
+ * Factory: try to construct an EvidenceRepository. Returns `null` if the
+ * native better-sqlite3 module is not available. Composition roots
+ * (e.g. mcp-server) should import this factory directly rather than
+ * dynamically importing the module + casting through `unknown`.
+ *
+ * source: code-reviewer M7 (Phase 3+4 cross-audit, 2026-04). Pre-fix the
+ * mcp-server composition root used `await import("@prd-gen/core")` +
+ * `mod.EvidenceRepository as unknown as new (...) => ...` to avoid
+ * making the native module a hard dependency. Static import + factory
+ * preserves the same optionality without runtime reflection.
+ */
+export function tryCreateEvidenceRepository(
+  dbPath?: string,
+): EvidenceRepository | null {
+  if (!Database) return null;
+  try {
+    return new EvidenceRepository(dbPath);
+  } catch {
+    return null;
   }
 }

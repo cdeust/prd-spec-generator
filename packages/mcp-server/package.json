@@ -16,8 +16,11 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@prd-gen/core": "workspace:*",
+    "@prd-gen/ecosystem-adapters": "workspace:*",
+    "@prd-gen/orchestration": "workspace:*",
     "@prd-gen/strategy": "workspace:*",
     "@prd-gen/validation": "workspace:*",
+    "@prd-gen/verification": "workspace:*",
     "zod": "^3.24.0"
   },
   "devDependencies": {

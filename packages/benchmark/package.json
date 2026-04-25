@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@prd-gen/core": "workspace:*",
+    "@prd-gen/orchestration": "workspace:*",
     "@prd-gen/strategy": "workspace:*",
     "@prd-gen/validation": "workspace:*",
     "zod": "^3.24.0"

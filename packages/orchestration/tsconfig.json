@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["src/**/__tests__/**", "src/**/*.test.ts"],
+  "references": [
+    { "path": "../core" },
+    { "path": "../ecosystem-adapters" },
+    { "path": "../meta-prompting" },
+    { "path": "../validation" },
+    { "path": "../verification" }
+  ]
+}

@@ -184,7 +184,16 @@ function generateReport(summary: BenchmarkSummary): string {
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
-const QUALITY_GATE_THRESHOLD = 0.8; // 80% pass rate minimum
+/**
+ * source: provisional heuristic — initial value chosen to match the Swift
+ * reference (`ai-architect-prd-builder` quality gate). Phase 4.5 will
+ * recalibrate from a labelled fixture set; the right threshold depends
+ * on the rate at which the validator's own rules surface false positives
+ * vs catching real defects. Until then, 0.8 is a placeholder.
+ *
+ * Cross-audit curie M-1 (Phase 3+4, 2026-04).
+ */
+const QUALITY_GATE_THRESHOLD = 0.8;
 
 export async function runBenchmark(
   fixturesDir?: string,
@@ -194,18 +203,24 @@ export async function runBenchmark(
   const scenarios = loadScenarios(dir);
 
   if (scenarios.length === 0) {
-    console.log("No benchmark scenarios found. Create golden fixtures first.");
+    // Empty-fixture run is uninstrumented — there is nothing to certify.
+    // Pre-fix this returned qualityGatePassed=true, treating "no data" as
+    // "passing." A no-fixture run is now a hard FAIL per curie M-1
+    // (Phase 3+4 cross-audit, 2026-04): silence is not a passing signal.
+    console.log(
+      "No benchmark scenarios found. Treating as quality-gate FAILURE (uninstrumented run).",
+    );
     const empty: BenchmarkSummary = {
       timestamp: new Date().toISOString(),
       scenarios: [],
       aggregate: {
         totalRulesChecked: 0,
         totalRulesPassed: 0,
-        overallPassRate: 1,
+        overallPassRate: 0,
         totalCriticalViolations: 0,
-        crossRefValidRate: 1,
+        crossRefValidRate: 0,
       },
-      qualityGatePassed: true,
+      qualityGatePassed: false,
     };
     return empty;
   }

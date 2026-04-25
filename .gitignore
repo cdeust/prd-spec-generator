@@ -9,3 +9,8 @@ packages/core/dist
 packages/validation/dist
 packages/strategy/dist
 packages/benchmark/dist
+packages/orchestration/dist
+packages/verification/dist
+packages/meta-prompting/dist
+packages/ecosystem-adapters/dist
+packages/skill/dist

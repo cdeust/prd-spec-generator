@@ -1,8 +1,13 @@
 import type { ThinkingStrategy, LicenseTier, StrategyTier } from "@prd-gen/core";
-import { TIER_CAPABILITIES, STRATEGY_TIERS } from "@prd-gen/core";
+import { TIER_CAPABILITIES, STRATEGY_TIERS, ThinkingStrategySchema } from "@prd-gen/core";
 import type { EvidenceRepository } from "@prd-gen/core";
+import { z } from "zod";
 import { ResearchEvidenceDatabase } from "./research-evidence-database.js";
-import { analyzeClaim, type ClaimAnalysisResult } from "./claim-analyzer.js";
+import {
+  analyzeClaim,
+  ClaimAnalysisResultSchema,
+  type ClaimAnalysisResult,
+} from "./claim-analyzer.js";
 
 /**
  * Strategy selection -- ported from ResearchWeightedSelector.swift.
@@ -24,8 +29,31 @@ export interface StrategyAssignment {
   readonly expectedImprovement: number;
   readonly assignmentConfidence: number;
   readonly claimAnalysis: ClaimAnalysisResult;
-  readonly researchCitations: readonly string[];
+  /**
+   * Citations supporting the assignment. Mutable string[] for Zod
+   * inference parity (see ClaimAnalysisResult.characteristics).
+   */
+  readonly researchCitations: string[];
 }
+
+/**
+ * Zod schema for StrategyAssignment — used by orchestration to persist
+ * the assignment inside SectionStatus (Phase 4 wiring, 2026-04).
+ *
+ * Note: claimAnalysis.characteristics serializes as `string[]` here even
+ * though the runtime type is `ReadonlySet<string>` — Zod cannot validate
+ * Set instances directly. Use cases that need Set semantics call
+ * `new Set(assignment.claimAnalysis.characteristics)` at the consumer.
+ */
+export const StrategyAssignmentSchema = z.object({
+  required: z.array(ThinkingStrategySchema),
+  optional: z.array(ThinkingStrategySchema),
+  forbidden: z.array(ThinkingStrategySchema),
+  expectedImprovement: z.number(),
+  assignmentConfidence: z.number(),
+  claimAnalysis: ClaimAnalysisResultSchema,
+  researchCitations: z.array(z.string()),
+});
 
 interface ScoredStrategy {
   readonly strategy: ThinkingStrategy;
@@ -144,8 +172,8 @@ function selectRequired(
 
   // High-precision claims: add verified_reasoning
   if (
-    analysis.characteristics.has("accuracy_critical") ||
-    analysis.characteristics.has("high_precision")
+    analysis.characteristics.includes("accuracy_critical") ||
+    analysis.characteristics.includes("high_precision")
   ) {
     if (!required.includes("verified_reasoning")) {
       required.push("verified_reasoning");
@@ -153,7 +181,7 @@ function selectRequired(
   }
 
   // Codebase integration: add react
-  if (analysis.characteristics.has("codebase_integration")) {
+  if (analysis.characteristics.includes("codebase_integration")) {
     if (!required.includes("react") && !required.includes("verified_reasoning")) {
       required.push("react");
     }
@@ -216,10 +244,17 @@ function calculateAssignmentConfidence(
   characteristics: ReadonlySet<string>,
   complexityTier: "simple" | "moderate" | "complex",
 ): number {
+  // source: chosen heuristically (neutral mid-prior); calibrate from observed
+  // strategy effectiveness once we have JudgeVerdict-vs-actual ground-truth
+  // pairs in the evidence repository.
   let confidence = 0.5;
 
   if (complexityTier === "complex") {
     const hasTier1 = strategies.some((s) => db.getTier(s) === 1);
+    // source: chosen heuristically — Tier-1 strategies (TRM, verified_reasoning,
+    // self_consistency) are documented as most effective for complex claims in
+    // STRATEGY_TIERS (skill-config.json:tier_1_most_effective). Magnitude (+0.3)
+    // is a heuristic confidence boost; calibrate from execution history.
     if (hasTier1) confidence += 0.3;
   }
 
@@ -232,6 +267,9 @@ function calculateAssignmentConfidence(
       }
     }
   }
+  // source: per-overlap increment 0.02, capped at 0.2 (≈10 overlaps saturates).
+  // Heuristic; the 10-overlap saturation matches the typical research-evidence
+  // characteristic count per strategy. Calibrate from production overlap data.
   confidence += Math.min(0.2, totalOverlap * 0.02);
 
   return Math.min(1.0, confidence);
@@ -247,7 +285,13 @@ export function selectStrategy(options: SelectorOptions): StrategyAssignment {
     hasCodebase = false,
     hasMockups = false,
     evidenceRepository,
+    // source: chosen heuristically — overlap dominates over raw expectedImprovement
+    // because matched claim characteristics correlate more strongly with success
+    // than abstract improvement claims. Tune from execution history.
     overlapWeight = 0.6,
+    // source: chosen heuristically — strategies whose marginal improvement falls
+    // below 5 percentage points are filtered as not worth the cost overhead.
+    // Calibrate against (cost, accuracy_delta) pairs in evidence repository.
     minimumImprovementThreshold = 0.05,
     maxRequiredStrategies = 3,
   } = options;
@@ -274,8 +318,11 @@ export function selectStrategy(options: SelectorOptions): StrategyAssignment {
       optional: [],
       forbidden: [],
       expectedImprovement: 0,
+      // source: chosen heuristically — free tier uses chain_of_thought only
+      // (zero ablation), so confidence is below the neutral 0.5 prior to signal
+      // "this is a degraded assignment, not a calibrated recommendation."
       assignmentConfidence: 0.3,
-      claimAnalysis: { ...analysis, characteristics },
+      claimAnalysis: { ...analysis, characteristics: [...characteristics] },
       researchCitations: [],
     };
   }
@@ -302,7 +349,10 @@ export function selectStrategy(options: SelectorOptions): StrategyAssignment {
   const constrained = applyComplexityConstraints(allowedScored, analysis.complexityTier);
 
   // Step 6: Select required, optional, forbidden
-  const enrichedAnalysis: ClaimAnalysisResult = { ...analysis, characteristics };
+  const enrichedAnalysis: ClaimAnalysisResult = {
+    ...analysis,
+    characteristics: [...characteristics],
+  };
   const required = selectRequired(constrained, enrichedAnalysis, maxRequiredStrategies);
   const optional = selectOptional(constrained, required);
   const forbidden = selectForbidden(analysis.complexityTier);

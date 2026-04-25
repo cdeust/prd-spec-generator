@@ -1,228 +1,116 @@
+/**
+ * Audit-flag engine — loads YAML rules + evaluates them against PRD sections.
+ *
+ * Decomposed into:
+ *   - types.ts        — AuditRule / AuditFinding / SectionInput shapes
+ *   - helpers.ts      — pattern + section + suppress + makeFinding helpers
+ *   - pipeline-ops.ts — per-op handlers for algorithmic rules + condition
+ *                       evaluator + template interpolator
+ *   - engine.ts       — YAML loading + rule dispatch (this file)
+ *
+ * source: cross-audit code-reviewer Blocking-#1+#4 (Phase 3+4 follow-up,
+ * 2026-04). Pre-fix this file was 510+ lines with a 91-line algorithmic
+ * dispatch function. The decomposition keeps each module under §4.1 and
+ * §4.2 caps without changing observable behaviour.
+ */
+
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as yaml from "js-yaml";
 import type { SectionType } from "@prd-gen/core";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import type {
+  AuditRule,
+  AuditFinding,
+  AuditFlagReport,
+  SectionInput,
+} from "./types.js";
+import {
+  testRegex,
+  hasMatch,
+  sectionMatchesRule,
+  combineSections,
+  isSuppressedAtMatch,
+  makeFinding,
+} from "./helpers.js";
+import {
+  opCrossSectionPresence,
+  opExtract,
+  opExtractTable,
+  opCount,
+  opSimilarity,
+  opRatio,
+  opFlagIf,
+} from "./pipeline-ops.js";
 
-export interface AuditRuleFamily {
-  readonly code: string;
-  readonly name: string;
-  readonly display_name: string;
-  readonly description: string;
-  readonly primary_persona: string;
-}
+export type {
+  AuditRuleFamily,
+  AuditRule,
+  AuditFinding,
+  AuditFlagReport,
+} from "./types.js";
 
-interface DetectPattern {
-  readonly pattern: string;
-  readonly description: string;
-}
-
-interface SuppressPattern {
-  readonly pattern: string;
-  readonly scope: string;
-  readonly description: string;
-}
-
-interface PipelineOp {
-  readonly op: string;
-  readonly [key: string]: unknown;
-}
-
-export interface AuditRule {
-  readonly id: string;
-  readonly family: AuditRuleFamily;
-  readonly name: string;
-  readonly display_name: string;
-  readonly description: string;
-  readonly type: "pattern" | "algorithmic";
-  readonly mode?: "presence" | "absence" | "cross_section_presence";
-  readonly severity?: string;
-  readonly sections: readonly string[];
-  readonly detect: readonly DetectPattern[];
-  readonly suppress: readonly SuppressPattern[];
-  readonly pipeline: readonly PipelineOp[];
-  readonly claim_count: string;
-  readonly suggested_action: string;
-}
-
-export interface AuditFinding {
-  readonly ruleId: string;
-  readonly familyCode: string;
-  readonly familyName: string;
-  readonly ruleName: string;
-  readonly message: string;
-  readonly suggestedAction: string;
-  readonly severity: string;
-  readonly matchCount: number;
-}
-
-export interface AuditFlagReport {
-  readonly findings: readonly AuditFinding[];
-  readonly totalFlags: number;
-  readonly familySummary: Record<string, number>;
-}
-
-// ---------------------------------------------------------------------------
-// YAML loading
-// ---------------------------------------------------------------------------
+// ─── YAML loading ────────────────────────────────────────────────────────────
 
 function loadRulesFromDir(rulesDir: string): readonly AuditRule[] {
   const rules: AuditRule[] = [];
 
-  let files: string[];
+  let entries: string[];
   try {
-    files = readdirSync(rulesDir).filter((f) => f.endsWith(".yaml"));
+    entries = readdirSync(rulesDir);
   } catch {
     return rules;
   }
 
-  for (const file of files) {
+  for (const entry of entries) {
+    if (!entry.endsWith(".yaml") && !entry.endsWith(".yml")) continue;
+    const path = join(rulesDir, entry);
+
     try {
-      const raw = readFileSync(join(rulesDir, file), "utf-8");
-      const doc = yaml.load(raw) as {
-        family?: AuditRuleFamily;
+      const text = readFileSync(path, "utf-8");
+      const doc = yaml.load(text) as {
+        family?: { code?: string; name?: string; display_name?: string; description?: string; primary_persona?: string };
         rules?: Array<Record<string, unknown>>;
       };
-      if (!doc?.family || !doc?.rules) continue;
+      if (!doc?.family || !doc.rules) continue;
+
+      const family = {
+        code: String(doc.family.code ?? ""),
+        name: String(doc.family.name ?? ""),
+        display_name: String(doc.family.display_name ?? ""),
+        description: String(doc.family.description ?? ""),
+        primary_persona: String(doc.family.primary_persona ?? ""),
+      };
 
       for (const r of doc.rules) {
         rules.push({
-          id: `${doc.family.code}-${String(r.id).padStart(3, "0")}`,
-          family: doc.family,
+          id: String(r.id ?? ""),
+          family,
           name: String(r.name ?? ""),
           display_name: String(r.display_name ?? ""),
           description: String(r.description ?? ""),
-          type: (r.type as "pattern" | "algorithmic") ?? "pattern",
-          mode: r.mode as "presence" | "absence" | "cross_section_presence" | undefined,
+          type: ((r.type as string) ?? "pattern") as "pattern" | "algorithmic",
+          mode: r.mode as AuditRule["mode"],
           severity: r.severity as string | undefined,
-          sections: (r.sections as string[]) ?? [],
-          detect: (r.detect as DetectPattern[]) ?? [],
-          suppress: (r.suppress as SuppressPattern[]) ?? [],
-          pipeline: (r.pipeline as PipelineOp[]) ?? [],
-          claim_count: String(r.claim_count ?? "detect_matches"),
+          sections: ((r.sections as readonly string[]) ?? []),
+          detect: ((r.detect as readonly AuditRule["detect"][number][]) ?? []),
+          suppress: ((r.suppress as readonly AuditRule["suppress"][number][]) ?? []),
+          pipeline: ((r.pipeline as readonly AuditRule["pipeline"][number][]) ?? []),
+          claim_count: String(r.claim_count ?? ""),
           suggested_action: String(r.suggested_action ?? ""),
         });
       }
     } catch {
-      // Skip malformed YAML files
+      // Skip malformed YAML files; surface via log if telemetry is added later.
+      continue;
     }
   }
 
   return rules;
 }
 
-// ---------------------------------------------------------------------------
-// Pattern helpers
-// ---------------------------------------------------------------------------
-
-function testRegex(pattern: string, text: string): RegExpMatchArray[] {
-  try {
-    const re = new RegExp(pattern, "gm");
-    return [...text.matchAll(re)];
-  } catch {
-    return [];
-  }
-}
-
-function hasMatch(pattern: string, text: string): boolean {
-  try {
-    return new RegExp(pattern, "gm").test(text);
-  } catch {
-    return false;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Suppress scope evaluation
-// ---------------------------------------------------------------------------
-
-function getLineIndex(text: string, charIndex: number): number {
-  let line = 0;
-  for (let i = 0; i < charIndex && i < text.length; i++) {
-    if (text[i] === "\n") line++;
-  }
-  return line;
-}
-
-function getRowAtIndex(lines: readonly string[], lineIdx: number): string {
-  return lines[lineIdx] ?? "";
-}
-
-function getNearbyLines(
-  lines: readonly string[],
-  lineIdx: number,
-  radius: number,
-): string {
-  const start = Math.max(0, lineIdx - radius);
-  const end = Math.min(lines.length, lineIdx + radius + 1);
-  return lines.slice(start, end).join("\n");
-}
-
-function isSuppressedAtMatch(
-  suppressors: readonly SuppressPattern[],
-  sectionContent: string,
-  matchIndex: number,
-  allContent: string,
-): boolean {
-  if (suppressors.length === 0) return false;
-
-  const lines = sectionContent.split("\n");
-  const lineIdx = getLineIndex(sectionContent, matchIndex);
-
-  for (const sup of suppressors) {
-    let searchText: string;
-
-    if (sup.scope === "same_row") {
-      searchText = getRowAtIndex(lines, lineIdx);
-    } else if (sup.scope === "same_section") {
-      searchText = sectionContent;
-    } else if (sup.scope === "any_section") {
-      searchText = allContent;
-    } else if (sup.scope.startsWith("nearby_lines_")) {
-      const radius = parseInt(sup.scope.slice("nearby_lines_".length), 10);
-      searchText = getNearbyLines(lines, lineIdx, radius);
-    } else {
-      searchText = sectionContent;
-    }
-
-    if (hasMatch(sup.pattern, searchText)) return true;
-  }
-  return false;
-}
-
-// ---------------------------------------------------------------------------
-// Section helpers
-// ---------------------------------------------------------------------------
-
-interface SectionInput {
-  readonly type: SectionType;
-  readonly content: string;
-}
-
-function sectionMatchesRule(
-  sectionType: SectionType,
-  ruleSections: readonly string[],
-): boolean {
-  return ruleSections.length === 0 || ruleSections.includes(sectionType);
-}
-
-function combineSections(
-  sections: readonly SectionInput[],
-  filter: readonly string[],
-): string {
-  return sections
-    .filter((s) => filter.length === 0 || filter.includes(s.type))
-    .map((s) => s.content)
-    .join("\n\n");
-}
-
-// ---------------------------------------------------------------------------
-// Pattern rule evaluation
-// ---------------------------------------------------------------------------
+// ─── Pattern rule evaluation ─────────────────────────────────────────────────
 
 function evaluatePresenceRule(
   rule: AuditRule,
@@ -247,8 +135,11 @@ function evaluatePresenceRule(
 
   if (totalMatches === 0) return null;
 
-  return makeFinding(rule, totalMatches,
-    `${rule.description} (${totalMatches} occurrence${totalMatches > 1 ? "s" : ""})`);
+  return makeFinding(
+    rule,
+    totalMatches,
+    `${rule.description} (${totalMatches} occurrence${totalMatches > 1 ? "s" : ""})`,
+  );
 }
 
 function evaluateAbsenceRule(
@@ -267,194 +158,44 @@ function evaluateAbsenceRule(
   return makeFinding(rule, 1, rule.description);
 }
 
-// ---------------------------------------------------------------------------
-// Algorithmic (pipeline) rule evaluation
-// ---------------------------------------------------------------------------
+// ─── Algorithmic (pipeline) rule evaluation ──────────────────────────────────
 
 function evaluateAlgorithmicRule(
   rule: AuditRule,
   sections: readonly SectionInput[],
 ): AuditFinding | null {
   const vars: Record<string, unknown> = {};
-
   for (const op of rule.pipeline) {
     switch (op.op) {
-      case "cross_section_presence": {
-        const sourceSections = (op.source_sections as string[]) ?? [];
-        const targetSections = (op.target_sections as string[]) ?? [];
-        const sourceContent = combineSections(sections, sourceSections);
-        const targetContent = combineSections(sections, targetSections);
-        vars["source_found"] = testRegex(op.source_pattern as string, sourceContent).length;
-        vars["target_found"] = testRegex(op.target_pattern as string, targetContent).length;
+      case "cross_section_presence":
+        opCrossSectionPresence(op, sections, vars);
         break;
-      }
-
-      case "extract": {
-        const content = combineSections(sections, rule.sections);
-        const matches = testRegex(op.pattern as string, content);
-        const name = (op.into ?? op.store_as) as string;
-        vars[name] = matches.map((m) => m[0]);
+      case "extract":
+        opExtract(op, rule, sections, vars);
         break;
-      }
-
-      case "extract_table": {
-        const content = combineSections(sections, rule.sections);
-        const name = (op.into ?? op.store_as) as string;
-        if (hasMatch(op.header_pattern as string, content)) {
-          vars[name] = content.split("\n").filter((l) => l.includes("|"));
-        } else {
-          vars[name] = [];
-        }
+      case "extract_table":
+        opExtractTable(op, rule, sections, vars);
         break;
-      }
-
-      case "count": {
-        const source = (op.from ?? op.source) as string;
-        const storeName = (op.into ?? op.store_as) as string;
-        const arr = vars[source];
-        const count = Array.isArray(arr) ? arr.length : 0;
-        vars[storeName] = count;
-        vars["total"] = count;
+      case "count":
+        opCount(op, vars);
         break;
-      }
-
-      case "similarity": {
-        const arr = vars[(op.from ?? op.source) as string];
-        if (Array.isArray(arr) && arr.length >= 2) {
-          const threshold = (op.threshold as number) ?? 0.8;
-          let count = 0;
-          for (let i = 0; i < arr.length; i++) {
-            for (let j = i + 1; j < arr.length; j++) {
-              if (jaccardSimilarity(String(arr[i]), String(arr[j])) >= threshold) {
-                count++;
-              }
-            }
-          }
-          vars["similar_count"] = count;
-        } else {
-          vars["similar_count"] = 0;
-        }
+      case "similarity":
+        opSimilarity(op, vars);
         break;
-      }
-
-      case "ratio": {
-        const arr = vars[op.numerator_from as string];
-        if (Array.isArray(arr)) {
-          const match = (op.numerator_match as string).toUpperCase();
-          const total = arr.length;
-          const hits = arr.filter((v) => String(v).toUpperCase().includes(match)).length;
-          vars["pass_rate"] = total > 0 ? hits / total : 0;
-          vars["total"] = total;
-        }
+      case "ratio":
+        opRatio(op, vars);
         break;
-      }
-
       case "flag_if": {
-        const condition = op.condition as string;
-        if (evaluateCondition(condition, vars)) {
-          const template = (op.finding as string) ?? rule.description;
-          const message = interpolateVars(template, vars);
-          return makeFinding(rule, 1, message);
-        }
+        const finding = opFlagIf(op, rule, vars);
+        if (finding) return finding;
         break;
       }
     }
   }
-
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Condition evaluator
-// ---------------------------------------------------------------------------
-
-function evaluateCondition(
-  condition: string,
-  vars: Record<string, unknown>,
-): boolean {
-  return condition
-    .split(/\s+AND\s+/i)
-    .every((part) => evaluateComparison(part.trim(), vars));
-}
-
-function evaluateComparison(
-  expr: string,
-  vars: Record<string, unknown>,
-): boolean {
-  const ops = [">=", "<=", "!=", ">", "<", "=="] as const;
-  for (const op of ops) {
-    const idx = expr.indexOf(op);
-    if (idx === -1) continue;
-
-    const left = resolveNum(expr.slice(0, idx).trim(), vars);
-    const right = resolveNum(expr.slice(idx + op.length).trim(), vars);
-
-    switch (op) {
-      case ">=": return left >= right;
-      case "<=": return left <= right;
-      case "!=": return left !== right;
-      case ">":  return left > right;
-      case "<":  return left < right;
-      case "==": return left === right;
-    }
-  }
-  return false;
-}
-
-function resolveNum(token: string, vars: Record<string, unknown>): number {
-  const n = Number(token);
-  if (!Number.isNaN(n)) return n;
-  const v = vars[token];
-  return typeof v === "number" ? v : 0;
-}
-
-// ---------------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------------
-
-function interpolateVars(
-  template: string,
-  vars: Record<string, unknown>,
-): string {
-  return template.replace(/\{(\w+)(?::([^}]+))?\}/g, (_m, name: string) => {
-    const val = vars[name];
-    if (val === undefined) return `{${name}}`;
-    if (typeof val === "number") return String(Math.round(val * 100) / 100);
-    return String(val);
-  });
-}
-
-function jaccardSimilarity(a: string, b: string): number {
-  const setA = new Set(a.toLowerCase().split(/\s+/));
-  const setB = new Set(b.toLowerCase().split(/\s+/));
-  let intersection = 0;
-  for (const w of setA) {
-    if (setB.has(w)) intersection++;
-  }
-  const union = setA.size + setB.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-}
-
-function makeFinding(
-  rule: AuditRule,
-  matchCount: number,
-  message: string,
-): AuditFinding {
-  return {
-    ruleId: rule.id,
-    familyCode: rule.family.code,
-    familyName: rule.family.display_name,
-    ruleName: rule.display_name,
-    message,
-    suggestedAction: rule.suggested_action,
-    severity: rule.severity ?? "warning",
-    matchCount,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Engine
-// ---------------------------------------------------------------------------
+// ─── Engine ──────────────────────────────────────────────────────────────────
 
 export class AuditFlagEngine {
   private readonly rules: readonly AuditRule[];

@@ -31,7 +31,9 @@ export const TIER_CAPABILITIES: Record<LicenseTier, TierCapabilities> = {
     verificationLevel: "basic",
   },
   trial: {
-    maxStrategies: 17,
+    // source: matches allowedStrategies.length below. Previously declared as
+    // 17 by mistake (Darwin difficulty-book pass-2, 2026-04).
+    maxStrategies: 16,
     allowedStrategies: [
       "chain_of_thought", "tree_of_thoughts", "graph_of_thoughts",
       "react", "reflexion", "plan_and_solve", "verified_reasoning",
@@ -48,7 +50,8 @@ export const TIER_CAPABILITIES: Record<LicenseTier, TierCapabilities> = {
     verificationLevel: "full",
   },
   licensed: {
-    maxStrategies: 17,
+    // source: matches allowedStrategies.length below.
+    maxStrategies: 16,
     allowedStrategies: [
       "chain_of_thought", "tree_of_thoughts", "graph_of_thoughts",
       "react", "reflexion", "plan_and_solve", "verified_reasoning",

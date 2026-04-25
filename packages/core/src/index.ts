@@ -68,9 +68,34 @@ export {
   type CrossRefValidationResult,
 } from "./domain/validation-result.js";
 
+// Agent / judge domain
+export {
+  GeniusAgentSchema,
+  TeamAgentSchema,
+  AgentIdentitySchema,
+  agentSubagentType,
+  ClaimSchema,
+  JudgeVerdictSchema,
+  JudgeRequestSchema,
+  SubagentInvocationSchema,
+  SubagentResponseSchema,
+  type GeniusAgent,
+  type TeamAgent,
+  type AgentIdentity,
+  type Claim,
+  type JudgeVerdict,
+  type JudgeRequest,
+  type SubagentInvocation,
+  type SubagentResponse,
+} from "./domain/agent.js";
+
+// Utils
+export { extractJsonObject } from "./utils/json-extract.js";
+
 // Persistence
 export {
   EvidenceRepository,
+  tryCreateEvidenceRepository,
   type StrategyExecution,
   type PRDQualityScore,
   type AdaptiveThreshold,

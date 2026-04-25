@@ -4,11 +4,12 @@
   "private": true,
   "description": "Scientifically-backed PRD generation system with deterministic validation",
   "scripts": {
-    "build": "pnpm -r build",
+    "build": "pnpm -r --workspace-concurrency=1 build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "clean": "pnpm -r clean"
+    "clean": "pnpm -r clean",
+    "verify": "pnpm install --frozen-lockfile && pnpm build && pnpm test"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -19,6 +20,7 @@
     ]
   },
   "devDependencies": {
+    "esbuild": "^0.28.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.4"
   }

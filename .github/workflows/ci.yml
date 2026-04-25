@@ -1,0 +1,76 @@
+name: CI
+
+# Runs on every push to main and every pull request. Failure on any step
+# blocks merge.
+#
+# Stages:
+#   1. checkout + setup node + pnpm cache
+#   2. install (frozen lockfile — fails if pnpm-lock.yaml is stale)
+#   3. build (sequential workspace build to respect topological order;
+#      `pnpm -r build` non-sequential races package outputs)
+#   4. test (vitest workspace, runs all package suites including smoke)
+#
+# What this protects against (per phase-2 audit consensus):
+#   - protocol regressions in the runner / handlers
+#   - dispatcher contract drift between SKILL.md and code
+#   - smoke tests breaking under transitive dependency updates
+#   - workspace topology breakage (a package moves and others can no longer build)
+#
+# What this does NOT protect against:
+#   - real ecosystem integration (no live automatised-pipeline / Cortex MCPs)
+#   - LLM judge response drift
+#   - performance regressions (no time budget asserted in tests)
+# Both gaps are tracked in the project roadmap.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20.x, 22.x]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # source: package.json declares pnpm v10 in pnpm-lock.yaml metadata.
+          version: 10
+
+      - name: Setup Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        # --frozen-lockfile fails if pnpm-lock.yaml is stale; this keeps
+        # CI's install identical to local development.
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (sequential)
+        # source: a non-sequential build raced package outputs and broke
+        # transitively on cold caches. The orchestration package depends on
+        # core's dist/ via @prd-gen/core; if core finishes after orchestration
+        # starts, the latter cannot resolve types. Sequential is mandatory.
+        run: pnpm build
+
+      - name: Test
+        # Vitest workspace runs every package's vitest.config.ts.
+        run: pnpm test

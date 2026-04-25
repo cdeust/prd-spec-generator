@@ -3,6 +3,10 @@ import { z } from "zod";
 /**
  * PRD section types — ported from SectionType.swift.
  * rawValue uses snake_case for serialization compatibility.
+ *
+ * `jira_tickets` is a synthetic section produced by jira-generation; it is
+ * not subject to the standard hard-output rules and is written to its own
+ * file by file-export.
  */
 export const SectionTypeSchema = z.enum([
   "overview",
@@ -21,6 +25,7 @@ export const SectionTypeSchema = z.enum([
   "timeline",
   "source_code",
   "test_code",
+  "jira_tickets",
 ]);
 
 export type SectionType = z.infer<typeof SectionTypeSchema>;
@@ -42,6 +47,7 @@ export const SECTION_DISPLAY_NAMES: Record<SectionType, string> = {
   timeline: "Timeline & Milestones",
   source_code: "Source Code",
   test_code: "Test Code",
+  jira_tickets: "JIRA Tickets",
 };
 
 export const SECTION_ORDER: Record<SectionType, number> = {
@@ -61,4 +67,5 @@ export const SECTION_ORDER: Record<SectionType, number> = {
   timeline: 13,
   source_code: 14,
   test_code: 15,
+  jira_tickets: 16,
 };

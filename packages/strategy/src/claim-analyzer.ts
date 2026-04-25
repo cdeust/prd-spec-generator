@@ -4,15 +4,50 @@
  * These characteristics drive research-evidence-based strategy selection.
  */
 
+import { z } from "zod";
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface ClaimAnalysisResult {
   readonly claim: string;
-  readonly characteristics: ReadonlySet<string>;
+  /**
+   * Deduplicated list of characteristics detected in the claim. Array form
+   * (not Set) so the type matches the Zod schema (`z.array(z.string())`)
+   * and serializes cleanly for persistence into SectionStatus and
+   * StrategyExecution. Set semantics (membership test) are recovered at
+   * consumer sites via `new Set(characteristics)` or
+   * `characteristics.includes(...)`.
+   *
+   * source: Phase 4 strategy-wiring (2026-04). The Set runtime type
+   * conflicted with Zod schema persistence; the array form serializes
+   * cleanly and deduplicates at construction time. The `readonly` modifier
+   * is omitted because Zod infers `string[]` (mutable) from
+   * `z.array(z.string())` and TypeScript cannot reconcile readonly →
+   * mutable assignability across the persistence boundary.
+   */
+  readonly characteristics: string[];
   readonly complexityScore: number;
   readonly complexityTier: "simple" | "moderate" | "complex";
-  readonly analysisNotes: readonly string[];
+  /**
+   * Mutable string[] (not readonly) for the same Zod-inference reason as
+   * `characteristics` above.
+   */
+  readonly analysisNotes: string[];
 }
+
+/**
+ * Zod schema for ClaimAnalysisResult — used by orchestration to persist
+ * the analysis inside SectionStatus (Phase 4 wiring, 2026-04). Persistence
+ * stores `characteristics` as `string[]` and reconstructs the Set at use
+ * sites; Zod cannot validate readonly Sets directly.
+ */
+export const ClaimAnalysisResultSchema = z.object({
+  claim: z.string(),
+  characteristics: z.array(z.string()),
+  complexityScore: z.number(),
+  complexityTier: z.enum(["simple", "moderate", "complex"]),
+  analysisNotes: z.array(z.string()),
+});
 
 // ── Pattern Detection ───────────────────────────────────────────────────────
 
@@ -207,6 +242,14 @@ function calculateComplexityScore(
   return Math.min(1.0, score);
 }
 
+/**
+ * Convenience: build a Set view from the array form. Used at consumer sites
+ * (selector + research-evidence-database) that need set membership semantics.
+ */
+function characteristicSet(characteristics: readonly string[]): ReadonlySet<string> {
+  return new Set(characteristics);
+}
+
 function complexityTierFromScore(score: number): "simple" | "moderate" | "complex" {
   if (score >= 0.6) return "complex";
   if (score >= 0.3) return "moderate";
@@ -251,7 +294,9 @@ export function analyzeClaim(claim: string, context?: string): ClaimAnalysisResu
 
   return {
     claim,
-    characteristics,
+    // Persisted as a deduplicated array. Set semantics recovered via
+    // `characteristicSet(...)` or `characteristics.includes(...)` at use sites.
+    characteristics: [...characteristics],
     complexityScore,
     complexityTier: complexityTierFromScore(complexityScore),
     analysisNotes: notes,

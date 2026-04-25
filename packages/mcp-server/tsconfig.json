@@ -6,8 +6,11 @@
   },
   "references": [
     { "path": "../core" },
+    { "path": "../ecosystem-adapters" },
+    { "path": "../orchestration" },
+    { "path": "../strategy" },
     { "path": "../validation" },
-    { "path": "../strategy" }
+    { "path": "../verification" }
   ],
   "include": ["src/**/*"]
 }
