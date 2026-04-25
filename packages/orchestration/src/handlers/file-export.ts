@@ -62,7 +62,6 @@ function buildFileSet(state: PipelineState): readonly PrdFile[] {
           "",
           `Run ID: ${state.run_id}`,
           `Context: ${state.prd_context ?? "unknown"}`,
-          `License Tier: ${state.license_tier}`,
           "",
           joinSections(state, [
             "overview",

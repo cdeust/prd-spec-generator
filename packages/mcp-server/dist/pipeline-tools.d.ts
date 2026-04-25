@@ -14,6 +14,5 @@
  * call submit_action_result with the result, repeat until `done`.
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { type LicenseTier } from "@prd-gen/core";
-export declare function registerPipelineTools(server: McpServer, resolveLicenseTier: () => LicenseTier): void;
+export declare function registerPipelineTools(server: McpServer): void;
 //# sourceMappingURL=pipeline-tools.d.ts.map

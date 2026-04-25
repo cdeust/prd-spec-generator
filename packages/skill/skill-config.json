@@ -1,57 +1,9 @@
 {
   "version": "2.0.0",
   "name": "AI Architect PRD Generator",
-  "description": "Enterprise PRD generation with structured rules, deterministic MCP validation, 8 context-aware PRD types, license-aware tiered architecture, 15 thinking strategies, research-based prioritization, and production-ready technical specifications",
-  "license": {
-    "tiers": ["trial", "free", "licensed"],
-    "default_tier": "free",
-    "validation": {
-      "method": "cryptographic",
-      "verification": {
-        "license_file": "Ed25519 signature + hardware fingerprint + expiry",
-        "trial_file": "HMAC-SHA256 tamper detection + hardware fingerprint + expiry"
-      }
-    },
-    "license_resolution": [
-      { "priority": 1, "source": "~/.aiprd/.lk", "condition": "AES-256 decrypted, Ed25519 verified, not expired", "result": "licensed" },
-      { "priority": 2, "source": "default", "condition": "no valid activation", "result": "free" }
-    ],
-    "free_tier": {
-      "strategies": ["zero_shot", "chain_of_thought"],
-      "prd_contexts": ["feature", "bug"],
-      "max_clarification_rounds": 3,
-      "max_clarification_questions": 5,
-      "verification": "basic",
-      "rag_max_hops": 1,
-      "sections_limit": 6,
-      "business_kpis": "summary_only"
-    },
-    "trial_tier": {
-      "strategies": "all",
-      "prd_contexts": "all",
-      "max_clarification_rounds": "unlimited",
-      "max_clarification_questions": "context_aware",
-      "verification": "full",
-      "rag_max_hops": "context_aware",
-      "sections_limit": "context_aware",
-      "business_kpis": "full"
-    },
-    "licensed_tier": {
-      "strategies": "all",
-      "prd_contexts": "all",
-      "max_clarification_rounds": "unlimited",
-      "max_clarification_questions": "context_aware",
-      "verification": "full",
-      "rag_max_hops": "context_aware",
-      "sections_limit": "context_aware",
-      "business_kpis": "full"
-    }
-  },
+  "description": "Enterprise PRD generation with structured rules, deterministic MCP validation, 8 context-aware PRD types, 16 thinking strategies, research-based prioritization, and production-ready technical specifications",
   "prd_contexts": {
     "available": ["proposal", "feature", "bug", "incident", "poc", "mvp", "release", "cicd"],
-    "free_tier_access": ["feature", "bug"],
-    "trial_tier_access": "all",
-    "licensed_tier_access": "all",
     "configurations": {
       "proposal": {
         "clarification_range": [5, 6],
@@ -217,12 +169,7 @@
     "research_sources": [
       "MIT", "Stanford", "Harvard", "ETH Zurich", "Princeton",
       "Google", "Anthropic", "OpenAI", "DeepSeek"
-    ],
-    "license_tiers": {
-      "free": ["chain_of_thought", "zero_shot"],
-      "trial": "all",
-      "licensed": "all"
-    }
+    ]
   },
   "orchestration": {
     "enabled": true,
@@ -274,8 +221,6 @@
     "mcp_server": {
       "transport": "stdio",
       "tools": [
-        "validate_license",
-        "get_license_features",
         "get_config",
         "read_skill_config",
         "check_health",
@@ -284,12 +229,19 @@
         "validate_prd_section",
         "validate_prd_document",
         "get_quality_history",
-        "get_strategy_effectiveness"
+        "get_strategy_effectiveness",
+        "coordinate_context_budget",
+        "map_failure_to_retrieval",
+        "start_pipeline",
+        "submit_action_result",
+        "get_pipeline_state",
+        "plan_section_verification",
+        "plan_document_verification",
+        "conclude_verification"
       ]
     },
     "commands": [
       "generate-prd",
-      "validate-license",
       "index-codebase"
     ]
   }

@@ -3,7 +3,7 @@ import type { ActionResult, HandlerAction } from "../types/actions.js";
 import type { PipelineState } from "../types/state.js";
 import {
   PRD_CONTEXT_CONFIGS,
-  TIER_CAPABILITIES,
+  CAPABILITIES,
   extractJsonObject,
 } from "@prd-gen/core";
 import {
@@ -125,12 +125,11 @@ interface RoundBounds {
 
 function computeBounds(state: PipelineState): RoundBounds {
   const config = PRD_CONTEXT_CONFIGS[state.prd_context!];
-  const tierCaps = TIER_CAPABILITIES[state.license_tier];
   const max = Math.min(
     config.clarificationRange[1],
-    tierCaps.maxClarificationRounds,
+    CAPABILITIES.maxClarificationRounds,
   );
-  // Clamp min so we never require more questions than the tier allows.
+  // Clamp min so we never require more questions than the cap allows.
   const min = Math.min(config.clarificationRange[0], max);
   return { min, max };
 }

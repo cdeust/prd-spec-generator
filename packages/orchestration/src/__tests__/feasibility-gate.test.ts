@@ -19,7 +19,6 @@ function stateAt(
 ): PipelineState {
   const seed = newPipelineState({
     run_id: "feasibility_test",
-    license_tier: "trial",
     feature_description,
   });
   return {

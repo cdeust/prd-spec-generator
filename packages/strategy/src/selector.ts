@@ -1,5 +1,5 @@
-import type { ThinkingStrategy, LicenseTier, StrategyTier } from "@prd-gen/core";
-import { TIER_CAPABILITIES, STRATEGY_TIERS, ThinkingStrategySchema } from "@prd-gen/core";
+import type { ThinkingStrategy, StrategyTier } from "@prd-gen/core";
+import { CAPABILITIES, STRATEGY_TIERS, ThinkingStrategySchema } from "@prd-gen/core";
 import type { EvidenceRepository } from "@prd-gen/core";
 import { z } from "zod";
 import { ResearchEvidenceDatabase } from "./research-evidence-database.js";
@@ -66,7 +66,6 @@ interface ScoredStrategy {
 export interface SelectorOptions {
   readonly claim: string;
   readonly context?: string;
-  readonly licenseTier: LicenseTier;
   readonly hasCodebase?: boolean;
   readonly hasMockups?: boolean;
   readonly evidenceRepository?: EvidenceRepository;
@@ -281,7 +280,6 @@ export function selectStrategy(options: SelectorOptions): StrategyAssignment {
   const {
     claim,
     context,
-    licenseTier,
     hasCodebase = false,
     hasMockups = false,
     evidenceRepository,
@@ -310,23 +308,6 @@ export function selectStrategy(options: SelectorOptions): StrategyAssignment {
     characteristics.add("multimodal");
   }
 
-  // Free tier: degraded assignment
-  const capabilities = TIER_CAPABILITIES[licenseTier];
-  if (licenseTier === "free") {
-    return {
-      required: ["chain_of_thought"],
-      optional: [],
-      forbidden: [],
-      expectedImprovement: 0,
-      // source: chosen heuristically — free tier uses chain_of_thought only
-      // (zero ablation), so confidence is below the neutral 0.5 prior to signal
-      // "this is a degraded assignment, not a calibrated recommendation."
-      assignmentConfidence: 0.3,
-      claimAnalysis: { ...analysis, characteristics: [...characteristics] },
-      researchCitations: [],
-    };
-  }
-
   // Step 2: Get historical adjustments (closed feedback loop)
   let historicalAdjustments = new Map<ThinkingStrategy, number>();
   if (evidenceRepository) {
@@ -341,8 +322,8 @@ export function selectStrategy(options: SelectorOptions): StrategyAssignment {
     minimumImprovementThreshold,
   );
 
-  // Step 4: Filter by allowed strategies for license tier
-  const allowed = new Set(capabilities.allowedStrategies);
+  // Step 4: Filter to the allowed strategy set
+  const allowed = new Set(CAPABILITIES.allowedStrategies);
   const allowedScored = scored.filter((s) => allowed.has(s.strategy));
 
   // Step 5: Apply complexity constraints

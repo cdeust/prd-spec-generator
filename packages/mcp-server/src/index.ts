@@ -9,12 +9,10 @@ import { fileURLToPath } from "node:url";
 
 import {
   PRD_CONTEXT_CONFIGS,
-  TIER_CAPABILITIES,
+  CAPABILITIES,
   STRATEGY_TIERS,
   SectionTypeSchema,
-  type LicenseTier,
   type PRDContext,
-  type SectionType,
 } from "@prd-gen/core";
 
 import { tryCreateEvidenceRepository, type EvidenceRepository } from "@prd-gen/core";
@@ -33,47 +31,11 @@ import { registerPipelineTools } from "./pipeline-tools.js";
 
 /**
  * PRD Generator MCP Server — native TypeScript.
- * Eliminates the Node.js↔Swift cross-language boundary.
  *
- * 11 tools: 7 existing (ported from index.js) + 4 new validation tools.
+ * 17 tools: 5 diagnostics + 2 validation + 2 evidence + 8 pipeline/verification/budget.
  */
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// ─── License Resolution ──────────────────────────────────────────────────────
-
-function resolveLicenseTier(): LicenseTier {
-  const homedir = process.env.HOME ?? process.env.USERPROFILE ?? "";
-
-  // Check for license file
-  const licensePath = join(homedir, ".aiprd", "license.json");
-  if (existsSync(licensePath)) {
-    try {
-      const data = JSON.parse(readFileSync(licensePath, "utf-8"));
-      if (data.tier === "licensed" || data.tier === "trial") {
-        return data.tier;
-      }
-    } catch {
-      // Fall through to free
-    }
-  }
-
-  // Check for trial file
-  const trialPath = join(homedir, ".aiprd", "trial.json");
-  if (existsSync(trialPath)) {
-    try {
-      const data = JSON.parse(readFileSync(trialPath, "utf-8"));
-      const expiresAt = new Date(data.expiresAt);
-      if (expiresAt > new Date()) {
-        return "trial";
-      }
-    } catch {
-      // Fall through to free
-    }
-  }
-
-  return "free";
-}
 
 // ─── Config Loading ──────────────────────────────────────────────────────────
 
@@ -129,46 +91,7 @@ function getEvidenceRepo(): EvidenceRepositoryLike | null {
   return _evidenceRepo;
 }
 
-// ─── Tool 1: validate_license ────────────────────────────────────────────────
-
-server.tool(
-  "validate_license",
-  "Resolve the current license tier (free/trial/licensed)",
-  {},
-  async () => {
-    const tier = resolveLicenseTier();
-    const capabilities = TIER_CAPABILITIES[tier];
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify({ tier, capabilities }, null, 2),
-        },
-      ],
-    };
-  },
-);
-
-// ─── Tool 2: get_license_features ────────────────────────────────────────────
-
-server.tool(
-  "get_license_features",
-  "Get feature capabilities for the current license tier",
-  {},
-  async () => {
-    const tier = resolveLicenseTier();
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(TIER_CAPABILITIES[tier], null, 2),
-        },
-      ],
-    };
-  },
-);
-
-// ─── Tool 3: get_config ──────────────────────────────────────────────────────
+// ─── Tool 1: get_config ──────────────────────────────────────────────────────
 
 server.tool(
   "get_config",
@@ -182,7 +105,7 @@ server.tool(
   },
 );
 
-// ─── Tool 4: read_skill_config ───────────────────────────────────────────────
+// ─── Tool 2: read_skill_config ───────────────────────────────────────────────
 
 server.tool(
   "read_skill_config",
@@ -196,14 +119,13 @@ server.tool(
   },
 );
 
-// ─── Tool 5: check_health ────────────────────────────────────────────────────
+// ─── Tool 3: check_health ────────────────────────────────────────────────────
 
 server.tool(
   "check_health",
   "Check system health — verify all components are accessible",
   {},
   async () => {
-    const tier = resolveLicenseTier();
     const configAvailable = loadSkillConfig().version !== undefined;
     const skillAvailable = loadSkillMd() !== "SKILL.md not found";
 
@@ -225,7 +147,6 @@ server.tool(
           text: JSON.stringify(
             {
               status: "ok",
-              licenseTier: tier,
               configAvailable,
               skillAvailable,
               evidenceDbHealthy: dbHealthy,
@@ -240,7 +161,7 @@ server.tool(
   },
 );
 
-// ─── Tool 6: get_prd_context_info ────────────────────────────────────────────
+// ─── Tool 4: get_prd_context_info ────────────────────────────────────────────
 
 server.tool(
   "get_prd_context_info",
@@ -267,23 +188,20 @@ server.tool(
   },
 );
 
-// ─── Tool 7: list_available_strategies ───────────────────────────────────────
+// ─── Tool 5: list_available_strategies ───────────────────────────────────────
 
 server.tool(
   "list_available_strategies",
-  "List thinking strategies available for the current license tier",
+  "List thinking strategies available to the pipeline.",
   {},
   async () => {
-    const tier = resolveLicenseTier();
-    const capabilities = TIER_CAPABILITIES[tier];
     return {
       content: [
         {
           type: "text" as const,
           text: JSON.stringify(
             {
-              tier,
-              strategies: capabilities.allowedStrategies,
+              strategies: CAPABILITIES.allowedStrategies,
               tiers: STRATEGY_TIERS,
             },
             null,
@@ -295,7 +213,7 @@ server.tool(
   },
 );
 
-// ─── Tool 8: validate_prd_section (NEW) ──────────────────────────────────────
+// ─── Tool 6: validate_prd_section ────────────────────────────────────────────
 
 server.tool(
   "validate_prd_section",
@@ -319,7 +237,7 @@ server.tool(
   },
 );
 
-// ─── Tool 9: validate_prd_document (NEW) ─────────────────────────────────────
+// ─── Tool 7: validate_prd_document ───────────────────────────────────────────
 
 server.tool(
   "validate_prd_document",
@@ -347,7 +265,7 @@ server.tool(
   },
 );
 
-// ─── Tool 10: get_quality_history (NEW) ──────────────────────────────────────
+// ─── Tool 8: get_quality_history ─────────────────────────────────────────────
 
 server.tool(
   "get_quality_history",
@@ -385,7 +303,7 @@ server.tool(
   },
 );
 
-// ─── Tool 11: get_strategy_effectiveness (NEW) ───────────────────────────────
+// ─── Tool 9: get_strategy_effectiveness ──────────────────────────────────────
 
 server.tool(
   "get_strategy_effectiveness",
@@ -444,7 +362,7 @@ registerBudgetTools(server);
 
 // ─── Pipeline / verification tools (orchestration + verification) ────────────
 
-registerPipelineTools(server, resolveLicenseTier);
+registerPipelineTools(server);
 
 // ─── Start Server ────────────────────────────────────────────────────────────
 

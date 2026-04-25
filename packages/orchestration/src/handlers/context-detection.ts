@@ -2,7 +2,7 @@ import type { StepHandler } from "../runner.js";
 import {
   PRDContextSchema,
   PRD_CONTEXT_CONFIGS,
-  TIER_CAPABILITIES,
+  CAPABILITIES,
   type PRDContext,
 } from "@prd-gen/core";
 
@@ -71,7 +71,7 @@ export const handleContextDetection: StepHandler = ({ state, result }) => {
 
   // Try to detect from feature_description.
   const detected = detectFromText(state.feature_description);
-  const allowed = TIER_CAPABILITIES[state.license_tier].allowedContextTypes;
+  const allowed = CAPABILITIES.allowedContextTypes;
 
   if (detected && allowed.includes(detected)) {
     return {

@@ -7,38 +7,26 @@ argument-hint: "[project-description]"
 
 # Generate PRD
 
-## Step 1 — Detect mode
+This is the legacy entry point. The current dispatcher loop lives in
+`packages/skill/commands/generate-prd.md` and is documented in
+`packages/skill/SKILL.md`. Both run the same MCP server with the same
+unconditional capability set — there is no mode detection, no license
+gating, no environment branching.
 
-Check your available tools list. If a tool named `mcp__prd-gen__validate_license` (or any `mcp__*__validate_license` prefix matching the `prd-gen` server registered in your `.mcp.json`) exists, you are in **Cowork mode**. Otherwise you are in **CLI Terminal mode**.
+## Step 1 — Load SKILL.md
 
-## Step 2 — Resolve license
+**MANDATORY**: Use the Read tool to read SKILL.md from the skill package
+(`packages/skill/SKILL.md`, or whatever path the host plugin resolves to
+via `read_skill_config`). It contains the dispatcher protocol, action
+shapes, and the full pipeline contract.
 
-**CLI Terminal mode:**
+## Step 2 — Drive the pipeline
 
-Use the Read tool to read the file `~/.aiprd/license-key`.
-- If the file exists and contains a key starting with `AIPRD-`, the tier is **licensed**. No API call needed. Proceed.
-- If the file does not exist or is empty, ask the user with AskUserQuestion: "No license key found. Would you like to enter a license key or continue with free tier?"
-  - **Enter license key** -> user provides an AIPRD- key. Validate it against the Polar.sh API (see validate-license command). If valid, save to `~/.aiprd/license-key` and set tier to **licensed**. If invalid, set tier to **free**.
-  - **Continue without** -> tier is **free**.
+If the user provided a project description in `$ARGUMENTS`, use it as the
+initial input. Otherwise, ask for a project description with
+`AskUserQuestion`.
 
-**Cowork mode:**
-
-Call `check_health` MCP tool. Note the `environment` field:
-- `environment: "cowork"` -> The plugin analyzes your codebase from **locally shared directories** using Glob, Grep, and Read tools. GitHub API and `gh` CLI are blocked. If no project folder is shared, ask the user to share one before proceeding with codebase analysis. WebFetch on public GitHub URLs is available as a fallback but may time out.
-- `environment: "cli"` -> Full access. Use `gh` CLI or MCP GitHub tools for repo analysis.
-
-Then call `validate_license` MCP tool.
-
-## Step 3 — Display license tier banner and proceed
-
-- **Licensed**: Full access to all 8 PRD types, 15 thinking strategies, and complete verification. Proceed.
-- **Trial**: Full access (14-day evaluation period) — show days remaining. Proceed.
-- **Free**: Limited to feature/bug PRD types, 2 thinking strategies, basic verification. Proceed with free tier limitations.
-
-## Step 4 — Load the full skill instructions
-
-**MANDATORY**: Use the Read tool to read the SKILL.md file from the skill package. This file contains the complete PRD generation workflow with all rules, confidence thresholds, clarification loop behavior, section generation, and verification logic. You MUST read it and follow every rule in it.
-
-If the user provided a project description in `$ARGUMENTS`, use it as the initial input. Otherwise, ask for a project description.
-
-Then follow the SKILL.md instructions from the beginning (starting at "CRITICAL WORKFLOW RULES") to execute the full workflow. Do NOT generate any PRD content without first completing the clarification loop as defined in the skill.
+Then call `start_pipeline(feature_description, codebase_path?)`, display
+each `messages` entry returned, execute `action`, and call
+`submit_action_result(run_id, result)` until `action.kind === "done"` or
+`"failed"`. Every action kind is governed by the SKILL.md dispatch table.

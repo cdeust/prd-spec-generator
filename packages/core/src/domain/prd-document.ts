@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { PRDContextSchema } from "./prd-context.js";
 import { SectionTypeSchema } from "./section-type.js";
-import { LicenseTierSchema } from "./license-tier.js";
 import { ClarificationAnswerSchema } from "./clarification.js";
 
 export const PRDSectionSchema = z.object({
@@ -24,7 +23,6 @@ export const PRDDocumentSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1),
   context: PRDContextSchema,
-  licenseTier: LicenseTierSchema,
   sections: z.array(PRDSectionSchema),
   clarificationAnswers: z.array(ClarificationAnswerSchema),
   createdAt: z.string().datetime(),

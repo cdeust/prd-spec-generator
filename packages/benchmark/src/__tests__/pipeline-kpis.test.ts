@@ -9,7 +9,6 @@ describe("pipeline KPIs", () => {
   it("trial+codebase canned-response baseline meets gates with canned dispatcher flag", () => {
     const kpis = measurePipeline({
       run_id: "kpi_trial_codebase",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
       codebase_path: "/tmp/benchmark",
     });
@@ -35,7 +34,6 @@ describe("pipeline KPIs", () => {
     // suspension flag is required, not optional.
     const kpis = measurePipeline({
       run_id: "kpi_canned_pass_distribution",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
 
@@ -53,22 +51,23 @@ describe("pipeline KPIs", () => {
     }
   });
 
-  it("free tier respects maxSections in the KPI run", () => {
+  it("KPI run completes for a feature input", () => {
     const kpis = measurePipeline({
-      run_id: "kpi_free_max_sections",
-      license_tier: "free",
+      run_id: "kpi_feature_run",
       feature_description: "build a simple feature for OAuth login",
     });
 
     expect(kpis.final_action_kind).toBe("done");
     expect(kpis.written_files_count).toBe(9);
-    expect(kpis.iteration_count).toBeLessThanOrEqual(60);
+    // Upper bound — feature context schedules 11 sections; 7 iterations per
+    // section (recall → draft → validate ×3 + finalize) is the worst-case
+    // upper bound, plus pipeline overhead. 80 is conservative.
+    expect(kpis.iteration_count).toBeLessThanOrEqual(80);
   });
 
   it("section_fail_ids surfaces the identity of failed sections (Shannon S7)", () => {
     const kpis = measurePipeline({
       run_id: "kpi_section_fail_ids",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
 
@@ -85,7 +84,6 @@ describe("pipeline KPIs", () => {
   it("mean_section_attempts surfaces retry behavior (Shannon M1)", () => {
     const kpis = measurePipeline({
       run_id: "kpi_mean_attempts",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
 
@@ -105,7 +103,6 @@ describe("pipeline KPIs", () => {
     // test-engineer M2 + curie H-2 (Phase 3+4 cross-audit, 2026-04).
     const kpis = measurePipeline({
       run_id: "kpi_structural_errors",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     expect(kpis.structural_error_count).toBe(0);
@@ -119,7 +116,6 @@ describe("pipeline KPIs", () => {
     // cap + 1 (2).
     const kpis = measurePipeline({
       run_id: "kpi_cap_exhaustion",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
       safety_cap: 1,
     });
@@ -136,7 +132,6 @@ describe("pipeline KPIs", () => {
     let calls = 0;
     const kpis = measurePipeline({
       run_id: "kpi_dispatch_refusal",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
       craftResult: () => {
         calls += 1;
@@ -337,7 +332,6 @@ describe("pipeline KPIs", () => {
 
     const kpis = measurePipeline({
       run_id: "kpi_mixed_verdicts",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
       craftResult: mixedDispatch,
     });
@@ -361,7 +355,6 @@ describe("pipeline KPIs", () => {
     // judge_dispatch_count > 0 on a run that definitely reaches the judge phase.
     const kpis = measurePipeline({
       run_id: "kpi_typed_verification_field",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     // The trial+claim-rich path MUST exercise the judge phase. Zero would

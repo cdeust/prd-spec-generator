@@ -1,9 +1,8 @@
 ---
 name: prd-spec-generator
-version: 3.1.0
+version: 3.2.0
 description: Action-driven PRD generation. The MCP server runs a stateless 9-step pipeline reducer; the host (Claude Code) executes each substantive action and feeds the result back via submit_action_result, looping until done. Multi-judge verification combines genius reasoning patterns with zetetic team subagents. Grounded in the ai-architect ecosystem (automatised-pipeline MCP, Cortex MCP, zetetic-team-subagents).
 dependencies: node>=20
-license_tiers: trial, free, licensed
 prd_contexts: proposal, feature, bug, incident, poc, mvp, release, cicd
 mcp_tools:
   - start_pipeline
@@ -13,7 +12,7 @@ mcp_tools:
   - plan_document_verification
   - conclude_verification
 mcp_tools_legacy:
-  - validate_license, get_license_features, get_config, read_skill_config
+  - get_config, read_skill_config
   - check_health, get_prd_context_info, list_available_strategies
   - validate_prd_section, validate_prd_document
   - get_quality_history, get_strategy_effectiveness
@@ -352,7 +351,7 @@ If a section's recall returns content stale enough to mislead the engineer, the 
 ```
 host: start_pipeline({ feature_description: "build OAuth login", codebase_path: "/abs/path" })
 
-  → envelope { run_id, messages: [<license banner>, <PRD context detected: Feature>],
+  → envelope { run_id, messages: [<welcome banner>, <PRD context detected: Feature>],
               action: { kind: "call_pipeline_tool", tool_name: "index_codebase",
                         arguments: { path: "/abs/path", output_dir: "...", language: "auto" },
                         correlation_id: "input_analysis_index" } }
@@ -377,4 +376,4 @@ host: submit_action_result(run_id, { kind: "subagent_batch_result", batch_id: "c
 ... loop continues until action.kind === "done" or action.kind === "failed"
 ```
 
-The runner collects status messages (license banner, PRD-context-detected, codebase-indexed, scope-decision, ...) into `messages`. The host displays them and proceeds to `action`. There is never a "void" round-trip where the host has nothing to submit.
+The runner collects status messages (welcome banner, PRD-context-detected, codebase-indexed, scope-decision, ...) into `messages`. The host displays them and proceeds to `action`. There is never a "void" round-trip where the host has nothing to submit.

@@ -61,7 +61,7 @@ interface SmokeRunResult {
  *
  * source: derived from the longest legitimate full run (trial tier, 11 sections,
  * 1 recall per section, 1 draft per section, plus self-check judges):
- *   license_gate(1) + context_detection(1) + input_analysis(2) +
+ *   banner(1) + context_detection(1) + input_analysis(2) +
  *   feasibility_gate(1) + clarification(8 = 4 rounds × 2 phases) +
  *   budget(1) + section_generation(11×3 = 33) + jira_generation(2) +
  *   file_export(9) + self_check(2) ≈ 60 host-visible step() calls.
@@ -142,7 +142,6 @@ describe("end-to-end smoke run", () => {
   it("free tier feature PRD without codebase reaches done", () => {
     const seed = newPipelineState({
       run_id: "smoke_free_no_codebase",
-      license_tier: "free",
       feature_description: "build a simple feature for OAuth login",
     });
 
@@ -150,14 +149,13 @@ describe("end-to-end smoke run", () => {
 
     expect(result.finalAction.kind).toBe("done");
     expect(result.finalState.current_step).toBe("complete");
-    // Should have produced license banner + at least a few section status messages.
+    // Should have produced welcome banner + at least a few section status messages.
     expect(result.messages.length).toBeGreaterThan(0);
   });
 
   it("trial tier feature PRD with codebase reaches done", () => {
     const seed = newPipelineState({
       run_id: "smoke_trial_with_codebase",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
       codebase_path: "/tmp/smoke",
     });
@@ -175,7 +173,6 @@ describe("end-to-end smoke run", () => {
   it("every emitted action kind is dispatchable by the harness", () => {
     const seed = newPipelineState({
       run_id: "smoke_action_coverage",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
       codebase_path: "/tmp/smoke",
     });
@@ -197,7 +194,6 @@ describe("end-to-end smoke run", () => {
   it("never returns emit_message as the action.kind", () => {
     const seed = newPipelineState({
       run_id: "smoke_no_emit_message_action",
-      license_tier: "free",
       feature_description: "build a feature for OAuth login",
     });
     const result = runSmoke(seed);
@@ -209,7 +205,6 @@ describe("end-to-end smoke run", () => {
   it("writes the expected 9 PRD files", () => {
     const seed = newPipelineState({
       run_id: "smoke_file_count",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const result = runSmoke(seed);
@@ -226,27 +221,25 @@ describe("end-to-end smoke run", () => {
   it("loop terminates within the safety cap", () => {
     const seed = newPipelineState({
       run_id: "smoke_termination",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const result = runSmoke(seed);
     expect(result.iterations).toBeLessThan(SAFETY_CAP);
   });
 
-  it("license banner text identifies the correct tier and run_id", () => {
+  it("banner text identifies the run_id and feature", () => {
     // source: darwin difficulty-book pass-2 (2026-04) — original assertion
     // only checked the substring "PRD Spec Generator" which would pass on
-    // any banner regardless of tier. Tighten to verify tier name and run_id.
+    // any banner. Tighten to verify run_id appears.
     const seed = newPipelineState({
       run_id: "smoke_banner_specific_id_xyz",
-      license_tier: "free",
       feature_description: "build a feature for OAuth login",
     });
     const result = runSmoke(seed);
     const allText = result.messages.map((m) => m.text).join("\n");
     expect(allText).toContain("PRD Spec Generator");
-    expect(allText).toContain("FREE TIER");
     expect(allText).toContain(seed.run_id);
+    expect(allText).toContain("build a feature for OAuth login");
   });
 
   it("happy path produces a known section-failure baseline (not silent drift)", () => {
@@ -275,7 +268,6 @@ describe("end-to-end smoke run", () => {
 
     const seed = newPipelineState({
       run_id: "smoke_section_failure_baseline",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const result = runSmoke(seed);
@@ -304,7 +296,6 @@ describe("end-to-end smoke run", () => {
     // (self-check.ts:209). This test guards against that regression.
     const seed = newPipelineState({
       run_id: "smoke_judges_dispatched",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const result = runSmoke(seed);
@@ -327,29 +318,6 @@ describe("end-to-end smoke run", () => {
     }
   });
 
-  it("free tier respects maxSections cap", () => {
-    // Postcondition: TIER_CAPABILITIES.free.maxSections = 6, so a free-tier
-    // feature run must never schedule more than 6 sections. Pre-fix, the
-    // handler ignored the cap and scheduled all 11 feature sections.
-    //
-    // source: feynman+curie cross-audit pass-2 (2026-04) — confirmed
-    // section-generation.ts did not consult TIER_CAPABILITIES.
-    const seed = newPipelineState({
-      run_id: "smoke_free_tier_max_sections",
-      license_tier: "free",
-      feature_description: "build a simple feature for OAuth login",
-    });
-    const result = runSmoke(seed);
-
-    // Free tier section count must not exceed maxSections=6, even though
-    // the feature context plan declares 11. The synthetic jira_tickets
-    // section appended by jira_generation is excluded from the cap.
-    const realSections = result.finalState.sections.filter(
-      (s) => s.section_type !== "jira_tickets",
-    );
-    expect(realSections.length).toBeLessThanOrEqual(6);
-  });
-
   it("ask_user is exercised when context cannot be auto-detected", () => {
     // Postcondition: when feature_description contains no trigger words recognised
     // by context-detection, the runner emits ask_user(question_id="prd_context")
@@ -360,7 +328,6 @@ describe("end-to-end smoke run", () => {
     // "poc", "mvp", "release", "ci", "cd", "proposal", "pitch", "stakeholder".
     const seed = newPipelineState({
       run_id: "smoke_ask_user_context",
-      license_tier: "trial",
       feature_description: "improve the onboarding questionnaire",
     });
 
@@ -382,7 +349,6 @@ describe("end-to-end smoke run", () => {
     // The phrase below matches / and /i, /\bplus\b/i and /\balso\b/i = 3 signals.
     const seed = newPipelineState({
       run_id: "smoke_ask_user_epic",
-      license_tier: "trial",
       feature_description:
         "build OAuth login and password reset, plus also add MFA support",
     });
@@ -403,7 +369,6 @@ describe("end-to-end smoke run", () => {
     // silently omits ask_user).
     const seed = newPipelineState({
       run_id: "smoke_ask_user_coverage",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
 
@@ -430,7 +395,6 @@ describe("end-to-end smoke run", () => {
     // Total = 52 (safety cap = 200, headroom = 148).
     const seed = newPipelineState({
       run_id: "smoke_iteration_headroom",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
       codebase_path: "/tmp/smoke",
     });
@@ -464,7 +428,6 @@ describe("end-to-end smoke run", () => {
     // actually populated on a normal run.
     const seed = newPipelineState({
       run_id: "smoke_typed_verification",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const result = runSmoke(seed);
@@ -494,7 +457,6 @@ describe("end-to-end smoke run", () => {
     // and that every entry carries a valid (assignment, strategy) pair.
     const seed = newPipelineState({
       run_id: "smoke_strategy_executions_accumulate",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const result = runSmoke(seed);

@@ -28,7 +28,7 @@ import {
   type NextAction,
 } from "./types/actions.js";
 import { type PipelineState, touch, appendError } from "./types/state.js";
-import { handleLicenseGate } from "./handlers/license-gate.js";
+import { handleBanner } from "./handlers/banner.js";
 import { handleContextDetection } from "./handlers/context-detection.js";
 import { handleInputAnalysis } from "./handlers/input-analysis.js";
 import { handleFeasibilityGate } from "./handlers/feasibility-gate.js";
@@ -64,7 +64,7 @@ export type StepHandler = (input: StepInput) => {
 };
 
 const HANDLERS: Record<PipelineState["current_step"], StepHandler> = {
-  license_gate: handleLicenseGate,
+  banner: handleBanner,
   context_detection: handleContextDetection,
   input_analysis: handleInputAnalysis,
   feasibility_gate: handleFeasibilityGate,
@@ -92,7 +92,7 @@ const HANDLERS: Record<PipelineState["current_step"], StepHandler> = {
  * handlers (verified by Dijkstra cross-audit, 2026-04). The longest chain
  * occurs on a fully-replayed state with all sections done, no JIRA source,
  * and all files written:
- *   license_gate → context_detection → input_analysis (already-indexed) →
+ *   banner → context_detection → input_analysis (already-indexed) →
  *   feasibility_gate → clarification (max-done) → budget → section_generation
  *   (all-done) → jira_generation (no-source) → file_export (all-written) →
  *   self_check (substantive)

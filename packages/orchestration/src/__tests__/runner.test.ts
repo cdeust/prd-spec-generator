@@ -4,7 +4,6 @@ import { newPipelineState, step } from "../index.js";
 const seed = (codebasePath?: string) =>
   newPipelineState({
     run_id: "test_run_001",
-    license_tier: "trial",
     feature_description: "build a feature for OAuth login",
     codebase_path: codebasePath ?? null,
   });
@@ -15,7 +14,7 @@ describe("pipeline runner — emit_message coalescing", () => {
     expect(out.action.kind).not.toBe("emit_message");
   });
 
-  it("first step() returns at least one coalesced message (license banner)", () => {
+  it("first step() returns at least one coalesced message (welcome banner)", () => {
     const out = step({ state: seed() });
     expect(out.messages.length).toBeGreaterThan(0);
     expect(out.messages[0].text).toContain("PRD Spec Generator");
@@ -67,7 +66,6 @@ describe("pipeline runner — emit_message coalescing", () => {
   it("section_generation fails fast if prd_context is null", () => {
     const s = newPipelineState({
       run_id: "x",
-      license_tier: "trial",
       feature_description: "x",
     });
     const forced = { ...s, current_step: "section_generation" as const };
@@ -78,7 +76,6 @@ describe("pipeline runner — emit_message coalescing", () => {
   it("budget step refuses to advance without proceed_signal", () => {
     const s = newPipelineState({
       run_id: "x",
-      license_tier: "trial",
       feature_description: "x",
     });
     const forced = { ...s, current_step: "budget" as const };
@@ -89,7 +86,6 @@ describe("pipeline runner — emit_message coalescing", () => {
   it("budget step with proceed_signal coalesces past budget into section_generation", () => {
     const s = newPipelineState({
       run_id: "x",
-      license_tier: "trial",
       feature_description: "x",
     });
     const forced = {
@@ -107,7 +103,6 @@ describe("pipeline runner — emit_message coalescing", () => {
   it("failed action surfaces in messages even when emit_message coalesces", () => {
     const s = newPipelineState({
       run_id: "x",
-      license_tier: "trial",
       feature_description: "x",
     });
     const forced = { ...s, current_step: "section_generation" as const };

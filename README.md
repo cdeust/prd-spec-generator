@@ -6,9 +6,9 @@
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License">
   <img src="https://img.shields.io/badge/TypeScript-5.9+-3178c6.svg" alt="TypeScript 5.9+">
   <img src="https://img.shields.io/badge/Node-20.x_·_22.x-339933.svg" alt="Node 20/22">
-  <img src="https://img.shields.io/badge/Tests-258_passing-brightgreen" alt="258 tests">
+  <img src="https://img.shields.io/badge/Tests-248_passing-brightgreen" alt="248 tests">
   <img src="https://img.shields.io/badge/Packages-10-orange" alt="10 packages">
-  <img src="https://img.shields.io/badge/MCP_Tools-19-8A2BE2" alt="19 MCP tools">
+  <img src="https://img.shields.io/badge/MCP_Tools-17-8A2BE2" alt="17 MCP tools">
   <img src="https://img.shields.io/badge/Validators-Hard_Output_Rules-red" alt="Hard Output Rules">
 </p>
 
@@ -29,14 +29,14 @@ Every AI agent that drafts a PRD eventually invents a function that doesn't exis
 
 **prd-spec-generator** is a TypeScript MCP server that fixes this at the structural level. The pipeline is a stateless reducer (`step(state, result?) → next_state, action`) driven by a host (Claude Code or any MCP-speaking agent). Sections are produced one at a time, validated by deterministic Hard Output Rules before the host ever sees them, and every load-bearing claim is judged by a panel of genius reasoning agents drawn from `zetetic-team-subagents` against the codebase graph from `automatised-pipeline`.
 
-**10 packages. 19 MCP tools. 9 pipeline steps. Multi-judge verification with consensus. 258 tests. Every numeric constant traces to a citation, a benchmark, or a `// source: provisional heuristic` admission.**
+**10 packages. 17 MCP tools. 9 pipeline steps. Multi-judge verification with consensus. 248 tests. Every numeric constant traces to a citation, a benchmark, or a `// source: provisional heuristic` admission.**
 
 ---
 
 ## What an agent can ask it
 
 ```
-start_pipeline(feature_description, license_tier, codebase_path?)
+start_pipeline(feature_description, codebase_path?)
   → returns the first NextAction; the host executes it and feeds the result
     back via submit_action_result. Nine steps later: 9 PRD files written.
 
@@ -75,7 +75,7 @@ claude plugin marketplace add cdeust/prd-spec-generator
 claude plugin install prd-spec-generator
 ```
 
-Restart your Claude Code session. The 19 MCP tools register on first
+Restart your Claude Code session. The 17 MCP tools register on first
 stdio handshake. Then:
 
 ```
@@ -115,7 +115,7 @@ cd prd-spec-generator
 pnpm install --frozen-lockfile
 pnpm build      # builds all 9 buildable packages via tsc
 pnpm bundle     # produces the standalone mcp-server/index.js
-pnpm test       # 258 tests + 2 integration skipped (live MCP integration
+pnpm test       # 248 tests + 2 integration skipped (live MCP integration
                 # env-gated by AIPRD_PIPELINE_BIN)
 ```
 
@@ -147,7 +147,7 @@ The reducer produces nine sequential steps. Each step emits at most one substant
 
 | # | Step | What it produces |
 |---|------|------------------|
-| **1** | `license_gate` | Banner + tier-aware capabilities (free / trial / licensed) |
+| **1** | `banner` | Welcome banner with run ID + feature description + capability summary |
 | **2** | `context_detection` | Detects PRD type from trigger words; asks user when ambiguous |
 | **3** | `input_analysis` | Calls `index_codebase` (automatised-pipeline) when a path is provided; sets `codebase_graph_path` |
 | **4** | `feasibility_gate` | Detects epic-scope inputs (≥2 EPIC_SIGNALS); asks user to focus |
@@ -166,7 +166,7 @@ Every step is independently testable (`stepOnce(state, result?)` returns the sam
 
 Three surfaces. The reducer drives the full pipeline; the validation + verification
 + budget tools can be consumed directly by other systems without entering the
-pipeline; the diagnostics surface exposes config + license + history.
+pipeline; the diagnostics surface exposes config + health + history.
 
 ```
 Reducer (3):
@@ -187,10 +187,9 @@ Budget + feedback (2):
   coordinate_context_budget  Per-section token allocation
   map_failure_to_retrieval   Validation failure → corrective Cortex query
 
-Diagnostics (9):
-  validate_license, get_license_features, get_config, read_skill_config,
-  check_health, get_prd_context_info, list_available_strategies,
-  get_quality_history, get_strategy_effectiveness
+Diagnostics (7):
+  get_config, read_skill_config, check_health, get_prd_context_info,
+  list_available_strategies, get_quality_history, get_strategy_effectiveness
 ```
 
 Each tool takes structured Zod-validated arguments and returns a typed response. No tool calls an LLM — section drafts and judge verdicts come back via the host's `spawn_subagents` action so the same pipeline runs against any agent runtime.
@@ -235,7 +234,7 @@ Ten workspace packages, each independently buildable, with strict Clean Architec
 core              ← domain types, schemas, agent identities
                     │  no I/O, no infrastructure dependency
                     │  Zod-validated; the only place where verdict /
-                    │  section_type / license_tier shapes are defined
+                    │  section_type / capability shapes are defined
                     ▼
 validation        ← Hard Output Rules (per-section + cross-section)
                     │  pure functions; no I/O
@@ -256,7 +255,7 @@ orchestration     ← stateless reducer, 9 step handlers, runner
 ecosystem-adapters← StdioMcpClient, AutomatisedPipelineClient, CortexClient
                     │  the only package allowed to do I/O
                     ▼
-mcp-server        ← composition root; 19 tools registered;
+mcp-server        ← composition root; 17 tools registered;
                     │  evidence repository (better-sqlite3, optional)
                     ▼
 benchmark         ← pipeline KPI measurements + golden-fixture HOR scoring
@@ -400,7 +399,7 @@ packages/
 ├── strategy/              Thinking-strategy selector
 ├── orchestration/         Stateless reducer · 9 step handlers · runner · canned-dispatcher
 ├── ecosystem-adapters/    StdioMcpClient · AutomatisedPipelineClient · CortexClient
-├── mcp-server/            Composition root · 19 MCP tools registered
+├── mcp-server/            Composition root · 17 MCP tools registered
 ├── benchmark/             Pipeline KPI measurement · golden-fixture HOR scoring
 └── skill/                 SKILL.md · slash-command definitions
 ```

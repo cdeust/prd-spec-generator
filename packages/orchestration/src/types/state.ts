@@ -9,7 +9,6 @@
 
 import { z } from "zod";
 import {
-  LicenseTierSchema,
   PRDContextSchema,
   SectionTypeSchema,
   AgentIdentitySchema,
@@ -20,7 +19,7 @@ import {
 } from "@prd-gen/strategy";
 
 export const PipelineStepSchema = z.enum([
-  "license_gate",
+  "banner",
   "context_detection",
   "input_analysis",
   "feasibility_gate",
@@ -111,7 +110,6 @@ export const PipelineStateSchema = z.object({
   run_id: z.string(),
   current_step: PipelineStepSchema,
   prd_context: PRDContextSchema.nullable(),
-  license_tier: LicenseTierSchema,
   feature_description: z.string(),
   codebase_path: z.string().nullable(),
   /**
@@ -201,16 +199,14 @@ export type PipelineState = z.infer<typeof PipelineStateSchema>;
 
 export function newPipelineState(input: {
   run_id: string;
-  license_tier: PipelineState["license_tier"];
   feature_description: string;
   codebase_path?: string | null;
 }): PipelineState {
   const now = new Date().toISOString();
   return PipelineStateSchema.parse({
     run_id: input.run_id,
-    current_step: "license_gate",
+    current_step: "banner",
     prd_context: null,
-    license_tier: input.license_tier,
     feature_description: input.feature_description,
     codebase_path: input.codebase_path ?? null,
     codebase_graph_path: null,

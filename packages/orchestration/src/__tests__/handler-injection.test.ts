@@ -43,7 +43,6 @@ describe("jira_generation", () => {
     // in 'failed' status so no content field is set.
     const baseState = newPipelineState({
       run_id: "inj_jira_skip",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const noContentState: PipelineState = {
@@ -73,7 +72,6 @@ describe("input_analysis", () => {
   it("emits failed when index_codebase returns success:false", () => {
     const baseState = newPipelineState({
       run_id: "inj_index_failure",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
       codebase_path: "/tmp/inj",
     });
@@ -100,7 +98,6 @@ describe("input_analysis", () => {
   it("emits failed when index_codebase returns no graph_path", () => {
     const baseState = newPipelineState({
       run_id: "inj_no_graph_path",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
       codebase_path: "/tmp/inj",
     });
@@ -168,7 +165,6 @@ describe("self_check Phase A", () => {
     // the Phase A action directly, not via the done summary.
     const baseState = newPipelineState({
       run_id: "inj_phase_a_direct",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const stateAtSelfCheck: PipelineState = {
@@ -223,7 +219,6 @@ describe("self_check Phase B graceful degradation", () => {
     // Exercises the catch branch in parseVerdicts (self-check.ts).
     const baseState = newPipelineState({
       run_id: "inj_malformed_judge",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const stateAtSelfCheck: PipelineState = {
@@ -285,7 +280,6 @@ describe("self_check Phase B graceful degradation", () => {
   it("error-only response produces INCONCLUSIVE verdicts; run still reaches done", () => {
     const baseState = newPipelineState({
       run_id: "inj_judge_error_response",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const stateAtSelfCheck: PipelineState = {
@@ -339,7 +333,6 @@ describe("self_check Phase B graceful degradation", () => {
     // Cross-audit closure (test-engineer C2, dijkstra H1, Phase 3+4, 2026-04).
     const baseState = newPipelineState({
       run_id: "inj_phase_b_mismatch",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const stateWithStaleSnapshot: PipelineState = {
@@ -424,7 +417,6 @@ describe("file_export protocol violation", () => {
   it("logs error and re-issues write when host sends wrong result kind", () => {
     const baseState = newPipelineState({
       run_id: "inj_file_export_wrong_result",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const exportState: PipelineState = {
@@ -458,7 +450,6 @@ describe("strategy wiring (Phase 4 closure)", () => {
   it("pending → retrieving materializes a strategy_assignment on the section", () => {
     const seed = newPipelineState({
       run_id: "wire_strategy_select",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const stateAtSection: PipelineState = {
@@ -498,7 +489,6 @@ describe("strategy wiring (Phase 4 closure)", () => {
     // feedback loop's per-claim attribution.
     const seed = newPipelineState({
       run_id: "wire_strategy_persists",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const stateAtSection: PipelineState = {
@@ -548,7 +538,6 @@ describe("strategy wiring (Phase 4 closure)", () => {
 
     const seed = newPipelineState({
       run_id: "wire_strategy_exec_pass",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const stateAtValidation: PipelineState = {
@@ -638,7 +627,6 @@ describe("strategy wiring (Phase 4 closure)", () => {
     // (1/attempts) on success; HIGH-1 fix: gain is 0 on fail, full on pass.
     const seed = newPipelineState({
       run_id: "wire_strategy_exec_fail",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const stateAtFinalAttempt: PipelineState = {
@@ -701,62 +689,6 @@ describe("strategy wiring (Phase 4 closure)", () => {
     expect(exec.retryCount).toBe(2); // attempts=3 → retry=2
   });
 
-  it("free tier produces NO execution entries (degraded assignment, uncalibrated)", () => {
-    // Cross-audit closure (feynman HIGH-3, Phase 4 follow-up, 2026-04).
-    // The free tier returns a degraded assignment with expectedImprovement=0.
-    // Recording those entries would contaminate chain_of_thought's
-    // cross-tier statistics with structurally uninformative zeros.
-    const seed = newPipelineState({
-      run_id: "wire_strategy_free_tier",
-      license_tier: "free",
-      feature_description: "build a feature for OAuth login",
-    });
-    const stateAtValidation: PipelineState = {
-      ...seed,
-      current_step: "section_generation",
-      prd_context: "feature",
-      proceed_signal: true,
-      sections: [
-        {
-          section_type: "requirements",
-          status: "generating",
-          attempt: 1,
-          violation_count: 0,
-          last_violations: [],
-          strategy_assignment: {
-            required: ["chain_of_thought"],
-            optional: [],
-            forbidden: [],
-            expectedImprovement: 0,
-            assignmentConfidence: 0.3,
-            claimAnalysis: {
-              claim: "test",
-              characteristics: ["multi_step_logic"],
-              complexityScore: 0.4,
-              complexityTier: "moderate",
-              analysisNotes: [],
-            },
-            researchCitations: [],
-          },
-        },
-      ],
-    };
-    const draft =
-      "## Requirements\n\n" +
-      "| ID | Requirement | Priority | Source |\n" +
-      "|----|-------------|----------|--------|\n" +
-      "| FR-001 | login | P0 | u |\n";
-    const out = stepOnce(stateAtValidation, {
-      kind: "subagent_batch_result",
-      batch_id: "section_generate_requirements",
-      responses: [
-        { invocation_id: "section_generate_requirements", raw_text: draft },
-      ],
-    });
-    // Section passes; no executions are recorded for free tier.
-    expect(out.state.strategy_executions.length).toBe(0);
-  });
-
   it("section-type differentiation: requirements vs technical_specification produce distinct claim characteristics", () => {
     // Cross-audit closure (test-engineer A, Phase 4 follow-up, 2026-04).
     // chooseStrategyForSection must shape the claim by section_type.
@@ -765,7 +697,6 @@ describe("strategy wiring (Phase 4 closure)", () => {
     function pendingStateFor(section_type: SectionType): PipelineState {
       const seed = newPipelineState({
         run_id: `wire_diff_${section_type}`,
-        license_tier: "trial",
         feature_description: "build a feature for OAuth login",
       });
       return {
@@ -810,7 +741,6 @@ describe("strategy wiring (Phase 4 closure)", () => {
 
     const seed = newPipelineState({
       run_id: "wire_round_trip",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const out = stepOnce({
@@ -850,7 +780,6 @@ describe("section_generation retry", () => {
     // once (attempt 1 → 2), not the full MAX_ATTEMPTS loop.
     const seed = newPipelineState({
       run_id: "inj_section_retry",
-      license_tier: "trial",
       feature_description: "build a feature for OAuth login",
     });
     const stateMidSection: PipelineState = {
@@ -901,48 +830,42 @@ describe("section_generation retry", () => {
   });
 });
 
-describe("license_gate", () => {
+describe("banner", () => {
   // Cross-audit closure (test-engineer H3, Phase 3+4 follow-up, 2026-04).
   // Pre-fix the handler had zero direct tests; only smoke runs exercised it
   // and they asserted nothing about the emitted message.
 
-  it("free tier emits the FREE banner and advances to context_detection", () => {
+  it("emits the banner and advances to context_detection", () => {
     const seed = newPipelineState({
-      run_id: "inj_license_free",
-      license_tier: "free",
+      run_id: "inj_banner_run",
       feature_description: "x",
     });
-    const out = stepOnce({ ...seed, current_step: "license_gate" });
+    const out = stepOnce({ ...seed, current_step: "banner" });
     expect(out.state.current_step).toBe("context_detection");
     const allText = out.messages.map((m) => m.text).join("\n");
-    expect(allText).toContain("FREE TIER");
-    expect(allText).toContain("inj_license_free");
+    expect(allText).toContain("PRD Spec Generator");
+    expect(allText).toContain("inj_banner_run");
   });
 
-  it("trial tier emits the TRIAL banner", () => {
+  it("includes the run_id and the feature description in the banner", () => {
     const seed = newPipelineState({
-      run_id: "inj_license_trial",
-      license_tier: "trial",
-      feature_description: "x",
+      run_id: "inj_banner_meta",
+      feature_description: "build OAuth login",
     });
-    const out = stepOnce({ ...seed, current_step: "license_gate" });
+    const out = stepOnce({ ...seed, current_step: "banner" });
     const allText = out.messages.map((m) => m.text).join("\n");
-    expect(allText).toContain("TRIAL TIER");
-    expect(allText).not.toContain("FREE TIER");
-    expect(allText).not.toContain("LICENSED TIER");
+    expect(allText).toContain("inj_banner_meta");
+    expect(allText).toContain("build OAuth login");
   });
 
-  it("licensed tier emits the LICENSED banner", () => {
+  it("notes when no codebase path is provided", () => {
     const seed = newPipelineState({
-      run_id: "inj_license_licensed",
-      license_tier: "licensed",
+      run_id: "inj_banner_no_codebase",
       feature_description: "x",
     });
-    const out = stepOnce({ ...seed, current_step: "license_gate" });
+    const out = stepOnce({ ...seed, current_step: "banner" });
     const allText = out.messages.map((m) => m.text).join("\n");
-    expect(allText).toContain("LICENSED TIER");
-    expect(allText).not.toContain("FREE TIER");
-    expect(allText).not.toContain("TRIAL TIER");
+    expect(allText).toContain("Codebase: (none provided)");
   });
 });
 
@@ -956,7 +879,6 @@ describe("clarification proceed branch", () => {
   it("clarification_continue with selected: ['proceed'] sets proceed_signal=true and advances", () => {
     const seed = newPipelineState({
       run_id: "inj_clar_proceed",
-      license_tier: "trial",
       feature_description: "build OAuth login",
     });
     const stateAtClarification: PipelineState = {
@@ -990,7 +912,6 @@ describe("context_detection", () => {
   it("emits failed when user submits an invalid PRD context", () => {
     const seed = newPipelineState({
       run_id: "inj_invalid_prd_context",
-      license_tier: "trial",
       feature_description: "this description has no trigger words at all",
     });
     const stateAtContextDetection: PipelineState = {

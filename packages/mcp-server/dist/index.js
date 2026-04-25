@@ -5,50 +5,17 @@ import { z } from "zod";
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PRD_CONTEXT_CONFIGS, TIER_CAPABILITIES, STRATEGY_TIERS, SectionTypeSchema, } from "@prd-gen/core";
+import { PRD_CONTEXT_CONFIGS, CAPABILITIES, STRATEGY_TIERS, SectionTypeSchema, } from "@prd-gen/core";
 import { tryCreateEvidenceRepository } from "@prd-gen/core";
 import { validateSection, validateDocument } from "@prd-gen/validation";
 import { registerBudgetTools } from "./budget-tools.js";
 import { registerPipelineTools } from "./pipeline-tools.js";
 /**
  * PRD Generator MCP Server — native TypeScript.
- * Eliminates the Node.js↔Swift cross-language boundary.
  *
- * 11 tools: 7 existing (ported from index.js) + 4 new validation tools.
+ * 17 tools: 5 diagnostics + 2 validation + 2 evidence + 8 pipeline/verification/budget.
  */
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// ─── License Resolution ──────────────────────────────────────────────────────
-function resolveLicenseTier() {
-    const homedir = process.env.HOME ?? process.env.USERPROFILE ?? "";
-    // Check for license file
-    const licensePath = join(homedir, ".aiprd", "license.json");
-    if (existsSync(licensePath)) {
-        try {
-            const data = JSON.parse(readFileSync(licensePath, "utf-8"));
-            if (data.tier === "licensed" || data.tier === "trial") {
-                return data.tier;
-            }
-        }
-        catch {
-            // Fall through to free
-        }
-    }
-    // Check for trial file
-    const trialPath = join(homedir, ".aiprd", "trial.json");
-    if (existsSync(trialPath)) {
-        try {
-            const data = JSON.parse(readFileSync(trialPath, "utf-8"));
-            const expiresAt = new Date(data.expiresAt);
-            if (expiresAt > new Date()) {
-                return "trial";
-            }
-        }
-        catch {
-            // Fall through to free
-        }
-    }
-    return "free";
-}
 // ─── Config Loading ──────────────────────────────────────────────────────────
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT ?? join(__dirname, "..", "..", "..");
 function loadSkillConfig() {
@@ -92,48 +59,22 @@ function getEvidenceRepo() {
     }
     return _evidenceRepo;
 }
-// ─── Tool 1: validate_license ────────────────────────────────────────────────
-server.tool("validate_license", "Resolve the current license tier (free/trial/licensed)", {}, async () => {
-    const tier = resolveLicenseTier();
-    const capabilities = TIER_CAPABILITIES[tier];
-    return {
-        content: [
-            {
-                type: "text",
-                text: JSON.stringify({ tier, capabilities }, null, 2),
-            },
-        ],
-    };
-});
-// ─── Tool 2: get_license_features ────────────────────────────────────────────
-server.tool("get_license_features", "Get feature capabilities for the current license tier", {}, async () => {
-    const tier = resolveLicenseTier();
-    return {
-        content: [
-            {
-                type: "text",
-                text: JSON.stringify(TIER_CAPABILITIES[tier], null, 2),
-            },
-        ],
-    };
-});
-// ─── Tool 3: get_config ──────────────────────────────────────────────────────
+// ─── Tool 1: get_config ──────────────────────────────────────────────────────
 server.tool("get_config", "Get the full skill configuration", {}, async () => {
     const config = loadSkillConfig();
     return {
         content: [{ type: "text", text: JSON.stringify(config, null, 2) }],
     };
 });
-// ─── Tool 4: read_skill_config ───────────────────────────────────────────────
+// ─── Tool 2: read_skill_config ───────────────────────────────────────────────
 server.tool("read_skill_config", "Read the SKILL.md content that drives PRD generation", {}, async () => {
     const skillMd = loadSkillMd();
     return {
         content: [{ type: "text", text: skillMd }],
     };
 });
-// ─── Tool 5: check_health ────────────────────────────────────────────────────
+// ─── Tool 3: check_health ────────────────────────────────────────────────────
 server.tool("check_health", "Check system health — verify all components are accessible", {}, async () => {
-    const tier = resolveLicenseTier();
     const configAvailable = loadSkillConfig().version !== undefined;
     const skillAvailable = loadSkillMd() !== "SKILL.md not found";
     let dbHealthy = false;
@@ -153,7 +94,6 @@ server.tool("check_health", "Check system health — verify all components are a
                 type: "text",
                 text: JSON.stringify({
                     status: "ok",
-                    licenseTier: tier,
                     configAvailable,
                     skillAvailable,
                     evidenceDbHealthy: dbHealthy,
@@ -163,7 +103,7 @@ server.tool("check_health", "Check system health — verify all components are a
         ],
     };
 });
-// ─── Tool 6: get_prd_context_info ────────────────────────────────────────────
+// ─── Tool 4: get_prd_context_info ────────────────────────────────────────────
 server.tool("get_prd_context_info", "Get configuration for a specific PRD context type", {
     context: z
         .enum([
@@ -183,24 +123,21 @@ server.tool("get_prd_context_info", "Get configuration for a specific PRD contex
         content: [{ type: "text", text: JSON.stringify(config, null, 2) }],
     };
 });
-// ─── Tool 7: list_available_strategies ───────────────────────────────────────
-server.tool("list_available_strategies", "List thinking strategies available for the current license tier", {}, async () => {
-    const tier = resolveLicenseTier();
-    const capabilities = TIER_CAPABILITIES[tier];
+// ─── Tool 5: list_available_strategies ───────────────────────────────────────
+server.tool("list_available_strategies", "List thinking strategies available to the pipeline.", {}, async () => {
     return {
         content: [
             {
                 type: "text",
                 text: JSON.stringify({
-                    tier,
-                    strategies: capabilities.allowedStrategies,
+                    strategies: CAPABILITIES.allowedStrategies,
                     tiers: STRATEGY_TIERS,
                 }, null, 2),
             },
         ],
     };
 });
-// ─── Tool 8: validate_prd_section (NEW) ──────────────────────────────────────
+// ─── Tool 6: validate_prd_section ────────────────────────────────────────────
 server.tool("validate_prd_section", "Run deterministic Hard Output Rules validation on a single PRD section. Returns violations found — zero LLM calls, pure regex/parsing.", {
     content: z.string().describe("The markdown content of the PRD section"),
     section_type: SectionTypeSchema.describe("The type of PRD section being validated"),
@@ -215,7 +152,7 @@ server.tool("validate_prd_section", "Run deterministic Hard Output Rules validat
         ],
     };
 });
-// ─── Tool 9: validate_prd_document (NEW) ─────────────────────────────────────
+// ─── Tool 7: validate_prd_document ───────────────────────────────────────────
 server.tool("validate_prd_document", "Run full document validation including cross-section checks (SP arithmetic, AC numbering, FR-AC coverage, test traceability). Returns comprehensive validation report.", {
     sections: z
         .array(z.object({
@@ -234,7 +171,7 @@ server.tool("validate_prd_document", "Run full document validation including cro
         ],
     };
 });
-// ─── Tool 10: get_quality_history (NEW) ──────────────────────────────────────
+// ─── Tool 8: get_quality_history ─────────────────────────────────────────────
 server.tool("get_quality_history", "Get historical PRD quality scores from the evidence repository", {
     limit: z
         .number()
@@ -265,7 +202,7 @@ server.tool("get_quality_history", "Get historical PRD quality scores from the e
         ],
     };
 });
-// ─── Tool 11: get_strategy_effectiveness (NEW) ───────────────────────────────
+// ─── Tool 9: get_strategy_effectiveness ──────────────────────────────────────
 server.tool("get_strategy_effectiveness", "Get strategy performance data — actual vs expected improvement, compliance rate", {
     min_executions: z
         .number()
@@ -309,7 +246,7 @@ registerBudgetTools(server);
 // get_pipeline_state, registered below via registerPipelineTools) are the
 // canonical surface.
 // ─── Pipeline / verification tools (orchestration + verification) ────────────
-registerPipelineTools(server, resolveLicenseTier);
+registerPipelineTools(server);
 // ─── Start Server ────────────────────────────────────────────────────────────
 async function main() {
     const transport = new StdioServerTransport();

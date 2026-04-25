@@ -2,7 +2,7 @@
  * Domain-type contract tests.
  *
  * Per cross-audit test-engineer C1 (Phase 3+4, 2026-04): @prd-gen/core defines
- * load-bearing constants (TIER_CAPABILITIES, PRD_CONTEXT_CONFIGS, VerdictSchema,
+ * load-bearing constants (CAPABILITIES, PRD_CONTEXT_CONFIGS, VerdictSchema,
  * SectionTypeSchema) that every downstream package depends on. A silent change
  * to any of them cascades through the full pipeline. These tests pin the
  * contracts so a regression surfaces at this layer instead of a downstream
@@ -11,8 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  TIER_CAPABILITIES,
-  LicenseTierSchema,
+  CAPABILITIES,
   PRDContextSchema,
   PRD_CONTEXT_CONFIGS,
   PRD_CONTEXT_DEFAULT,
@@ -25,67 +24,27 @@ import {
   ClaimSchema,
   JudgeVerdictSchema,
   extractJsonObject,
-  type LicenseTier,
 } from "../index.js";
 
-describe("LicenseTier", () => {
-  it("Schema accepts the three canonical tiers and rejects others", () => {
-    expect(LicenseTierSchema.safeParse("free").success).toBe(true);
-    expect(LicenseTierSchema.safeParse("trial").success).toBe(true);
-    expect(LicenseTierSchema.safeParse("licensed").success).toBe(true);
-    expect(LicenseTierSchema.safeParse("enterprise").success).toBe(false);
-    expect(LicenseTierSchema.safeParse("").success).toBe(false);
+describe("Capabilities", () => {
+  it("exposes the full pipeline feature set (no tier gating)", () => {
+    expect(CAPABILITIES.maxStrategies).toBe(16);
+    expect(CAPABILITIES.maxClarificationRounds).toBe(Infinity);
+    expect(CAPABILITIES.maxSections).toBe(11);
+    expect(CAPABILITIES.verificationLevel).toBe("full");
+    expect(CAPABILITIES.allowedContextTypes.length).toBe(8);
   });
 
-  it("TIER_CAPABILITIES has an entry for every LicenseTier", () => {
-    for (const tier of LicenseTierSchema.options) {
-      expect(TIER_CAPABILITIES[tier as LicenseTier]).toBeDefined();
-    }
+  it("maxStrategies equals allowedStrategies.length (Darwin difficulty-book invariant)", () => {
+    // Pre-fix the trial tier declared maxStrategies=17 while
+    // allowedStrategies.length=16. This invariant catches off-by-one drift.
+    expect(CAPABILITIES.maxStrategies).toBe(CAPABILITIES.allowedStrategies.length);
   });
 
-  it("free tier is intentionally limited (drives upgrades)", () => {
-    const caps = TIER_CAPABILITIES.free;
-    expect(caps.maxStrategies).toBe(2);
-    expect(caps.allowedStrategies).toEqual(["zero_shot", "chain_of_thought"]);
-    expect(caps.maxSections).toBe(6);
-    expect(caps.maxClarificationRounds).toBe(3);
-    expect(caps.allowedContextTypes).toEqual(["feature", "bug"]);
-    expect(caps.verificationLevel).toBe("basic");
-  });
-
-  it("trial tier has full feature access (clarification = Infinity, all contexts, full verification)", () => {
-    const caps = TIER_CAPABILITIES.trial;
-    expect(caps.maxStrategies).toBe(16);
-    expect(caps.maxClarificationRounds).toBe(Infinity);
-    expect(caps.maxSections).toBe(11);
-    expect(caps.verificationLevel).toBe("full");
-    expect(caps.allowedContextTypes.length).toBe(8);
-  });
-
-  it("licensed tier matches trial capabilities (no functional differentiation today)", () => {
-    const trial = TIER_CAPABILITIES.trial;
-    const licensed = TIER_CAPABILITIES.licensed;
-    expect(licensed.maxStrategies).toBe(trial.maxStrategies);
-    expect(licensed.maxSections).toBe(trial.maxSections);
-    expect(licensed.verificationLevel).toBe(trial.verificationLevel);
-    expect(licensed.allowedStrategies).toEqual(trial.allowedStrategies);
-    expect(licensed.allowedContextTypes).toEqual(trial.allowedContextTypes);
-  });
-
-  it("maxStrategies always equals allowedStrategies.length (Darwin difficulty-book pass-2)", () => {
-    // Cross-audit closure (Darwin, 2026-04): the trial tier previously
-    // declared maxStrategies=17 while allowedStrategies.length=16. This
-    // invariant catches that class of off-by-one drift across all tiers.
-    for (const tier of LicenseTierSchema.options) {
-      const caps = TIER_CAPABILITIES[tier as LicenseTier];
-      expect(caps.maxStrategies).toBe(caps.allowedStrategies.length);
-    }
-  });
-
-  it("free.allowedContextTypes is a subset of trial.allowedContextTypes", () => {
-    const trialSet = new Set(TIER_CAPABILITIES.trial.allowedContextTypes);
-    for (const ctx of TIER_CAPABILITIES.free.allowedContextTypes) {
-      expect(trialSet.has(ctx)).toBe(true);
+  it("allows all 8 PRD contexts", () => {
+    const expected = ["proposal", "feature", "bug", "incident", "poc", "mvp", "release", "cicd"];
+    for (const ctx of expected) {
+      expect(CAPABILITIES.allowedContextTypes).toContain(ctx);
     }
   });
 });

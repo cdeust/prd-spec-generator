@@ -45,7 +45,7 @@ host: start_pipeline({
     }
 ```
 
-The license banner + context-detection messages were coalesced into
+The welcome banner + context-detection messages were coalesced into
 the `messages` array; the runner internally consumed two `emit_message`
 actions and only surfaced the substantive `call_pipeline_tool`.
 

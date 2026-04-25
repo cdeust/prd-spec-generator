@@ -43,7 +43,6 @@ import type { SectionType } from "@prd-gen/core";
 
 export interface PipelineKpiInput {
   readonly run_id: string;
-  readonly license_tier: PipelineState["license_tier"];
   readonly feature_description: string;
   readonly codebase_path?: string;
   /**
@@ -93,7 +92,6 @@ export function measurePipeline(input: PipelineKpiInput): PipelineKpis {
   const dispatch = input.craftResult ?? defaultBenchmarkDispatcher;
   const seed = newPipelineState({
     run_id: input.run_id,
-    license_tier: input.license_tier,
     feature_description: input.feature_description,
     codebase_path: input.codebase_path,
   });

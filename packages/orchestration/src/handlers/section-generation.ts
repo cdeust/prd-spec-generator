@@ -26,7 +26,7 @@ import {
 import { validateSection } from "@prd-gen/validation";
 import {
   SECTION_DISPLAY_NAMES,
-  TIER_CAPABILITIES,
+  CAPABILITIES,
   type PRDContext,
   type SectionType,
 } from "@prd-gen/core";
@@ -56,12 +56,11 @@ function correlationFor(prefix: string, sectionType: string): string {
 function ensureSectionsInitialized(state: PipelineState): PipelineState {
   if (state.sections.length > 0 || !state.prd_context) return state;
   const planned = SECTIONS_BY_CONTEXT[state.prd_context];
-  // Enforce the tier cap: free tier gets at most maxSections sections even
-  // when the context plan declares more. Trial/licensed have effectively
-  // unlimited maxSections (11+, larger than any context plan).
-  // source: TIER_CAPABILITIES (core/src/domain/license-tier.ts) +
-  //         feynman/curie cross-audit pass-2 (2026-04).
-  const cap = TIER_CAPABILITIES[state.license_tier].maxSections;
+  // Enforce the maxSections cap: 11 (the limit baked into CAPABILITIES) is
+  // larger than any single context plan, so this is effectively a no-op
+  // for normal use, but stays here as a defense if SECTIONS_BY_CONTEXT
+  // ever grows. source: CAPABILITIES (core/src/domain/capabilities.ts).
+  const cap = CAPABILITIES.maxSections;
   const allowed = planned.slice(0, cap);
   const sections: SectionStatus[] = allowed.map((section_type) => ({
     section_type,
@@ -221,25 +220,16 @@ function advanceToJira(init: PipelineState) {
  * sections on attempt 2 was scored as underperforming. Retry burden is
  * captured in retryCount and surfaced separately to the EvidenceRepository
  * for Phase 4.1 calibration; it does not contaminate the gain metric.
- *
- * Free-tier guard: free-tier assignments carry `expectedImprovement = 0`
- * (the assignment is documented as degraded, not calibrated). Recording
- * those zero-gain entries would contaminate `chain_of_thought`'s
- * cross-tier statistics. We skip recording for free-tier per
- * cross-audit feynman HIGH-3.
  */
 function buildExecutionResults(
   active: SectionStatus,
   prdContext: PRDContext,
-  licenseTier: PipelineState["license_tier"],
   passed: boolean,
 ): readonly ExecutionResult[] {
   // Precondition: terminal status only.
   if (active.status !== "passed" && active.status !== "failed") return [];
   const assignment = active.strategy_assignment;
   if (!assignment) return [];
-  // Skip degraded free-tier assignments (uncalibrated → no signal worth recording).
-  if (licenseTier === "free") return [];
 
   // Attribution: one entry per required strategy. If no required strategies
   // were chosen, fall back to the optional[0] (next-best signal we have).
@@ -284,7 +274,6 @@ function chooseStrategyForSection(
   return selectStrategy({
     claim: `${display}: ${state.feature_description}`,
     context: section_type,
-    licenseTier: state.license_tier,
     hasCodebase: state.codebase_indexed,
   });
 }
@@ -496,7 +485,6 @@ function validateAndAdvance(
       const execs = buildExecutionResults(
         next,
         state.prd_context,
-        state.license_tier,
         true,
       );
       if (execs.length > 0) {
@@ -586,7 +574,6 @@ function failSection(
     const execs = buildExecutionResults(
       next,
       state.prd_context,
-      state.license_tier,
       false,
     );
     if (execs.length > 0) {

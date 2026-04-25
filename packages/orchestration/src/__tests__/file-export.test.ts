@@ -5,7 +5,6 @@ import type { PipelineState } from "../index.js";
 function stateAtFileExport(): PipelineState {
   const s = newPipelineState({
     run_id: "test_export_001",
-    license_tier: "trial",
     feature_description: "x",
   });
   return {

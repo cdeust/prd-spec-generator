@@ -12,7 +12,7 @@
     {
       "name": "prd-spec-generator",
       "source": "./",
-      "description": "10 packages · 19 MCP tools · 9 pipeline steps · multi-judge verification · 258 tests · every constant sourced",
+      "description": "10 packages · 17 MCP tools · 9 pipeline steps · multi-judge verification · 248 tests · every constant sourced",
       "version": "0.2.0",
       "author": {
         "name": "Clement Deust",

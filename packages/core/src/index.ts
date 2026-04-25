@@ -46,11 +46,9 @@ export {
 } from "./domain/verdict.js";
 
 export {
-  LicenseTierSchema,
-  TIER_CAPABILITIES,
-  type LicenseTier,
-  type TierCapabilities,
-} from "./domain/license-tier.js";
+  CAPABILITIES,
+  type Capabilities,
+} from "./domain/capabilities.js";
 
 export {
   PRDSectionSchema,

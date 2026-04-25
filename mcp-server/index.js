@@ -21346,91 +21346,41 @@ var VerdictSchema = external_exports.enum([
   "FAIL"
 ]);
 
-// packages/core/dist/domain/license-tier.js
-var LicenseTierSchema = external_exports.enum(["free", "trial", "licensed"]);
-var TIER_CAPABILITIES = {
-  free: {
-    maxStrategies: 2,
-    allowedStrategies: ["zero_shot", "chain_of_thought"],
-    maxClarificationRounds: 3,
-    allowedContextTypes: ["feature", "bug"],
-    maxSections: 6,
-    ragHopsOverride: 1,
-    verificationLevel: "basic"
-  },
-  trial: {
-    // source: matches allowedStrategies.length below. Previously declared as
-    // 17 by mistake (Darwin difficulty-book pass-2, 2026-04).
-    maxStrategies: 16,
-    allowedStrategies: [
-      "chain_of_thought",
-      "tree_of_thoughts",
-      "graph_of_thoughts",
-      "react",
-      "reflexion",
-      "plan_and_solve",
-      "verified_reasoning",
-      "recursive_refinement",
-      "problem_analysis",
-      "zero_shot",
-      "few_shot",
-      "self_consistency",
-      "generate_knowledge",
-      "prompt_chaining",
-      "multimodal_cot",
-      "meta_prompting"
-    ],
-    maxClarificationRounds: Infinity,
-    allowedContextTypes: [
-      "proposal",
-      "feature",
-      "bug",
-      "incident",
-      "poc",
-      "mvp",
-      "release",
-      "cicd"
-    ],
-    maxSections: 11,
-    ragHopsOverride: null,
-    verificationLevel: "full"
-  },
-  licensed: {
-    // source: matches allowedStrategies.length below.
-    maxStrategies: 16,
-    allowedStrategies: [
-      "chain_of_thought",
-      "tree_of_thoughts",
-      "graph_of_thoughts",
-      "react",
-      "reflexion",
-      "plan_and_solve",
-      "verified_reasoning",
-      "recursive_refinement",
-      "problem_analysis",
-      "zero_shot",
-      "few_shot",
-      "self_consistency",
-      "generate_knowledge",
-      "prompt_chaining",
-      "multimodal_cot",
-      "meta_prompting"
-    ],
-    maxClarificationRounds: Infinity,
-    allowedContextTypes: [
-      "proposal",
-      "feature",
-      "bug",
-      "incident",
-      "poc",
-      "mvp",
-      "release",
-      "cicd"
-    ],
-    maxSections: 11,
-    ragHopsOverride: null,
-    verificationLevel: "full"
-  }
+// packages/core/dist/domain/capabilities.js
+var CAPABILITIES = {
+  // source: matches allowedStrategies.length below.
+  maxStrategies: 16,
+  allowedStrategies: [
+    "chain_of_thought",
+    "tree_of_thoughts",
+    "graph_of_thoughts",
+    "react",
+    "reflexion",
+    "plan_and_solve",
+    "verified_reasoning",
+    "recursive_refinement",
+    "problem_analysis",
+    "zero_shot",
+    "few_shot",
+    "self_consistency",
+    "generate_knowledge",
+    "prompt_chaining",
+    "multimodal_cot",
+    "meta_prompting"
+  ],
+  maxClarificationRounds: Infinity,
+  allowedContextTypes: [
+    "proposal",
+    "feature",
+    "bug",
+    "incident",
+    "poc",
+    "mvp",
+    "release",
+    "cicd"
+  ],
+  maxSections: 11,
+  verificationLevel: "full"
 };
 
 // packages/core/dist/domain/prd-document.js
@@ -21451,7 +21401,6 @@ var PRDDocumentSchema = external_exports.object({
   id: external_exports.string().uuid(),
   name: external_exports.string().min(1),
   context: PRDContextSchema,
-  licenseTier: LicenseTierSchema,
   sections: external_exports.array(PRDSectionSchema),
   clarificationAnswers: external_exports.array(ClarificationAnswerSchema),
   createdAt: external_exports.string().datetime(),
@@ -27350,7 +27299,6 @@ function selectStrategy(options) {
   const {
     claim,
     context,
-    licenseTier,
     hasCodebase = false,
     hasMockups = false,
     evidenceRepository,
@@ -27374,27 +27322,12 @@ function selectStrategy(options) {
     characteristics.add("visual_reasoning");
     characteristics.add("multimodal");
   }
-  const capabilities = TIER_CAPABILITIES[licenseTier];
-  if (licenseTier === "free") {
-    return {
-      required: ["chain_of_thought"],
-      optional: [],
-      forbidden: [],
-      expectedImprovement: 0,
-      // source: chosen heuristically — free tier uses chain_of_thought only
-      // (zero ablation), so confidence is below the neutral 0.5 prior to signal
-      // "this is a degraded assignment, not a calibrated recommendation."
-      assignmentConfidence: 0.3,
-      claimAnalysis: { ...analysis, characteristics: [...characteristics] },
-      researchCitations: []
-    };
-  }
   let historicalAdjustments = /* @__PURE__ */ new Map();
   if (evidenceRepository) {
     historicalAdjustments = evidenceRepository.getHistoricalAdjustments();
   }
   const scored = scoreStrategies(characteristics, historicalAdjustments, overlapWeight, minimumImprovementThreshold);
-  const allowed = new Set(capabilities.allowedStrategies);
+  const allowed = new Set(CAPABILITIES.allowedStrategies);
   const allowedScored = scored.filter((s) => allowed.has(s.strategy));
   const constrained = applyComplexityConstraints(allowedScored, analysis.complexityTier);
   const enrichedAnalysis = {
@@ -27466,7 +27399,7 @@ var EffectivenessTracker = class {
 
 // packages/orchestration/dist/types/state.js
 var PipelineStepSchema = external_exports.enum([
-  "license_gate",
+  "banner",
   "context_detection",
   "input_analysis",
   "feasibility_gate",
@@ -27526,7 +27459,6 @@ var PipelineStateSchema = external_exports.object({
   run_id: external_exports.string(),
   current_step: PipelineStepSchema,
   prd_context: PRDContextSchema.nullable(),
-  license_tier: LicenseTierSchema,
   feature_description: external_exports.string(),
   codebase_path: external_exports.string().nullable(),
   /**
@@ -27610,9 +27542,8 @@ function newPipelineState(input) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   return PipelineStateSchema.parse({
     run_id: input.run_id,
-    current_step: "license_gate",
+    current_step: "banner",
     prd_context: null,
-    license_tier: input.license_tier,
     feature_description: input.feature_description,
     codebase_path: input.codebase_path ?? null,
     codebase_graph_path: null,
@@ -27875,20 +27806,13 @@ var SECTION_RECALL_TEMPLATES = {
   jira_tickets: ""
 };
 
-// packages/orchestration/dist/handlers/license-gate.js
-var TIER_BANNER = {
-  free: "\u{1F7E2} PRD Spec Generator \u2014 FREE TIER",
-  trial: "\u23F3 PRD Spec Generator \u2014 TRIAL TIER (full features)",
-  licensed: "\u2728 PRD Spec Generator \u2014 LICENSED TIER"
-};
-var handleLicenseGate = ({ state }) => {
-  const banner = TIER_BANNER[state.license_tier];
-  const caps = TIER_CAPABILITIES[state.license_tier];
+// packages/orchestration/dist/handlers/banner.js
+var handleBanner = ({ state }) => {
   const message = [
-    banner,
+    "PRD Spec Generator",
     `Run ID: ${state.run_id}`,
-    `Allowed strategies: ${caps.allowedStrategies.length}`,
-    `Allowed PRD contexts: ${caps.allowedContextTypes.length}`,
+    `Allowed strategies: ${CAPABILITIES.allowedStrategies.length}`,
+    `Allowed PRD contexts: ${CAPABILITIES.allowedContextTypes.length}`,
     "",
     `Feature: ${state.feature_description}`,
     state.codebase_path ? `Codebase: ${state.codebase_path}` : "Codebase: (none provided)"
@@ -27959,7 +27883,7 @@ var handleContextDetection = ({ state, result }) => {
     };
   }
   const detected = detectFromText(state.feature_description);
-  const allowed = TIER_CAPABILITIES[state.license_tier].allowedContextTypes;
+  const allowed = CAPABILITIES.allowedContextTypes;
   if (detected && allowed.includes(detected)) {
     return {
       state: {
@@ -28390,8 +28314,7 @@ function askComposedQuestion(turn) {
 }
 function computeBounds(state) {
   const config2 = PRD_CONTEXT_CONFIGS[state.prd_context];
-  const tierCaps = TIER_CAPABILITIES[state.license_tier];
-  const max = Math.min(config2.clarificationRange[1], tierCaps.maxClarificationRounds);
+  const max = Math.min(config2.clarificationRange[1], CAPABILITIES.maxClarificationRounds);
   const min = Math.min(config2.clarificationRange[0], max);
   return { min, max };
 }
@@ -28547,7 +28470,7 @@ function ensureSectionsInitialized(state) {
   if (state.sections.length > 0 || !state.prd_context)
     return state;
   const planned = SECTIONS_BY_CONTEXT[state.prd_context];
-  const cap = TIER_CAPABILITIES[state.license_tier].maxSections;
+  const cap = CAPABILITIES.maxSections;
   const allowed = planned.slice(0, cap);
   const sections = allowed.map((section_type) => ({
     section_type,
@@ -28639,13 +28562,11 @@ function advanceToJira(init) {
     }
   };
 }
-function buildExecutionResults(active, prdContext, licenseTier, passed) {
+function buildExecutionResults(active, prdContext, passed) {
   if (active.status !== "passed" && active.status !== "failed")
     return [];
   const assignment = active.strategy_assignment;
   if (!assignment)
-    return [];
-  if (licenseTier === "free")
     return [];
   const strategies = assignment.required.length > 0 ? assignment.required : assignment.optional[0] ? [assignment.optional[0]] : [];
   if (strategies.length === 0)
@@ -28667,7 +28588,6 @@ function chooseStrategyForSection(state, section_type) {
   return selectStrategy({
     claim: `${display}: ${state.feature_description}`,
     context: section_type,
-    licenseTier: state.license_tier,
     hasCodebase: state.codebase_indexed
   });
 }
@@ -28768,7 +28688,7 @@ function validateAndAdvance(state, active, draft) {
     };
     let stateWithSection = replaceSection(state, next2);
     if (state.prd_context) {
-      const execs = buildExecutionResults(next2, state.prd_context, state.license_tier, true);
+      const execs = buildExecutionResults(next2, state.prd_context, true);
       if (execs.length > 0) {
         stateWithSection = {
           ...stateWithSection,
@@ -28812,7 +28732,7 @@ function failSection(state, active, reason, draft, violations = []) {
   const stateWithSection = replaceSection(state, next);
   let stateWithError = appendError(stateWithSection, `[section_generation:${active.section_type}] ${reason}`, "section_failure");
   if (state.prd_context) {
-    const execs = buildExecutionResults(next, state.prd_context, state.license_tier, false);
+    const execs = buildExecutionResults(next, state.prd_context, false);
     if (execs.length > 0) {
       stateWithError = {
         ...stateWithError,
@@ -28943,7 +28863,6 @@ function buildFileSet(state) {
         "",
         `Run ID: ${state.run_id}`,
         `Context: ${state.prd_context ?? "unknown"}`,
-        `License Tier: ${state.license_tier}`,
         "",
         joinSections(state, [
           "overview",
@@ -29910,7 +29829,7 @@ function parseVerdictsFromSnapshot(snapshot, state, batchResult) {
 
 // packages/orchestration/dist/runner.js
 var HANDLERS = {
-  license_gate: handleLicenseGate,
+  banner: handleBanner,
   context_detection: handleContextDetection,
   input_analysis: handleInputAnalysis,
   feasibility_gate: handleFeasibilityGate,
@@ -30324,17 +30243,14 @@ function envelope(state, action, messages = []) {
     }
   };
 }
-function registerPipelineTools(server2, resolveLicenseTier2) {
+function registerPipelineTools(server2) {
   server2.tool("start_pipeline", "Initialize a new PRD pipeline run. Returns run_id and the first NextAction the host must execute.", {
     feature_description: external_exports.string().describe("What the PRD is about \u2014 passed to all prompts"),
-    codebase_path: external_exports.string().optional().describe("Absolute path to the codebase. Triggers index_codebase via automatised-pipeline."),
-    license_tier_override: LicenseTierSchema.optional().describe("Override resolved license tier (testing only)")
-  }, async ({ feature_description, codebase_path, license_tier_override }) => {
-    const tier = license_tier_override ?? resolveLicenseTier2();
+    codebase_path: external_exports.string().optional().describe("Absolute path to the codebase. Triggers index_codebase via automatised-pipeline.")
+  }, async ({ feature_description, codebase_path }) => {
     const run_id = generateRunId();
     const initial = newPipelineState({
       run_id,
-      license_tier: tier,
       feature_description,
       codebase_path: codebase_path ?? null
     });
@@ -30484,31 +30400,6 @@ function registerPipelineTools(server2, resolveLicenseTier2) {
 
 // packages/mcp-server/dist/index.js
 var __dirname = dirname(fileURLToPath(import.meta.url));
-function resolveLicenseTier() {
-  const homedir2 = process.env.HOME ?? process.env.USERPROFILE ?? "";
-  const licensePath = join3(homedir2, ".aiprd", "license.json");
-  if (existsSync2(licensePath)) {
-    try {
-      const data = JSON.parse(readFileSync(licensePath, "utf-8"));
-      if (data.tier === "licensed" || data.tier === "trial") {
-        return data.tier;
-      }
-    } catch {
-    }
-  }
-  const trialPath = join3(homedir2, ".aiprd", "trial.json");
-  if (existsSync2(trialPath)) {
-    try {
-      const data = JSON.parse(readFileSync(trialPath, "utf-8"));
-      const expiresAt = new Date(data.expiresAt);
-      if (expiresAt > /* @__PURE__ */ new Date()) {
-        return "trial";
-      }
-    } catch {
-    }
-  }
-  return "free";
-}
 var PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT ?? join3(__dirname, "..", "..", "..");
 function loadSkillConfig() {
   const configPaths = [
@@ -30546,29 +30437,6 @@ function getEvidenceRepo() {
   }
   return _evidenceRepo;
 }
-server.tool("validate_license", "Resolve the current license tier (free/trial/licensed)", {}, async () => {
-  const tier = resolveLicenseTier();
-  const capabilities = TIER_CAPABILITIES[tier];
-  return {
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify({ tier, capabilities }, null, 2)
-      }
-    ]
-  };
-});
-server.tool("get_license_features", "Get feature capabilities for the current license tier", {}, async () => {
-  const tier = resolveLicenseTier();
-  return {
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify(TIER_CAPABILITIES[tier], null, 2)
-      }
-    ]
-  };
-});
 server.tool("get_config", "Get the full skill configuration", {}, async () => {
   const config2 = loadSkillConfig();
   return {
@@ -30582,7 +30450,6 @@ server.tool("read_skill_config", "Read the SKILL.md content that drives PRD gene
   };
 });
 server.tool("check_health", "Check system health \u2014 verify all components are accessible", {}, async () => {
-  const tier = resolveLicenseTier();
   const configAvailable = loadSkillConfig().version !== void 0;
   const skillAvailable = loadSkillMd() !== "SKILL.md not found";
   let dbHealthy = false;
@@ -30601,7 +30468,6 @@ server.tool("check_health", "Check system health \u2014 verify all components ar
         type: "text",
         text: JSON.stringify({
           status: "ok",
-          licenseTier: tier,
           configAvailable,
           skillAvailable,
           evidenceDbHealthy: dbHealthy,
@@ -30628,16 +30494,13 @@ server.tool("get_prd_context_info", "Get configuration for a specific PRD contex
     content: [{ type: "text", text: JSON.stringify(config2, null, 2) }]
   };
 });
-server.tool("list_available_strategies", "List thinking strategies available for the current license tier", {}, async () => {
-  const tier = resolveLicenseTier();
-  const capabilities = TIER_CAPABILITIES[tier];
+server.tool("list_available_strategies", "List thinking strategies available to the pipeline.", {}, async () => {
   return {
     content: [
       {
         type: "text",
         text: JSON.stringify({
-          tier,
-          strategies: capabilities.allowedStrategies,
+          strategies: CAPABILITIES.allowedStrategies,
           tiers: STRATEGY_TIERS
         }, null, 2)
       }
@@ -30727,7 +30590,7 @@ server.tool("get_strategy_effectiveness", "Get strategy performance data \u2014 
   };
 });
 registerBudgetTools(server);
-registerPipelineTools(server, resolveLicenseTier);
+registerPipelineTools(server);
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);

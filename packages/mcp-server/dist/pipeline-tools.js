@@ -16,7 +16,7 @@
 import { z } from "zod";
 import { newPipelineState, step, InMemoryRunStore, ActionResultSchema, } from "@prd-gen/orchestration";
 import { planSectionVerification, planDocumentVerification, concludeSection, concludeDocument, } from "@prd-gen/verification";
-import { LicenseTierSchema, SectionTypeSchema, JudgeVerdictSchema, tryCreateEvidenceRepository, } from "@prd-gen/core";
+import { SectionTypeSchema, JudgeVerdictSchema, tryCreateEvidenceRepository, } from "@prd-gen/core";
 import { EffectivenessTracker } from "@prd-gen/strategy";
 const runStore = new InMemoryRunStore();
 /**
@@ -98,7 +98,7 @@ function envelope(state, action, messages = []) {
         },
     };
 }
-export function registerPipelineTools(server, resolveLicenseTier) {
+export function registerPipelineTools(server) {
     // ─── start_pipeline ─────────────────────────────────────────────────────
     server.tool("start_pipeline", "Initialize a new PRD pipeline run. Returns run_id and the first NextAction the host must execute.", {
         feature_description: z
@@ -108,19 +108,16 @@ export function registerPipelineTools(server, resolveLicenseTier) {
             .string()
             .optional()
             .describe("Absolute path to the codebase. Triggers index_codebase via automatised-pipeline."),
-        license_tier_override: LicenseTierSchema.optional().describe("Override resolved license tier (testing only)"),
-    }, async ({ feature_description, codebase_path, license_tier_override }) => {
-        const tier = license_tier_override ?? resolveLicenseTier();
+    }, async ({ feature_description, codebase_path }) => {
         const run_id = generateRunId();
         const initial = newPipelineState({
             run_id,
-            license_tier: tier,
             feature_description,
             codebase_path: codebase_path ?? null,
         });
         const { state, action, messages } = step({ state: initial });
         // Drain BEFORE persist — same invariant as submit_action_result.
-        // The first step is currently `license_gate` which produces no
+        // The first step is currently `banner` which produces no
         // strategy_executions, but the invariant "every persisted state has
         // an empty queue" must hold at every storage boundary or the queue
         // grows silently when future handlers move toward the entry point
