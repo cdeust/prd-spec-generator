@@ -368,6 +368,7 @@ import {
   getMaxAttemptsForRun,
   MAX_ATTEMPTS_BASELINE,
 } from "../calibration-seams.js";
+import { MAX_ATTEMPTS } from "@prd-gen/orchestration";
 import { isControlArmRun as isControlArmRun2 } from "../observations.js";
 
 describe("getRetryArmForRun — Phase 4.2 ablation arm", () => {
@@ -437,5 +438,21 @@ describe("getMaxAttemptsForRun — Phase 4.2 CC-3 control arm", () => {
     expect(() => getMaxAttemptsForRun("any", -1)).toThrow();
     expect(() => getMaxAttemptsForRun("any", 1.5)).toThrow();
     expect(() => getMaxAttemptsForRun("any", Number.NaN)).toThrow();
+  });
+});
+
+// ─── D1.A: MAX_ATTEMPTS_BASELINE tracks orchestration export ─────────────────
+
+describe("MAX_ATTEMPTS_BASELINE — single source of truth (Wave D1.A)", () => {
+  it("MAX_ATTEMPTS_BASELINE equals MAX_ATTEMPTS exported from @prd-gen/orchestration", () => {
+    // Postcondition (D1.A): MAX_ATTEMPTS_BASELINE is no longer a hardcoded
+    // mirror constant — it is derived from the orchestration export. This test
+    // enforces the single-source-of-truth invariant: if MAX_ATTEMPTS changes
+    // in section-generation.ts, MAX_ATTEMPTS_BASELINE tracks it automatically.
+    //
+    // source: Wave D1.A — eliminated MAX_ATTEMPTS_MIRROR in retry-observations.ts;
+    // MAX_ATTEMPTS_BASELINE in calibration-seams.ts now imports from orchestration.
+    expect(MAX_ATTEMPTS_BASELINE).toBe(MAX_ATTEMPTS);
+    expect(MAX_ATTEMPTS_BASELINE).toBe(3); // current provisional heuristic
   });
 });

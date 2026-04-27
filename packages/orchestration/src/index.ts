@@ -61,6 +61,9 @@ export { step, type StepInput, type StepOutput, type StepHandler } from "./runne
 // Run store
 export { InMemoryRunStore, type RunStore } from "./run-store.js";
 
+// Section-generation constants (exported for benchmark layer — benchmark → orchestration direction per §2.2)
+export { MAX_ATTEMPTS } from "./handlers/section-generation.js";
+
 // Canned dispatcher (test/benchmark utility — not for production host wiring)
 export {
   makeCannedDispatcher,

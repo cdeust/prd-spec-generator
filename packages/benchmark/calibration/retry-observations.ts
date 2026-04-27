@@ -18,6 +18,7 @@
 
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { MAX_ATTEMPTS } from "@prd-gen/orchestration";
 import type { SectionType, PipelineState, SectionStatus } from "@prd-gen/orchestration";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -99,21 +100,6 @@ export interface RetryAttemptObservation {
   readonly run_id: string;
 }
 
-// ─── MAX_ATTEMPTS mirror ─────────────────────────────────────────────────────
-
-/**
- * Mirror of section-generation.ts MAX_ATTEMPTS. Must stay in sync.
- *
- * TODO(C1): export MAX_ATTEMPTS from orchestration so both sites read one
- * constant. Until the export exists, this shadow constant is the interim
- * solution. If MAX_ATTEMPTS changes in section-generation.ts without updating
- * this value, the `failed_terminal` vs `failed_pending_retry` classification
- * will be wrong for real-state extractions.
- *
- * source: section-generation.ts line 46 ("const MAX_ATTEMPTS = 3").
- */
-const MAX_ATTEMPTS_MIRROR = 3;
-
 // ─── Extraction ──────────────────────────────────────────────────────────────
 
 /**
@@ -131,21 +117,11 @@ const MAX_ATTEMPTS_MIRROR = 3;
  *   SectionStatus.status     — "passed" | "failed" | "generating" | ...
  *   SectionStatus.last_violations — violations from the LAST completed attempt.
  *
- * GAP: PipelineState does not currently persist per-attempt history. Only the
- * latest attempt's `last_violations` is visible. This means:
- *   - For a section with attempt=3 and status=failed, we can only reconstruct
- *     the FINAL attempt's record with certainty; earlier attempts are inferred
- *     from the monotone attempt counter.
- *   - `prior_violations_count` on intermediate attempts is UNKNOWN and
- *     reported as 0 (conservative — undercounts real usage).
- *   - `prior_violations_used` on intermediate attempts is INFERRED from arm.
- *
- * TODO(C1): To close this gap, SectionStatus needs an `attempt_log` field:
- *   attempt_log: Array<{ attempt: number; violations_fed: string[] }>
- * This would let extraction read exact violation counts per attempt rather
- * than only the terminal state. Required for Schoenfeld N≈2,070 analysis
- * precision. Until added to state.ts, the benchmark produces approximate
- * observations sufficient for the ablation pilot but not for the full study.
+ * Per-attempt history is read from `section.attempt_log` (Wave D1.B). Each
+ * entry records the exact violations fed into that attempt's prompt, giving
+ * precise `prior_violations_count` across all attempts — no approximation.
+ * The TODO(C1) gap is closed: SectionStatus.attempt_log is now populated by
+ * section-generation.ts:validateAndAdvance on every retry.
  *
  * @param state - Completed pipeline state (any step, any terminal status).
  * @param arm   - Ablation arm for this run, from C1's `getRetryArmForRun`.
@@ -173,6 +149,13 @@ export function extractRetryObservations(
  * Precondition: section.attempt >= 0.
  * Postcondition: returns exactly section.attempt records (one per attempt
  *   the section underwent). Returns [] if section.attempt === 0 (never started).
+ * Postcondition: prior_violations_count is exact (read from attempt_log) when
+ *   the log entry exists; falls back to 0 only for states predating Wave D1.B
+ *   (backward compat — conservative undercount on legacy state).
+ * Postcondition: prior_violations_used is a direct observation (violations_fed
+ *   length > 0), not inferred from the arm. Closes Curie A2 observability gap.
+ *
+ * source: Wave D1.B — attempt_log field on SectionStatus (2026-04-27).
  */
 function extractSectionObservations(
   section: SectionStatus,
@@ -183,29 +166,33 @@ function extractSectionObservations(
 
   const obs: RetryAttemptObservation[] = [];
   const totalAttempts = section.attempt;
+  // Effective MAX_ATTEMPTS for this section's run. attempt_log is the
+  // authoritative record; use MAX_ATTEMPTS as the bound for retry_outcome
+  // classification (consistent with the orchestration baseline).
+  const effectiveMaxAttempts = MAX_ATTEMPTS;
 
   for (let i = 1; i <= totalAttempts; i++) {
     const isLastAttempt = i === totalAttempts;
     const isTerminallyFailed = section.status === "failed" && isLastAttempt;
     const isPassed = section.status === "passed" && isLastAttempt;
 
-    // prior_violations_count: on the last attempt we can read last_violations
-    // length (those were the violations fed into THIS attempt's prompt, set
-    // during the previous attempt's validateAndAdvance retry branch).
-    // On earlier attempts we have no history — report 0 (see GAP note above).
+    // Read from attempt_log[i-1] (0-indexed, attempt is 1-indexed).
+    // Falls back to 0 for states predating Wave D1.B (backward compat).
+    // When the log is present, violations_fed.length is the exact count of
+    // violations that were consumed by the engineer subagent for attempt i.
+    const attemptIdx = i - 1;
     const prior_violations_count =
-      isLastAttempt && i > 1 ? section.last_violations.length : 0;
+      section.attempt_log[attemptIdx]?.violations_fed.length ?? 0;
 
-    // prior_violations_used: INFERRED until C1 wires the state field.
-    // On attempt 1: always false (no violations exist yet).
-    // On attempt k≥2, with_prior_violations arm: true (violations were fed).
-    // On attempt k≥2, without_prior_violations arm: false (arm zeroed them).
-    const prior_violations_used =
-      arm === "with_prior_violations" && i > 1;
+    // prior_violations_used: direct observation from attempt_log.
+    // True iff violations_fed was non-empty for this attempt. This is
+    // the actual behavior, not inferred from arm — closing the Curie A2
+    // observability gap (TODO(C1) now closed).
+    const prior_violations_used = prior_violations_count > 0;
 
     const retry_outcome: RetryOutcome = isPassed
       ? "passed"
-      : isTerminallyFailed || (i >= MAX_ATTEMPTS_MIRROR && !isPassed)
+      : isTerminallyFailed || (i >= effectiveMaxAttempts && !isPassed)
         ? "failed_terminal"
         : "failed_pending_retry";
 

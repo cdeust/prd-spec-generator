@@ -17,13 +17,20 @@
  * Lock schemas, seal verification, and JSONL sinks live in heldout-seals.ts
  * (extracted to keep both files under §4 500-line limit).
  *
- * Layer contract (§2.2): imports from Node stdlib and local types only.
+ * Layer contract (§2.2): benchmark may import from orchestration (outward →
+ * inward is permitted); orchestration must NOT import from benchmark.
  *
  * source: B-Popper-1, C-Curie-A4, C-Shannon-CONCERN-1 cross-audit findings.
  * source: docs/PHASE_4_PLAN.md §CC-3, §4.1, §4.2.
  * source: Wave C integration — B1 (Math.imul fix), B4 (schema split),
  *   B5 (docstring correction), B8 (size limit compliance).
  */
+
+// ─── Single source of truth for MAX_ATTEMPTS baseline ────────────────────────
+// Wave D1.A: import from orchestration so MAX_ATTEMPTS_BASELINE tracks the
+// authoritative value without a mirror constant. The benchmark layer is allowed
+// to import orchestration (§2.2 benchmark → orchestration direction).
+import { MAX_ATTEMPTS as _MAX_ATTEMPTS_FROM_ORCHESTRATION } from "@prd-gen/orchestration";
 
 // ─── Re-exports from heldout-seals.ts (backward compat + single import point)
 
@@ -221,10 +228,14 @@ export function getRetryArmForRun(runId: string): RetryArm {
 /**
  * Baseline MAX_ATTEMPTS for the Phase 4.2 control arm.
  *
- * source: packages/orchestration/src/handlers/section-generation.ts:46
- *   (`const MAX_ATTEMPTS = 3`) — the heuristic baseline to be calibrated.
+ * Re-exported from @prd-gen/orchestration so a single constant is authoritative.
+ * Wave D1.A eliminated the mirror constant in retry-observations.ts.
+ *
+ * source: packages/orchestration/src/handlers/section-generation.ts — the
+ * exported `MAX_ATTEMPTS` constant (provisional heuristic; Schoenfeld N=823
+ * calibration pending, see Phase 4.2 plan).
  */
-export const MAX_ATTEMPTS_BASELINE = 3;
+export const MAX_ATTEMPTS_BASELINE = _MAX_ATTEMPTS_FROM_ORCHESTRATION;
 
 /**
  * CC-3 control-arm seam for Phase 4.2's closed loop.

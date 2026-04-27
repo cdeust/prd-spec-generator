@@ -40,10 +40,16 @@ import { SECTIONS_BY_CONTEXT, SECTION_RECALL_TEMPLATES } from "../section-plan.j
 
 /**
  * Maximum draft attempts per section before marking it failed and moving on.
- * source: chosen heuristically (1 initial + 2 retries = 3); calibrate from
- * production data once we observe the pass-rate-by-attempt distribution.
+ *
+ * Exported so the benchmark layer can import the single authoritative value
+ * instead of maintaining a mirror constant (Wave D1.A).
+ *
+ * source: provisional heuristic — to be calibrated in Phase 4.2 (Schoenfeld
+ * N=823 study). Current value (1 initial + 2 retries = 3) was chosen based on
+ * engineering judgment; the calibrated replacement is injected at runtime via
+ * state.retry_policy.maxAttempts (see D1.C).
  */
-const MAX_ATTEMPTS = 3;
+export const MAX_ATTEMPTS = 3;
 
 import { SECTION_GENERATE_INV_PREFIX as GENERATE_PREFIX } from "./protocol-ids.js";
 
@@ -68,6 +74,7 @@ function ensureSectionsInitialized(state: PipelineState): PipelineState {
     attempt: 0,
     violation_count: 0,
     last_violations: [],
+    attempt_log: [],
   }));
   return { ...state, sections };
 }
@@ -479,9 +486,34 @@ function validateAndAdvance(
     (v) => `[${v.rule}] ${v.message}`,
   );
 
+  // Record which violations were fed into this attempt BEFORE branching on
+  // outcome. `active.last_violations` is the violations list that was passed
+  // to the engineer subagent for THIS attempt (set in the previous attempt's
+  // retry branch, or [] for attempt 1). Writing to attempt_log here ensures
+  // the benchmark extraction reads an observed value, not an inferred one
+  // (Curie A2: instrumentation must observe behavior — closes TODO(C1) in
+  // retry-observations.ts).
+  //
+  // ADR (Wave D1.B, 2026-04-27): attempt_log is written in validateAndAdvance
+  // rather than at draftAction time because validateAndAdvance is the single
+  // point at which we know both (a) the attempt number and (b) the violations
+  // that were consumed. draftAction receives `prior_violations` but does not
+  // own section state — keeping the log-write here preserves SRP (§1.1).
+  const attemptLogEntry = {
+    attempt: active.attempt,
+    violations_fed: [...active.last_violations],
+  };
+  // Backward compat: `attempt_log` may be absent on state snapshots predating
+  // Wave D1.B (e.g. hand-constructed test fixtures or in-flight states).
+  // `?? []` ensures spread never throws on undefined.
+  const activeWithLog: SectionStatus = {
+    ...active,
+    attempt_log: [...(active.attempt_log ?? []), attemptLogEntry],
+  };
+
   if (violations.length === 0) {
     const next: SectionStatus = {
-      ...active,
+      ...activeWithLog,
       status: "passed",
       content: draft,
       violation_count: 0,
@@ -514,11 +546,17 @@ function validateAndAdvance(
     };
   }
 
-  if (active.attempt >= MAX_ATTEMPTS) {
+  // Read the effective max-attempts from the injected retry policy (D1.C).
+  // Falls back to the exported baseline constant when state.retry_policy is
+  // absent — backward-compat with states predating Wave D1.C.
+  const effectiveMaxAttempts =
+    state.retry_policy?.maxAttempts ?? MAX_ATTEMPTS;
+
+  if (activeWithLog.attempt >= effectiveMaxAttempts) {
     return failSection(
       state,
-      active,
-      `Failed validation after ${MAX_ATTEMPTS} attempts. Violations: ${violations.join("; ")}`,
+      activeWithLog,
+      `Failed validation after ${effectiveMaxAttempts} attempts. Violations: ${violations.join("; ")}`,
       draft,
       violations,
     );
@@ -528,13 +566,30 @@ function validateAndAdvance(
   // attempt is the loop variant — it MUST increase here, not only on the
   // retrieving→generating transition, otherwise the bound check at the top
   // of validateAndAdvance is unreachable and the loop never terminates.
+  //
+  // D1.C ablation arm: branch on state.retry_policy.arm to determine which
+  // violations to feed into the next attempt's prompt. The branch is here
+  // (at the call site that constructs prior_violations), NOT inside
+  // buildSectionPrompt — preserving DIP (§1.5): the prompt builder has no
+  // awareness of the ablation infrastructure. The arm is read from state
+  // so the reducer stays pure (no direct benchmark imports, §2.2).
+  //
+  // ADR (Wave D1.C, 2026-04-27): violations_for_next_attempt is stored as
+  // next.last_violations so the attempt_log entry for the NEXT attempt
+  // observes the same value that was passed to draftAction. This makes
+  // violations_fed in attempt_log a direct observation (Curie A2) not an
+  // inference.
+  const arm = state.retry_policy?.arm ?? "with_prior_violations";
+  const violationsForNextAttempt =
+    arm === "without_prior_violations" ? [] : [...violations];
+
   const next: SectionStatus = {
-    ...active,
+    ...activeWithLog,
     status: "generating",
     content: draft,
-    attempt: active.attempt + 1,
+    attempt: activeWithLog.attempt + 1,
     violation_count: violations.length,
-    last_violations: [...violations],
+    last_violations: violationsForNextAttempt,
   };
   // Pass the UPDATED state (with `next` already replacing `active`) to
   // draftAction so any future read of state.sections sees the bumped
@@ -547,7 +602,7 @@ function validateAndAdvance(
   const updatedState = replaceSection(state, next);
   return {
     state: updatedState,
-    action: draftAction(updatedState, next, "", violations),
+    action: draftAction(updatedState, next, "", violationsForNextAttempt),
   };
 }
 
