@@ -173,6 +173,74 @@ are reproducible.
 
 ---
 
+### §4.1 Open design decision — Externally-grounded held-out subset
+
+**Resolution (commit aa42c42, Option b).** The held-out 20% partition must
+contain claims with EXTERNALLY-VERIFIABLE ground truth — not LLM-opinion
+ground truth. Without this, the negative falsifier measures "agreement with
+annotator-LLM" instead of "agreement with reality" (Curie A2 circularity).
+
+**What counts as externally-verifiable ground truth.**
+
+Each claim in the held-out partition must be assigned to exactly one of the
+four ExternalGroundingType categories. The oracle for that category provides
+ground truth without any LLM involvement.
+
+**Schema-grounded** (`type: "schema"`). Oracle: Ajv / Zod validator.
+Examples:
+- "The JSON object `{"name":"Alice","age":30}` is valid against the schema
+  `{type:object, required:[name,age], properties:{name:{type:string},age:{type:integer}}}`."
+- "The payload `{"id":"abc"}` is INVALID against the schema that requires id
+  to be a UUID format string."
+- "The array `[1,"two",3]` fails the schema `{type:array, items:{type:integer}}`."
+
+**Math-grounded** (`type: "math"`). Oracle: Python/SymPy.
+Examples:
+- "The number of distinct 3-element subsets of a 5-element set is 10."
+- "The expression (7 + 3) × 4 − 2 evaluates to 38."
+- "The intersection of {1,2,3,4} and {2,4,6} is {2,4}."
+
+**Code-grounded** (`type: "code"`). Oracle: `tsc --noEmit --strict`.
+Examples:
+- "The snippet `const x: number = 'hello'` fails strict TypeScript compilation."
+- "The snippet `const y: string = 'world'` compiles without errors."
+- "The snippet `function f(a: number, b: string): number { return a + b; }`
+  produces a type error under strict mode."
+
+**Spec-grounded** (`type: "spec"`). Oracle: Hard Output Rules validator
+in `packages/validation` (`validateSection`).
+Examples:
+- "A requirements section that contains '- [ ] MUST' items and a Summary
+  subsection passes the requirements HOR validator."
+- "An overview section missing the mandatory H2 'Goals' subsection fails the
+  overview HOR validator."
+- "A technical_specification section with an unfenced code block fails the
+  spec validator."
+
+**Code seam.**
+`packages/benchmark/src/calibration/external-oracle.ts` defines:
+- `ExternalGroundingType = "schema" | "math" | "code" | "spec"`
+- `ExternalOracle = (claim: OracleClaimInput) => Promise<OracleResult>`
+- `ORACLE_REGISTRY: Record<ExternalGroundingType, ExternalOracle>` — 4
+  stubs throwing `EXTERNAL_ORACLE_NOT_YET_IMPLEMENTED`. Wave D implements.
+- `invokeOracle(claim)` — dispatches via ORACLE_REGISTRY.
+
+**Partition lock schema (v2).**
+`packages/benchmark/src/calibration/calibration-seams.ts` defines
+`HeldoutPartitionLockSchema` (schema_version: 2) which requires:
+- `external_grounding_breakdown: Record<ExternalGroundingType, number>`
+- `external_grounding_total: number` (must equal `partition_size`)
+- `external_grounding_schema_version: 1`
+
+`HELDOUT_PARTITION_LOCK_SCHEMA_VERSION = 2`. C1 must write v2 lock files.
+v1 lock files are rejected by `verifyHeldoutPartitionSeal`.
+
+**Invariant.** `external_grounding_total === partition_size`. Every claim
+in the held-out partition has an assigned oracle category. Enforced by Zod
+refine in the schema.
+
+---
+
 ## 4.2 — MAX_ATTEMPTS calibration
 
 ### PRE-REGISTRATION (mandatory before implementation)
@@ -455,7 +523,15 @@ Before 4.2 ships:
 - [ ] Conditional (not marginal) estimand + Kaplan-Meier (Fisher Fi-4.2)
 - [ ] N ≥ 2,070 trials OR effect-size revision to detectable range
 - [ ] Ablation arm: with/without prior_violations
-- [ ] `prior_violations_used` instrumentation
+- [x] `prior_violations_used` instrumentation:
+      `packages/benchmark/src/calibration/retry-observations.ts:extractRetryObservations`
+      extracts all 6 required fields from PipelineState per attempt.
+      `appendRetryObservationLog` writes to `data/retry-observation-log.jsonl` (gitignored).
+      **TODO(C1):** add `attempt_log` to SectionStatus for exact per-attempt
+      violation counts (current extraction approximates intermediate attempts
+      as 0 — sufficient for pilot, not for full Schoenfeld N≈2,070 analysis).
+      **TODO(C1):** wire `getRetryArmForRun(run_id)` so arm is not passed
+      manually by every caller.
 
 Before 4.4 ships:
 - [ ] 4.1 complete (correct consensus confidence)
