@@ -8,6 +8,10 @@ node_modules
 # Pending calibration observations — grows at runtime; resolved asynchronously
 # by the dual-annotator procedure (Phase 4.1, Curie R2). Never commit.
 packages/benchmark/calibration/data/pending-observations.jsonl
+# Dropped claims log — INCONCLUSIVE verdicts from third reviewer (C-Curie-A4).
+packages/benchmark/calibration/data/dropped-claims.jsonl
+# Judge observation audit log — resolved observations for confusion matrix replay (C-Shannon-CONCERN-1).
+packages/benchmark/calibration/data/judge-observation-log.jsonl
 
 # Keep MCP server dist/ (needed for plugin execution)
 # Other packages' dist/ are build artifacts

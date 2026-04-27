@@ -22,8 +22,7 @@ import { rmSync, existsSync } from "node:fs";
 import {
   SqliteReliabilityRepository,
   RELIABILITY_SCHEMA_VERSION,
-  BETA_PRIOR_ALPHA,
-  BETA_PRIOR_BETA,
+  DEFAULT_RELIABILITY_PRIOR,
 } from "../index.js";
 import type { AgentIdentity, Claim } from "../index.js";
 import type { ReliabilityObservation } from "../index.js";
@@ -88,7 +87,7 @@ describe("SqliteReliabilityRepository — construction", () => {
 describe("SqliteReliabilityRepository — empty-DB / prior contract", () => {
   it("getReliability returns null for an unseen (judge, claim_type, direction) cell", () => {
     const repo = new SqliteReliabilityRepository(tempDb("empty"));
-    const result = repo.getReliability(judgeA, claimType, "fail");
+    const result = repo.getReliability(judgeA, claimType, "sensitivity_arm");
     expect(result).toBeNull();
     repo.close();
   });
@@ -99,17 +98,18 @@ describe("SqliteReliabilityRepository — empty-DB / prior contract", () => {
     repo.close();
   });
 
-  it("null return from getReliability signals 'use Beta prior' — BETA_PRIOR constants are accessible", () => {
+  it("null return from getReliability signals 'use Beta prior' — DEFAULT_RELIABILITY_PRIOR is accessible", () => {
     // This test documents the empty-DB-returns-prior contract:
-    // callers receive null and must fall back to BETA_PRIOR_ALPHA / BETA_PRIOR_BETA.
+    // callers receive null and must fall back to DEFAULT_RELIABILITY_PRIOR.
     // source: docs/PHASE_4_PLAN.md §4.1 — "For agents with insufficient global
     // data, fall back to Beta(7, 3) prior."
-    expect(BETA_PRIOR_ALPHA).toBe(7);
-    expect(BETA_PRIOR_BETA).toBe(3);
+    // B-Shannon-7: single source of truth in @prd-gen/core.
+    expect(DEFAULT_RELIABILITY_PRIOR.alpha).toBe(7);
+    expect(DEFAULT_RELIABILITY_PRIOR.beta).toBe(3);
 
     const repo = new SqliteReliabilityRepository(tempDb("prior-contract"));
-    const result = repo.getReliability(judgeA, claimType, "fail");
-    // null signals "apply prior"; the prior values come from the exported constants.
+    const result = repo.getReliability(judgeA, claimType, "sensitivity_arm");
+    // null signals "apply prior"; the prior values come from DEFAULT_RELIABILITY_PRIOR.
     expect(result).toBeNull();
     repo.close();
   });
@@ -120,16 +120,16 @@ describe("SqliteReliabilityRepository — round-trip", () => {
     const repo = new SqliteReliabilityRepository(tempDb("roundtrip"));
 
     repo.recordObservation(judgeA, claimType, correctOnFail);
-    const record = repo.getReliability(judgeA, claimType, "fail");
+    const record = repo.getReliability(judgeA, claimType, "sensitivity_arm");
 
     expect(record).not.toBeNull();
     expect(record!.agentKind).toBe("genius");
     expect(record!.agentName).toBe("laplace");
     expect(record!.claimType).toBe("architecture");
-    expect(record!.verdictDirection).toBe("fail");
+    expect(record!.verdictDirection).toBe("sensitivity_arm");
     // First correct observation: alpha = 7 + 1 = 8, beta = 3 + 0 = 3
-    expect(record!.alpha).toBe(BETA_PRIOR_ALPHA + 1);
-    expect(record!.beta).toBe(BETA_PRIOR_BETA);
+    expect(record!.alpha).toBe(DEFAULT_RELIABILITY_PRIOR.alpha + 1);
+    expect(record!.beta).toBe(DEFAULT_RELIABILITY_PRIOR.beta);
     expect(record!.nObservations).toBe(1);
     expect(record!.schemaVersion).toBe(RELIABILITY_SCHEMA_VERSION);
     expect(typeof record!.lastUpdated).toBe("string");
@@ -142,23 +142,23 @@ describe("SqliteReliabilityRepository — round-trip", () => {
     const repo = new SqliteReliabilityRepository(tempDb("incorrect"));
 
     repo.recordObservation(judgeA, claimType, incorrectOnFail);
-    const record = repo.getReliability(judgeA, claimType, "fail");
+    const record = repo.getReliability(judgeA, claimType, "sensitivity_arm");
 
-    expect(record!.alpha).toBe(BETA_PRIOR_ALPHA);
-    expect(record!.beta).toBe(BETA_PRIOR_BETA + 1);
+    expect(record!.alpha).toBe(DEFAULT_RELIABILITY_PRIOR.alpha);
+    expect(record!.beta).toBe(DEFAULT_RELIABILITY_PRIOR.beta + 1);
     expect(record!.nObservations).toBe(1);
 
     repo.close();
   });
 
-  it("pass observation writes to the 'pass' direction cell, not the 'fail' cell", () => {
+  it("pass observation writes to the 'specificity_arm' direction cell, not the 'sensitivity_arm' cell", () => {
     const repo = new SqliteReliabilityRepository(tempDb("direction"));
 
     repo.recordObservation(judgeA, claimType, correctOnPass);
 
-    expect(repo.getReliability(judgeA, claimType, "pass")).not.toBeNull();
-    // The 'fail' cell must remain untouched.
-    expect(repo.getReliability(judgeA, claimType, "fail")).toBeNull();
+    expect(repo.getReliability(judgeA, claimType, "specificity_arm")).not.toBeNull();
+    // The sensitivity_arm cell must remain untouched.
+    expect(repo.getReliability(judgeA, claimType, "sensitivity_arm")).toBeNull();
 
     repo.close();
   });
@@ -166,16 +166,16 @@ describe("SqliteReliabilityRepository — round-trip", () => {
   it("multiple observations accumulate correctly on the same cell", () => {
     const repo = new SqliteReliabilityRepository(tempDb("accumulate"));
 
-    // 3 correct, 1 incorrect on the 'fail' track
+    // 3 correct, 1 incorrect on the sensitivity_arm track
     repo.recordObservation(judgeA, claimType, correctOnFail);
     repo.recordObservation(judgeA, claimType, correctOnFail);
     repo.recordObservation(judgeA, claimType, incorrectOnFail);
     repo.recordObservation(judgeA, claimType, correctOnFail);
 
-    const record = repo.getReliability(judgeA, claimType, "fail");
+    const record = repo.getReliability(judgeA, claimType, "sensitivity_arm");
     // alpha = 7 + 3 = 10, beta = 3 + 1 = 4, n = 4
-    expect(record!.alpha).toBe(BETA_PRIOR_ALPHA + 3);
-    expect(record!.beta).toBe(BETA_PRIOR_BETA + 1);
+    expect(record!.alpha).toBe(DEFAULT_RELIABILITY_PRIOR.alpha + 3);
+    expect(record!.beta).toBe(DEFAULT_RELIABILITY_PRIOR.beta + 1);
     expect(record!.nObservations).toBe(4);
 
     repo.close();
@@ -195,9 +195,9 @@ describe("SqliteReliabilityRepository — getAllRecords", () => {
 
     const kinds = all.map((r) => `${r.agentName}:${r.claimType}:${r.verdictDirection}`).sort();
     expect(kinds).toEqual([
-      "fisher:security:fail",
-      "laplace:architecture:fail",
-      "laplace:performance:pass",
+      "fisher:security:sensitivity_arm",
+      "laplace:architecture:sensitivity_arm",
+      "laplace:performance:specificity_arm",
     ]);
 
     repo.close();
@@ -248,14 +248,27 @@ describe("SqliteReliabilityRepository — concurrent-write sequential correctnes
    * their UPSERT statements sequentially — the final state matches sequential
    * application regardless of interleaving order.
    *
+   * busy_timeout = 5000 ms (B-Curie-5): set in the constructor immediately after
+   * WAL pragma. This prevents SQLITE_BUSY from silently dropping concurrent
+   * writes when a second writer races the WAL lock. 5000 ms covers typical
+   * UPSERT contention; unbounded blocking is avoided because busy_timeout is a
+   * deadline, not a spin-wait.
+   * source: SQLite docs pragma.html#pragma_busy_timeout; B-Curie-5 finding.
+   *
    * This test verifies the property by simulating two "concurrent" callers on
    * the same synchronous SQLite connection (better-sqlite3 is always sync, so
    * true OS-level concurrency is not testable without Worker threads here).
    * The test demonstrates that two sequential calls on the same connection
    * produce the correct accumulated result — no lost updates, no tearing.
    *
-   * For true multi-process concurrent access, the correctness argument rests on
-   * the SQLite WAL serialisation guarantee documented above.
+   * B-Curie-5 note: testing two concurrent recordObservation calls from
+   * *separate file descriptors* is not feasible without Worker threads in this
+   * test environment. The correctness argument for that scenario rests on:
+   *   1. busy_timeout = 5000 ms (contention does not silently fail), AND
+   *   2. SQLite WAL serialization at the file lock (writes are ordered), AND
+   *   3. Each UPSERT is an atomic read-modify-write (no lost-update anomaly).
+   * This is a documented Lamport hand-off: formal verification of the multi-FD
+   * scenario requires Worker thread testing or a separate process-level test.
    *
    * source: docs/PHASE_4_PLAN.md §Persistence concurrency.
    * source: https://www.sqlite.org/wal.html — "WAL mode allows concurrent readers;
@@ -267,15 +280,15 @@ describe("SqliteReliabilityRepository — concurrent-write sequential correctnes
   it("two recordObservation calls for the same cell produce correct accumulated state", () => {
     const repo = new SqliteReliabilityRepository(tempDb("concurrent"));
 
-    // Simulate two "concurrent" writers for the same (judgeA, architecture, fail) cell.
+    // Simulate two "concurrent" writers for the same (judgeA, architecture, sensitivity_arm) cell.
     repo.recordObservation(judgeA, "architecture", correctOnFail);   // caller 1
     repo.recordObservation(judgeA, "architecture", incorrectOnFail); // caller 2
 
-    const record = repo.getReliability(judgeA, "architecture", "fail");
+    const record = repo.getReliability(judgeA, "architecture", "sensitivity_arm");
 
     // Sequential application: alpha = 7+1+0=8, beta = 3+0+1=4, n = 2
-    expect(record!.alpha).toBe(BETA_PRIOR_ALPHA + 1);
-    expect(record!.beta).toBe(BETA_PRIOR_BETA + 1);
+    expect(record!.alpha).toBe(DEFAULT_RELIABILITY_PRIOR.alpha + 1);
+    expect(record!.beta).toBe(DEFAULT_RELIABILITY_PRIOR.beta + 1);
     expect(record!.nObservations).toBe(2);
 
     repo.close();
@@ -287,14 +300,14 @@ describe("SqliteReliabilityRepository — concurrent-write sequential correctnes
     repo.recordObservation(judgeA, "architecture", correctOnFail);
     repo.recordObservation(judgeB, "architecture", incorrectOnFail);
 
-    const ra = repo.getReliability(judgeA, "architecture", "fail");
-    const rb = repo.getReliability(judgeB, "architecture", "fail");
+    const ra = repo.getReliability(judgeA, "architecture", "sensitivity_arm");
+    const rb = repo.getReliability(judgeB, "architecture", "sensitivity_arm");
 
-    expect(ra!.alpha).toBe(BETA_PRIOR_ALPHA + 1);
-    expect(ra!.beta).toBe(BETA_PRIOR_BETA);
+    expect(ra!.alpha).toBe(DEFAULT_RELIABILITY_PRIOR.alpha + 1);
+    expect(ra!.beta).toBe(DEFAULT_RELIABILITY_PRIOR.beta);
 
-    expect(rb!.alpha).toBe(BETA_PRIOR_ALPHA);
-    expect(rb!.beta).toBe(BETA_PRIOR_BETA + 1);
+    expect(rb!.alpha).toBe(DEFAULT_RELIABILITY_PRIOR.alpha);
+    expect(rb!.beta).toBe(DEFAULT_RELIABILITY_PRIOR.beta + 1);
 
     repo.close();
   });
@@ -310,7 +323,7 @@ describe("SqliteReliabilityRepository — lifecycle", () => {
   it("methods throw after close()", () => {
     const repo = new SqliteReliabilityRepository(tempDb("closed-methods"));
     repo.close();
-    expect(() => repo.getReliability(judgeA, claimType, "fail")).toThrow(/after close/);
+    expect(() => repo.getReliability(judgeA, claimType, "sensitivity_arm")).toThrow(/after close/);
     expect(() => repo.recordObservation(judgeA, claimType, correctOnFail)).toThrow(/after close/);
     expect(() => repo.getAllRecords()).toThrow(/after close/);
     expect(() => repo.getSchemaVersion()).toThrow(/after close/);
@@ -344,7 +357,7 @@ describe("SqliteReliabilityRepository — all claim_types accepted", () => {
     expect(all).toHaveLength(allClaimTypes.length);
 
     for (const ct of allClaimTypes) {
-      const r = repo.getReliability(judgeA, ct, "fail");
+      const r = repo.getReliability(judgeA, ct, "sensitivity_arm");
       expect(r).not.toBeNull();
       expect(r!.claimType).toBe(ct);
     }
