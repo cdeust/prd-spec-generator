@@ -181,6 +181,20 @@ export const PipelineStateSchema = z.object({
   /** Paths of files successfully written during file_export. Append-only. */
   written_files: z.array(z.string()).default([]),
   /**
+   * Count of Cortex `recall` tool invocations that returned zero hits.
+   * A non-zero count indicates sections were generated without memory context,
+   * which degrades output quality. KPI gate: pipeline-kpis.ts reads this field
+   * directly to surface the metric without post-hoc regex parsing.
+   *
+   * Incremented in section-generation.ts at the retrieving→generating
+   * transition when summarizeRecall returns an empty string (data.results is
+   * absent, empty, or all entries have no content).
+   *
+   * source: shannon S-6 (Phase 3+4 cross-audit, 2026-04) — load-bearing
+   * quantity needed for recall-efficacy analysis.
+   */
+  cortex_recall_empty_count: z.number().int().nonnegative().default(0),
+  /**
    * Verification plan dispatched in self-check Phase A. Set during Phase A;
    * read in Phase B to attribute verdicts. Null until Phase A runs.
    */

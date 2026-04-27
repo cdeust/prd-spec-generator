@@ -308,12 +308,23 @@ function advanceFromRecall(
   data: unknown,
 ) {
   const recallSummary = summarizeRecall(data);
+  // Track empty recalls so the KPI surface can surface recall-efficacy
+  // without post-hoc parsing. An empty summary means either the Cortex
+  // memory store has no relevant entries yet (cold start) or the recall
+  // tool returned an error-shaped response (upstream failure).
+  const emptyRecall = recallSummary.length === 0;
   const next = {
     ...active,
     status: "generating" as const,
     attempt: active.attempt + 1,
   };
-  const updated = replaceSection(init, next);
+  const stateWithRecall = emptyRecall
+    ? {
+        ...init,
+        cortex_recall_empty_count: init.cortex_recall_empty_count + 1,
+      }
+    : init;
+  const updated = replaceSection(stateWithRecall, next);
   return {
     state: updated,
     action: draftAction(updated, next, recallSummary, active.last_violations),
