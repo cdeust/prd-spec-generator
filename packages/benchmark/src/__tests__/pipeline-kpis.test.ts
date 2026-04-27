@@ -256,6 +256,28 @@ describe("pipeline KPIs", () => {
     expect(gates.violations.map((v) => v.metric)).toContain("error_count_max");
   });
 
+  it("evaluateGates flags cortex_recall_empty_count > cortex_recall_empty_count_max", () => {
+    // source: shannon S-6 (Phase 3+4 cross-audit, 2026-04). Gate ceiling
+    // is provisional (3); see KPI_GATES.cortex_recall_empty_count_max comment.
+    const fake = baseFakeKpis({
+      cortex_recall_empty_count: KPI_GATES.cortex_recall_empty_count_max + 1,
+    });
+    const gates = evaluateGates(fake);
+    expect(gates.passed).toBe(false);
+    expect(gates.violations.map((v) => v.metric)).toContain(
+      "cortex_recall_empty_count_max",
+    );
+  });
+
+  it("cortex_recall_empty_count is 0 on the canned baseline (no Cortex calls happen)", () => {
+    // The canned dispatcher never calls Cortex, so recall_empty_count stays 0.
+    const kpis = measurePipeline({
+      run_id: "kpi_recall_empty_count_baseline",
+      feature_description: "build a feature for OAuth login",
+    });
+    expect(kpis.cortex_recall_empty_count).toBe(0);
+  });
+
   it("evaluateGates skips mean_section_attempts gate when safety_cap_hit=true", () => {
     // Cross-audit closure (dijkstra H3, Phase 3+4, 2026-04). A cap-hit run
     // may have pending sections (attempt=0) that deflate the unconditional
@@ -389,6 +411,9 @@ function baseFakeKpis(overrides: Partial<ReturnType<typeof measurePipeline>> = {
     // src/instrumentation.ts and PHASE_4_PLAN.md §4.3.
     mismatch_fired: false,
     mismatch_kinds: [] as ReadonlyArray<never>,
+    // source: shannon S-6 (Phase 3+4 cross-audit, 2026-04). Default 0 means
+    // every Cortex recall returned results — the expected state on a healthy run.
+    cortex_recall_empty_count: 0,
     ...overrides,
   } as ReturnType<typeof measurePipeline>;
 }

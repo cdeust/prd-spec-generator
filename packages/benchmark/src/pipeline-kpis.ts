@@ -83,6 +83,17 @@ export interface PipelineKpis {
   readonly mismatch_fired: boolean;
   /** Distinct mismatch_kind values observed in this run (deduped). */
   readonly mismatch_kinds: ReadonlyArray<MismatchKind>;
+  /**
+   * Count of Cortex `recall` invocations that returned zero hits during
+   * this run. Copied from `state.cortex_recall_empty_count`.
+   *
+   * source: shannon S-6 (Phase 3+4 cross-audit, 2026-04) — load-bearing
+   * quantity needed for recall-efficacy analysis; the state field was added
+   * in Wave A3 (packages/orchestration/src/types/state.ts). Surfaced on
+   * PipelineKpis so the benchmark runner can gate on it without post-hoc
+   * parsing. Gate constant: KPI_GATES.cortex_recall_empty_count_max.
+   */
+  readonly cortex_recall_empty_count: number;
 }
 
 /**
@@ -153,6 +164,7 @@ export function measurePipeline(input: PipelineKpiInput): PipelineKpis {
     safety_cap_hit: loop.safety_cap_hit,
     mismatch_fired: mismatchExtraction.fired,
     mismatch_kinds: mismatchExtraction.distinctKinds,
+    cortex_recall_empty_count: loop.state.cortex_recall_empty_count,
   };
 }
 
@@ -360,6 +372,19 @@ export const KPI_GATES = {
    * a defect. No tuning required.
    */
   structural_error_count_max: 0,
+  /**
+   * source: provisional heuristic — to be calibrated in Phase 4.5.
+   *
+   * Rationale: a 9-section PRD run performs one Cortex recall per section in
+   * the retrieving→generating transition. An empty recall means that section
+   * was generated without memory context, degrading quality. A ceiling of 3
+   * (≈ 33% of sections) is the threshold beyond which absent recall context
+   * becomes the majority driver of generation quality, rather than the LLM's
+   * base knowledge alone. This is a conservative first gate; Phase 4.5 will
+   * replace it with the measured P95 from K ≥ 100 production-shaped runs.
+   * See also: packages/orchestration/src/types/state.ts cortex_recall_empty_count.
+   */
+  cortex_recall_empty_count_max: 3,
 } as const;
 
 export interface KpiGateReport {
@@ -407,6 +432,7 @@ export function evaluateGates(
     // uninformative; safety_cap_hit_allowed already fires on cap-hit.
     { metric: "mean_section_attempts_max", actual: kpis.mean_section_attempts, enabled: !kpis.safety_cap_hit },
     { metric: "structural_error_count_max", actual: kpis.structural_error_count, enabled: true },
+    { metric: "cortex_recall_empty_count_max", actual: kpis.cortex_recall_empty_count, enabled: true },
   ];
 
   for (const g of numericGates) {
