@@ -70,6 +70,12 @@ export const PRD_CONTEXT_DOMAIN = [
 // source: PHASE_4_PLAN.md §4.3 sample-size calculation. K=460 ⇒ upper bound
 // at 0 fires ≈ 0.80% (clears the 1% H0 ceiling).
 export const PRIMARY_K = 460;
+// source: PHASE_4_PLAN.md §4.3 — fallback sample size when fire_count ∈ {1, 2}
+// on the K=460 primary run. K=3,000 ⇒ CP-95 upper bound at 0 fires ≈ 0.12%
+// (provides finer resolution for the underpowered regime). The FIRE_RATE_CEILING
+// threshold (1%) still applies on the fallback dataset; the same
+// Clopper-Pearson upper-bound test governs the decision rule.
+export const FALLBACK_K = 3_000;
 // source: PHASE_4_PLAN.md §4.3 stratification floor.
 export const PER_CONTEXT_FLOOR = Math.ceil(PRIMARY_K / PRD_CONTEXT_DOMAIN.length);
 // source: PHASE_4_PLAN.md §4.3 CC-4 control chart spec.
@@ -136,8 +142,18 @@ export interface FireRateReport {
   readonly decision:
     | "fallback_unreached_delete_candidate"
     | "investigate_root_cause"
-    | "underpowered";
+    | "underpowered"
+    | "underpowered_run_fallback_K3000";
   readonly decisionRationale: string;
+  /**
+   * When decision === "underpowered_run_fallback_K3000", contains the
+   * Clopper-Pearson upper bound that would result from 0 fires in K=3,000.
+   * Provided so the caller can display the expected resolution before
+   * committing to the fallback run.
+   *
+   * source: PHASE_4_PLAN.md §4.3 fallback sample size (Popper AP-2, 2026-04).
+   */
+  readonly fallbackK3000UpperBound?: number;
 }
 
 function loadDataset(dataDir: string): ReadonlyArray<CalibrationRun> {
@@ -209,29 +225,90 @@ function computeBatchedFireRates(
   return rates;
 }
 
+interface DecideResult {
+  readonly decision: FireRateReport["decision"];
+  readonly rationale: string;
+  readonly fallbackK3000UpperBound?: number;
+}
+
+/**
+ * Apply the pre-registered binary decision rule.
+ *
+ * Pre-condition: fires ≥ 0, trials ≥ 0, ci is a valid Clopper-Pearson
+ *   interval for (fires, trials).
+ * Post-condition: returns exactly one of the four pre-registered decision
+ *   branches; rationale text includes the exact CI values so the report is
+ *   self-contained.
+ *
+ * K=3,000 fallback branch (Popper AP-2 / PHASE_4_PLAN.md §4.3):
+ *   fire_count ∈ {1, 2} on the K=460 primary run is an underpowered regime
+ *   where the CP-95 upper bound (≈2–4%) sits above the 1% ceiling but the
+ *   event count is too low to conclude "investigate_root_cause" with
+ *   statistical confidence. The pre-registered response is to run a
+ *   K=3,000 fallback dataset. The FIRE_RATE_CEILING (1%) and the same
+ *   Clopper-Pearson upper-bound test apply identically on the fallback;
+ *   no new decision logic is introduced.
+ *
+ * source: PHASE_4_PLAN.md §4.3 decision rule + stopping rule (2026-04).
+ */
 function decide(
   fires: number,
   ci: ClopperPearsonInterval,
   trials: number,
-): { decision: FireRateReport["decision"]; rationale: string } {
+): DecideResult {
+  // Primary dataset underpowered — fewer runs than pre-registered minimum.
   if (trials < PRIMARY_K) {
     return {
       decision: "underpowered",
       rationale: `K=${trials} < pre-registered minimum K=${PRIMARY_K}`,
     };
   }
+
+  // H0 rejected: 0 fires and CI upper < 1%.
   if (fires === 0 && ci.upper < FIRE_RATE_CEILING) {
     return {
       decision: "fallback_unreached_delete_candidate",
       rationale: `0 fires in K=${trials}; CP-95 upper ${ci.upper.toFixed(4)} < ${FIRE_RATE_CEILING}`,
     };
   }
-  if (fires >= 1) {
+
+  // Underpowered regime on K=460: fire_count ∈ {1, 2}.
+  // The CP upper bound sits above 1% but fires are too rare to conclude
+  // root-cause. Pre-registered response: run the K=3,000 fallback dataset.
+  // Compute the expected upper bound at 0 fires in K=FALLBACK_K so the
+  // caller can confirm the fallback provides sufficient resolution.
+  if (trials <= PRIMARY_K && (fires === 1 || fires === 2)) {
+    const fallbackUpperBound = clopperPearson(0, FALLBACK_K).upper;
     return {
-      decision: "investigate_root_cause",
-      rationale: `${fires} fires observed; root-cause analysis required before threshold change`,
+      decision: "underpowered_run_fallback_K3000",
+      rationale:
+        `fire_count=${fires} on K=${trials} is underpowered (CP-95 upper ${ci.upper.toFixed(4)} ≥ ${FIRE_RATE_CEILING}). ` +
+        `Pre-registered response: run fallback K=${FALLBACK_K}. ` +
+        `Expected CP-95 upper at 0 fires in K=${FALLBACK_K}: ${fallbackUpperBound.toFixed(4)}.`,
+      fallbackK3000UpperBound: fallbackUpperBound,
     };
   }
+
+  // fire_count ≥ 1 on primary K (not the 1–2 underpowered regime handled
+  // above, i.e. fires ≥ 3, or fires ≥ 1 on the fallback K=3,000 dataset).
+  // FIRE_RATE_CEILING and CP upper bound govern identically on both datasets.
+  if (fires >= 1) {
+    if (ci.upper < FIRE_RATE_CEILING) {
+      // Fires observed but upper bound still clears the ceiling — possible
+      // if running on the fallback K=3,000 with 1–2 fires.
+      return {
+        decision: "fallback_unreached_delete_candidate",
+        rationale: `${fires} fires in K=${trials}; CP-95 upper ${ci.upper.toFixed(4)} < ${FIRE_RATE_CEILING}`,
+      };
+    }
+    return {
+      decision: "investigate_root_cause",
+      rationale: `${fires} fires observed (K=${trials}); CP-95 upper ${ci.upper.toFixed(4)} ≥ ${FIRE_RATE_CEILING}. Root-cause analysis required before threshold change`,
+    };
+  }
+
+  // 0 fires but CI upper ≥ 1% — can only occur if K is unusually small
+  // relative to PRIMARY_K after the underpowered check above. Guard branch.
   return {
     decision: "underpowered",
     rationale: `0 fires but CP-95 upper ${ci.upper.toFixed(4)} ≥ ${FIRE_RATE_CEILING}`,
@@ -251,7 +328,7 @@ export function analyze(
     batchedRates.length >= XMR_BASELINE_BATCHES
       ? xmrAnalyze(batchedRates, XMR_BASELINE_BATCHES)
       : null;
-  const { decision, rationale } = decide(fires, overallCI, trials);
+  const { decision, rationale, fallbackK3000UpperBound } = decide(fires, overallCI, trials);
   return {
     trials,
     fires,
@@ -261,6 +338,7 @@ export function analyze(
     xmr,
     decision,
     decisionRationale: rationale,
+    ...(fallbackK3000UpperBound !== undefined ? { fallbackK3000UpperBound } : {}),
   };
 }
 
@@ -314,8 +392,13 @@ function formatReport(r: FireRateReport): string {
     "## Decision",
     `  outcome:    ${r.decision}`,
     `  rationale:  ${r.decisionRationale}`,
-    "",
   );
+  if (r.decision === "underpowered_run_fallback_K3000" && r.fallbackK3000UpperBound !== undefined) {
+    lines.push(
+      `  fallback K=${FALLBACK_K} expected upper bound (0 fires): ${r.fallbackK3000UpperBound.toFixed(4)}`,
+    );
+  }
+  lines.push("");
   return lines.join("\n");
 }
 

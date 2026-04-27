@@ -275,17 +275,28 @@ one row per pipeline run.
 run is tagged with its assigned context in the JSONL row so per-cell rates can
 be reconstructed.
 
-**Decision rule (binary, pre-registered before data collection).**
-- IF Clopper-Pearson upper 95% bound on overall p̂ < 0.01 (typically: 0 fires
-  in K ≥ 460): publish the evidence, mark the fallback path as "demonstrably
-  unreached," and proceed to deletion under a separate change with a regression
-  test that artificially injects a mismatch and verifies the diagnostic still
-  surfaces.
-- ELSE IF fire_count ≥ 1: capture every fire's `(mismatch_kind, prd_context,
-  causative_section_if_known, run_id)`, do NOT delete the fallback path,
-  hand off the root-cause investigation to the orchestration owner. Per-kind
-  rates with their own Clopper-Pearson CIs determine whether one or both kinds
-  warrant separate fixes.
+**Decision rule (pre-registered before data collection — four branches).**
+- **Branch A — H0 rejected:** Clopper-Pearson upper 95% bound on overall p̂ < 0.01
+  (typically: 0 fires in K ≥ 460 → upper ≈ 0.80%). Outcome: `fallback_unreached_delete_candidate`.
+  Publish the evidence, mark the fallback path as "demonstrably unreached,"
+  and proceed to deletion under a separate change with a regression test that
+  artificially injects a mismatch and verifies the diagnostic still surfaces.
+- **Branch B — underpowered regime (K=3,000 fallback trigger):**
+  fire_count ∈ {1, 2} on the K=460 primary run. The CP-95 upper bound sits
+  above 1% but the event count is too low to conclude root-cause investigation
+  with statistical confidence. Outcome: `underpowered_run_fallback_K3000`.
+  Run the pre-registered K=3,000 fallback dataset. FIRE_RATE_CEILING (1%) and
+  the same Clopper-Pearson upper-bound test apply identically on the fallback;
+  no new decision logic is introduced. Expected upper bound at 0 fires in
+  K=3,000: ≈ 0.12%.
+- **Branch C — investigate root cause:** fire_count ≥ 3 on K=460, OR
+  fire_count ≥ 1 on the K=3,000 fallback with CP-95 upper ≥ 0.01.
+  Outcome: `investigate_root_cause`. Capture every fire's
+  `(mismatch_kind, prd_context, causative_section_if_known, run_id)`, do NOT
+  delete the fallback path, hand off the root-cause investigation to the
+  orchestration owner.
+- **Branch D — underpowered (guard):** K < 460. Outcome: `underpowered`.
+  Collect more runs before deciding.
 - The control chart (CC-4) governs *re-evaluation* cadence; it does not
   override the binary decision above for the initial K=460 study.
 
