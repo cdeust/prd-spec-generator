@@ -158,16 +158,23 @@ power=0.80:
 - Source: Fermi cross-audit B-Fermi-2; two-proportion z-test (Fleiss, Levin, Paik
   2003, "Statistical Methods for Rates and Proportions", 3rd ed., Ch. 4).
 
-**Annotation cost (RESOURCE-ALLOCATION GATE — B-Fermi-2).**
+**Calibration capacity (RESOURCE-ALLOCATION GATE — B-Fermi-2, REVISED).**
 - 11 claim_types × 3 judges/panel × 2 arms × 292 ≈ 19,272 arm-observations.
   Each calibration claim yields ≈ 2 arms (one per consensus class), so
   ≈ 9,636 calibration claims needed per panel.
-- At 2.15 min/claim (dual-annotator procedure with third-reviewer conflict
-  resolution): 9,636 × 2.15 ≈ 344 annotator-hours (3 panels ≈ 1,032 hours).
-- The original estimate of ~95 hours (N=80 × 2,640 claims) was 3.6× too low.
-- **This estimate is a resource-allocation gate. Annotator time must be
-  budgeted before data collection begins. Do not start calibration without
-  this commitment in writing.**
+- This project runs on a Claude Max subscription. Annotators are LLM
+  subagents, not paid humans — there is no dollar-cost gate. The binding
+  constraints are agent-invocation count and orchestrator wall-clock at
+  N parallel. See "§4.1 Open design decision — calibration scope" below
+  for the parallel-throughput math; full N=292 calibration is feasible in
+  ~1 hour at 60 parallel agent pairs.
+- The earlier human-annotator framing (~344 hours at $25/hr) is preserved
+  here only as historical context; it is no longer the binding constraint.
+- **The actual gate is methodological, not financial:** LLM-annotator
+  independence (Curie circularity) must be resolved before calibration runs
+  begin — see the design-decision section below for the two acceptable
+  resolutions (heterogeneous model families OR externally-grounded held-out
+  subset).
 - Wall-time for automated judge calls at ~5ms each: ~48 s total (negligible).
 - Note: an arm requires N ground-truth observations of the corresponding class.
   A judge facing 50/50 PASS/FAIL claims needs ~584 calibration claims per
@@ -767,8 +774,10 @@ Before 4.1 ships:
 - [ ] Negative falsifier on held-out set (Popper AP-5)
 - [ ] CC-3 control arm seam: `isControlArmRun` / `getReliabilityForRun` published
       and wired at call sites in 4.4 / 4.5 (B-Popper-1)
-- [ ] Annotation resource commitment: 344+ annotator-hours budgeted before
-      data collection begins (B-Fermi-2 gate)
+- [ ] Calibration scope decision committed: which option (1/2/3/4) from
+      "§4.1 Open design decision" + LLM-annotator independence resolution
+      (heterogeneous model families OR externally-grounded held-out subset)
+      (B-Fermi-2 gate, revised under Max subscription)
 - [ ] dominanceThreshold ESS correction deployed (B-Fermi-3)
 - [ ] VerdictDirection renamed to sensitivity_arm/specificity_arm (C-Shannon-CONCERN-3)
 - [ ] AnnotatorView enforced at all queue drain consumers (B-Curie-4)
@@ -819,37 +828,67 @@ This plan was revised after a 10-agent cross-audit (Phase 3+4):
 
 ## §4.1 Open design decision — calibration scope (Fermi cross-audit)
 
-**Status: UNDECIDED. This decision must be made before any annotation work begins.**
+**Status: UNDECIDED. Decision must be made before annotation work begins.**
 
 **Context.** The 33-cell × 2-arm design (11 claim_types × 3 judge kinds ×
 {sensitivity, specificity}) requires N=292/arm observations per cell to detect
-|Δ|≥0.10 at power=0.80 (Laplace L4; docs/PHASE_4_PLAN.md §4.1 PRE-REGISTRATION).
-Total observations needed: 292 × 33 × 2 = 19,272 claims. At 5 observations/cell/run
-(1 run/day), each cell requires 292/5 ≈ 58.4 runs. Total calibration runs: 58.4 ×
-66 cells = 3,858 runs. At 1 run/day → 10.6 years. Even at 1 run/hr: 161 days.
-This is not a code bug; it is a methodological consequence of the cell design.
+|Δ|≥0.10 at power=0.80 (Laplace L4; §4.1 PRE-REGISTRATION). Total observations:
+292 × 33 × 2 = 19,272 claims. With LLM agents as the annotator pool (this
+project runs on a Claude Max subscription — no human-annotator dollar cost,
+only invocation/wall-clock budget), the original Fermi finding ("3-17 years
+at 1 run/day with paid human annotators") collapses: parallel agent dispatch
+removes the throughput ceiling.
+
+**Cost axis re-framed.** All four options below are zero-marginal-cost in
+dollars on the Max subscription. The binding constraints are:
+- **Agent-invocation count** (subagent dispatch capacity)
+- **Wall-clock at N parallel agents** (orchestrator throughput)
+- **Statistical guarantee** (effect size × power)
+- **Methodological soundness** (LLM-annotator independence — see warning below)
+
+**WARNING — LLM-annotator independence (Curie circularity).** When the
+"dual annotators" are LLM agents and the JUDGES being calibrated are also LLM
+agents, two independence concerns emerge:
+1. **Annotator-annotator independence.** Two agents from the same model family
+   share base biases. The dual-annotator procedure (Curie R2) requires
+   annotators be *operationally* independent (blind to peer verdict, judge
+   verdict, validator output). LLM-pair independence requires either
+   (a) different model families per annotator, or (b) explicit prompt-level
+   isolation with verified non-leakage.
+2. **Annotator-judge independence.** If annotator-LLMs and judge-LLMs share
+   training data, the calibration measures *agreement-with-annotator-LLM*, not
+   *agreement-with-truth*. A judge that disagrees with the annotator pool may
+   actually be more correct, not less. This is genuinely unsolved by simply
+   parallelizing more agents.
+
+**Recommended treatment of independence:** the held-out 20% partition (already
+mechanically sealed via `verifyHeldoutPartitionSeal`) should include claims
+with externally-verifiable ground truth (e.g., schema-correct vs.
+schema-broken JSON, factual claims with ground-truth lookup) so the falsifier
+test can distinguish "calibration agrees with annotator pool" from
+"calibration agrees with reality." This is a Wave C+ constraint, not a Wave B
+implementation gate.
 
 ---
 
-### Option 1 — Parallel annotator pool
+### Option 1 — Full parallel agent calibration (NEW DEFAULT under Max subscription)
 
-Hire K parallel annotator pairs to compress the timeline.
+Dispatch K parallel subagent pairs as the annotator pool. With LLM agents,
+1 run/pair/day becomes 1 run/pair/minute or faster.
 
-**Math.** To complete 3,890 runs in 90 days at 1 run/pair/day: K = ceil(3,890 / 90)
-= 44 annotator pairs = 88 humans. Each claim requires ~1.07 hrs of annotation
-(dual-annotator × consensus → 1.07 hr at 2×30 min/claim + 7 min for third-reviewer
-adjudication). Total claims: 292/arm × 2 arms × 33 cells = 19,272. Cost:
-$25/hr × 1.07 hr/claim × 19,272 claims ≈ $515K.
+**Throughput math.** 3,890 runs / 60 parallel pairs at ~30s/claim ≈
+3,890 / (60 × 120 claims/hr) = 0.54 hours of orchestrator wall-clock.
+Sequential at 1 pair: ~32 hours. Either form is feasible in a single working
+session.
 
 | Dimension | Value |
 |---|---|
-| Annotator-hour budget | ~20,621 hours |
-| Wall-clock (low / high) | 90 days / 180 days |
-| Statistical guarantee | |Δ|≥0.10 at power=0.80; full per-cell calibration |
-| Effect size detectable | 0.10 |
+| Agent invocations | ~58,000 (annotator + judge + adjudicator passes) |
+| Wall-clock | 1 hour (60-pair parallel) → 32 hours (1-pair sequential) |
+| Statistical guarantee | \|Δ\|≥0.10 at power=0.80; full per-cell calibration |
 | Falsifier sensitivity | full — all 66 cell-arms calibrated |
 | Code/spec changes | none — existing implementation supports this |
-| Risk | $500K+ commitment before v1 ships; annotator coordination overhead |
+| Risk | LLM-annotator independence (see warning above). Must be addressed by either heterogeneous-model-family annotators OR external ground-truth claims in the held-out partition. |
 
 ---
 
@@ -859,41 +898,35 @@ Estimate per-judge sensitivity/specificity with claim_type as a partial-pooling
 random effect (multilevel / mixed-effects Beta-Binomial). Reduces effective N
 from 292/cell to ~292/judge ≈ 9× fewer observations.
 
-**Math.** 3 judge kinds × 292/judge = 876 observations total (not 19,272).
-At 5 obs/run: 876/5 = 176 runs → 176 days at 1 run/day, or 6 months.
-At 2 runs/day: 88 days. Annotator cost: ~$25/hr × 1.07 hr/claim × 876 claims ≈ $23K.
+**Throughput math.** 3 judge kinds × 292/judge = 876 observations total. At
+60 parallel agent pairs × 30s/claim: ~7 minutes wall-clock.
 
 | Dimension | Value |
 |---|---|
-| Annotator-hour budget | ~937 hours |
-| Wall-clock (low / high) | 3 months / 6 months |
-| Statistical guarantee | |Δ|≥0.10 at the per-judge level; claim_type effect is pooled |
-| Effect size detectable | 0.10 at judge level; claim_type-level effects partially pooled |
+| Agent invocations | ~2,600 (9× fewer than Option 1) |
+| Wall-clock | 7 minutes (parallel) → 4 hours (sequential) |
+| Statistical guarantee | \|Δ\|≥0.10 at the per-judge level; claim_type effect is pooled |
 | Falsifier sensitivity | reduced — claim_type deviations partially pooled toward judge mean |
-| Code/spec changes | replace `splitSensitivitySpecificity` with hierarchical model (Stan or scipy); new `reliability.ts` math layer |
-| Risk | Statistical complexity; assumes claim_type random effects are well-behaved (no prior evidence); hierarchical model requires separate pre-registration |
+| Code/spec changes | replace `splitSensitivitySpecificity` with hierarchical model; new math module; separate pre-registration for the multilevel structure |
+| Risk | Statistical complexity; hierarchical assumption (claim_type random effect well-behaved) is unverified — needs sensitivity analysis comparing to Option 1 on a subset. |
 
 ---
 
 ### Option 3 — Lowered v1 N target (N=80/cell)
 
-Ship v1 with N=80/arm/cell (the originally-stated target before the Fermi
-power correction). This detects |Δ|≥0.20 at power=0.80 (not 0.10).
-
-**Math.** 80 × 66 cells = 5,280 observations. At 5 obs/run: 1,056 runs.
-At 1 run/day: ~2.9 years. At 5 runs/day: 211 days. At 10 runs/day: 106 days.
-Annotator cost: $25/hr × 1.07 hr/claim × 5,280 claims ≈ $141K at 1 annotator pair;
-roughly $28K at an achievable 95-hr/week pace (a 6-month sprint).
+Ship v1 with N=80/arm/cell. Detects |Δ|≥0.20 at power=0.80 (not 0.10).
+Originally proposed because of the dollar-cost ceiling of paid annotators —
+that constraint is dissolved under the Max subscription, but Option 3 remains
+useful as a fast smoke-test pass before committing to the full N=292.
 
 | Dimension | Value |
 |---|---|
-| Annotator-hour budget | ~5,650 hours |
-| Wall-clock (low / high) | 6 months / 12 months |
-| Statistical guarantee | |Δ|≥0.20 at power=0.80 per cell |
-| Effect size detectable | 0.20 (weaker than target; misses small reliability shifts) |
-| Falsifier sensitivity | low — the falsifier detects large reliability failures only |
-| Code/spec changes | update N_TARGET constant in pre-registration; update PHASE_4_PLAN.md stopping rule |
-| Risk | Weaker statistical claims; if true reliability shift is 0.10, v1 will not detect it; must be communicated to stakeholders |
+| Agent invocations | ~16,000 |
+| Wall-clock | 18 minutes (parallel) → 9 hours (sequential) |
+| Statistical guarantee | \|Δ\|≥0.20 at power=0.80 per cell |
+| Falsifier sensitivity | low — detects large reliability failures only |
+| Code/spec changes | update N_TARGET constant in pre-registration; update stopping rule |
+| Risk | Weaker statistical claims; if true reliability shift is 0.10, v1 misses it. Useful as a v0 smoke test before committing the full Option 1 run. |
 
 ---
 
@@ -902,31 +935,39 @@ roughly $28K at an achievable 95-hr/week pace (a 6-month sprint).
 Calibrate only the 1-2 most-frequently-dispatched judges in v1. Defer remaining
 judges to v2.
 
-**Math.** 1 judge × 33 cells × 2 arms × 292/arm = 19,272 → same per-judge cost
-as Option 1 for 1 judge. But if we use N=80 (Option 3 targeting): 1 judge ×
-33 × 2 × 80 = 5,280. At 5 obs/run: 1,056 runs → same as Option 3 but scoped
-to 1 judge. Annotator cost (N=80, 1 judge): ~$141K. For top-2 judges: ~$282K.
-
-| Dimension | Value |
+| Dimension | Value (1 judge / 2 judges, N=292) |
 |---|---|
-| Annotator-hour budget | ~5,650 hrs (1 judge) / ~11,300 hrs (2 judges) at N=80 |
-| Wall-clock (low / high) | 6 months / 18 months for 1-2 judges |
+| Agent invocations | ~6,500 / ~13,000 |
+| Wall-clock | 7 / 14 minutes (parallel) |
 | Statistical guarantee | full per-cell for selected judges; uncalibrated for remainder |
-| Effect size detectable | 0.10 (if N=292) or 0.20 (if N=80) for selected judges |
-| Falsifier sensitivity | partial — only selected judges contribute to falsifier |
+| Falsifier sensitivity | partial — only selected judges contribute |
 | Code/spec changes | add judge-dispatch-frequency telemetry to select top judges; add fallback policy (use prior) for uncalibrated judges in consensus.ts |
-| Risk | Incomplete consensus weighting; requires defining fallback for uncalibrated judges; which judges are "top-dispatched" may change as dispatch patterns shift |
+| Risk | Incomplete consensus weighting; "top-dispatched" judge set may shift as dispatch patterns change. Useful only if Option 1 invocation budget is somehow constrained, which it isn't here. |
 
 ---
 
-### Decision rule
+### Decision rule (revised under Max subscription)
 
-**Default if no decision is made before annotation work begins: Option 3 (N=80/cell,
-|Δ|≥0.20 detection threshold) for v1, with Option 2 (hierarchical pooling) tracked
-as a v2 upgrade path once v1 data is collected.**
+**NEW DEFAULT: Option 1 (full parallel agent calibration).** Zero marginal
+cost, ~1 hour parallel wall-clock, full per-cell |Δ|≥0.10 calibration.
+**Conditional on resolving the LLM-annotator independence concern** before
+the run begins — Wave C+ must commit to either heterogeneous-model-family
+annotators OR an externally-grounded held-out subset.
 
-**This decision must be made before any annotation work begins. Proceeding without
-a decision wastes annotation budget and may void the pre-registration.**
+**Recommended sequencing:**
+1. Run Option 3 (N=80) first as a smoke test (~18 minutes parallel) to
+   validate the pipeline end-to-end and surface any operational issues.
+2. Then Option 1 (N=292) for the production calibration.
+3. Track Option 2 (hierarchical pooling) as an analytical follow-on once
+   Option 1 data is in hand — the multilevel model can be fit on the same
+   observation log without re-running the agents.
+
+Option 4 is deprecated under Max subscription (no invocation-budget reason to
+prefer it).
+
+**This sequencing must be locked in before annotation begins, but the lock-in
+is now a methodological commitment (independence resolution + run order), not
+a financial one.**
 
 Source: Fermi cross-audit A1; docs/PHASE_4_PLAN.md §4.1 PRE-REGISTRATION;
 Laplace L4 (N=292 derivation); M4 residual (paired-bootstrap implementation site).
