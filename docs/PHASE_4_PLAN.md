@@ -302,11 +302,11 @@ Empty-DB / prior contract: `getReliability(judge, claimType, direction)` returns
     voids the falsifier (Popper AP-5).
 
 **Math layer (this wave, B1).** The pure-stdlib Beta-update primitives
-live in `packages/benchmark/src/calibration/reliability.ts`:
+live in `packages/benchmark/calibration/reliability.ts`:
 `betaUpdate`, `posteriorMean`, `posteriorMode`, `effectiveSampleSize`,
 `dominanceThreshold`, `splitSensitivitySpecificity`, `tallyConfusion`.
 No I/O. No verification or orchestration imports. Tests under
-`packages/benchmark/src/calibration/__tests__/reliability.test.ts`.
+`packages/benchmark/calibration/__tests__/reliability.test.ts`.
 
 ---
 
