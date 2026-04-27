@@ -394,6 +394,74 @@ source: CC-3 (docs/PHASE_4_PLAN.md §CC-3); B-Popper-1 cross-audit finding.
 
 ---
 
+### §4.1 Open design decision — Externally-grounded held-out subset
+
+**Resolution (commit aa42c42, Option b).** The held-out 20% partition must
+contain claims with EXTERNALLY-VERIFIABLE ground truth — not LLM-opinion
+ground truth. Without this, the negative falsifier measures "agreement with
+annotator-LLM" instead of "agreement with reality" (Curie A2 circularity).
+
+**What counts as externally-verifiable ground truth.**
+
+Each claim in the held-out partition must be assigned to exactly one of the
+four ExternalGroundingType categories. The oracle for that category provides
+ground truth without any LLM involvement.
+
+**Schema-grounded** (`type: "schema"`). Oracle: Ajv / Zod validator.
+Examples:
+- "The JSON object `{"name":"Alice","age":30}` is valid against the schema
+  `{type:object, required:[name,age], properties:{name:{type:string},age:{type:integer}}}`."
+- "The payload `{"id":"abc"}` is INVALID against the schema that requires id
+  to be a UUID format string."
+- "The array `[1,"two",3]` fails the schema `{type:array, items:{type:integer}}`."
+
+**Math-grounded** (`type: "math"`). Oracle: Python/SymPy.
+Examples:
+- "The number of distinct 3-element subsets of a 5-element set is 10."
+- "The expression (7 + 3) × 4 − 2 evaluates to 38."
+- "The intersection of {1,2,3,4} and {2,4,6} is {2,4}."
+
+**Code-grounded** (`type: "code"`). Oracle: `tsc --noEmit --strict`.
+Examples:
+- "The snippet `const x: number = 'hello'` fails strict TypeScript compilation."
+- "The snippet `const y: string = 'world'` compiles without errors."
+- "The snippet `function f(a: number, b: string): number { return a + b; }`
+  produces a type error under strict mode."
+
+**Spec-grounded** (`type: "spec"`). Oracle: Hard Output Rules validator
+in `packages/validation` (`validateSection`).
+Examples:
+- "A requirements section that contains '- [ ] MUST' items and a Summary
+  subsection passes the requirements HOR validator."
+- "An overview section missing the mandatory H2 'Goals' subsection fails the
+  overview HOR validator."
+- "A technical_specification section with an unfenced code block fails the
+  spec validator."
+
+**Code seam.**
+`packages/benchmark/src/calibration/external-oracle.ts` defines:
+- `ExternalGroundingType = "schema" | "math" | "code" | "spec"`
+- `ExternalOracle = (claim: OracleClaimInput) => Promise<OracleResult>`
+- `ORACLE_REGISTRY: Record<ExternalGroundingType, ExternalOracle>` — 4
+  stubs throwing `EXTERNAL_ORACLE_NOT_YET_IMPLEMENTED`. Wave D implements.
+- `invokeOracle(claim)` — dispatches via ORACLE_REGISTRY.
+
+**Partition lock schema (v2).**
+`packages/benchmark/src/calibration/calibration-seams.ts` defines
+`HeldoutPartitionLockSchema` (schema_version: 2) which requires:
+- `external_grounding_breakdown: Record<ExternalGroundingType, number>`
+- `external_grounding_total: number` (must equal `partition_size`)
+- `external_grounding_schema_version: 1`
+
+`HELDOUT_PARTITION_LOCK_SCHEMA_VERSION = 2`. C1 must write v2 lock files.
+v1 lock files are rejected by `verifyHeldoutPartitionSeal`.
+
+**Invariant.** `external_grounding_total === partition_size`. Every claim
+in the held-out partition has an assigned oracle category. Enforced by Zod
+refine in the schema.
+
+---
+
 ## 4.2 — MAX_ATTEMPTS calibration
 
 ### PRE-REGISTRATION (mandatory before implementation) — REVISED for C1
@@ -1166,9 +1234,9 @@ Before 4.2 ships:
 - [x] Conditional (not marginal) estimand + Kaplan-Meier math layer
       (Fisher Fi-4.2) — published in `kaplan-meier.ts` (Wave C1)
 - [x] Sample size revised under Schoenfeld 1981: N = 823 subjects (~412 per
-      arm) at HR = 0.7, α = 0.05, power = 0.80, event_rate ≈ 0.30. The
-      original ~2,070 figure is superseded — see §4.2 power calculation
-      (Wave C1)
+      arm) at HR = 0.7, α = 0.05, power = 0.80, event_rate ≈ 0.30
+      (PROVISIONAL — see §4.2 hedge below). The original ~2,070 figure is
+      superseded — see §4.2 power calculation (Wave C1)
 - [x] Ablation arm seam published: `getRetryArmForRun(runId)` returning
       `with_prior_violations` / `without_prior_violations` (Wave C1)
 - [x] CC-3 closed-loop control-arm seam published: `getMaxAttemptsForRun`
@@ -1176,13 +1244,20 @@ Before 4.2 ships:
 - [x] Held-out 20% partition seal template at
       `data/maxattempts-heldout.lock.json` — must be drawn + sealed before
       held-out evaluation (Wave C1)
-- [ ] `prior_violations_used` boolean instrumentation on `recordExecution`
-      (Wave C2 scope — orchestration wiring)
+- [x] `prior_violations_used` instrumentation:
+      `packages/benchmark/calibration/retry-observations.ts::extractRetryObservations`
+      extracts all 6 required fields from PipelineState per attempt.
+      `appendRetryObservationLog` writes to
+      `packages/benchmark/calibration/data/retry-observation-log.jsonl` (gitignored).
+      **TODO(Wave D):** add `attempt_log` to SectionStatus for exact per-attempt
+      violation counts (current extraction approximates intermediate attempts
+      as 0 — sufficient for pilot). Wire `getRetryArmForRun(run_id)` so arm
+      is not passed manually by every caller (Wave D scope).
 - [ ] Retry-loop wiring: `getMaxAttemptsForRun` + `getRetryArmForRun`
-      consumed in `section-generation.ts` (Wave C2 scope)
+      consumed in `section-generation.ts` (Wave D scope)
 - [ ] N=823 trials run end-to-end on real or mocked-end-to-end pipeline,
       stratified by section_type and ablation arm (Wave C+ scope; gated on
-      C2)
+      Wave D)
 - [ ] Held-out 20% set populated, sealed, and replayed under both calibrated
       and baseline MAX_ATTEMPTS (Wave C+ scope)
 
