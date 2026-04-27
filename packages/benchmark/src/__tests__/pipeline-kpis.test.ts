@@ -256,6 +256,40 @@ describe("pipeline KPIs", () => {
     expect(gates.violations.map((v) => v.metric)).toContain("error_count_max");
   });
 
+  it("evaluateGates flags cortex_recall_empty_count > cortex_recall_empty_count_max", () => {
+    // source: shannon S-6 (Phase 3+4 cross-audit, 2026-04). Gate ceiling
+    // is provisional (3); see KPI_GATES.cortex_recall_empty_count_max comment.
+    const fake = baseFakeKpis({
+      cortex_recall_empty_count: KPI_GATES.cortex_recall_empty_count_max + 1,
+    });
+    const gates = evaluateGates(fake);
+    expect(gates.passed).toBe(false);
+    expect(gates.violations.map((v) => v.metric)).toContain(
+      "cortex_recall_empty_count_max",
+    );
+  });
+
+  it("cortex_recall_empty_count equals number of sections on canned baseline (all recalls empty)", () => {
+    // The canned dispatcher never provides real Cortex recall results, so
+    // summarizeRecall returns empty for every section — cortex_recall_empty_count
+    // equals the number of sections processed (11 on a full feature run).
+    // This is expected canned behaviour; the cortex_recall_empty_count_max gate
+    // is SUSPENDED on canned runs for this reason (same pattern as
+    // distribution_pass_rate_max).
+    const kpis = measurePipeline({
+      run_id: "kpi_recall_empty_count_baseline",
+      feature_description: "build a feature for OAuth login",
+    });
+    // On the canned path, every section's recall is empty — count = sections processed.
+    expect(kpis.cortex_recall_empty_count).toBeGreaterThan(0);
+    // The gate is suspended on canned runs — evaluateGates with is_canned_dispatcher=true
+    // must not flag cortex_recall_empty_count_max.
+    const gates = evaluateGates(kpis, true);
+    expect(gates.violations.map((v) => v.metric)).not.toContain(
+      "cortex_recall_empty_count_max",
+    );
+  });
+
   it("evaluateGates skips mean_section_attempts gate when safety_cap_hit=true", () => {
     // Cross-audit closure (dijkstra H3, Phase 3+4, 2026-04). A cap-hit run
     // may have pending sections (attempt=0) that deflate the unconditional
@@ -385,6 +419,13 @@ function baseFakeKpis(overrides: Partial<ReturnType<typeof measurePipeline>> = {
     distribution_pass_rate: 0,
     written_files_count: 9,
     safety_cap_hit: false,
+    // Phase 4.3 instrumentation defaults — measurement-only, see
+    // src/instrumentation.ts and PHASE_4_PLAN.md §4.3.
+    mismatch_fired: false,
+    mismatch_kinds: [] as ReadonlyArray<never>,
+    // source: shannon S-6 (Phase 3+4 cross-audit, 2026-04). Default 0 means
+    // every Cortex recall returned results — the expected state on a healthy run.
+    cortex_recall_empty_count: 0,
     ...overrides,
   } as ReturnType<typeof measurePipeline>;
 }

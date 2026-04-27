@@ -233,38 +233,126 @@ choice.
 
 ### PRE-REGISTRATION
 
-**Hypothesis.** H1: plan_mismatch_count > 0 over K independent full-pipeline
-runs.
+**Hypothesis.**
+- H0: plan_mismatch fire rate p ≤ 0.01 (one-percent ceiling — "vanishingly rare").
+- H1: p > 0.01.
 
-**Estimand.** Empirical fire rate = fire_count / K, by mismatch_kind.
+The diagnostic event is observable: each fire appends a string of the form
+`[self_check] plan mismatch detected — mismatch_kind:<kind>` to `state.errors`,
+where `<kind>` ∈ {`content_mutation`, `ordering_regression`} (source:
+`packages/orchestration/src/handlers/self-check.ts` Phase B append, CHANGELOG
+[0.2.0] HIGH fix).
 
-**Estimator.** Direct count, with Clopper-Pearson exact 95% CI for the rate.
+**Estimand.** Empirical fire rate p̂ = fire_count / K, plus per-mismatch_kind
+rates (p̂_content, p̂_ordering). A run "fires" iff its `state.errors` contains
+≥1 mismatch_kind entry; a run can fire at most once per kind per analysis (we
+deduplicate per-run before counting, mirroring the Phase B `mismatchSeen` set).
 
-**Sufficient statistic.** (fire_count, K) overall + per-mismatch_kind counts.
+**Estimator.** Direct count + Clopper-Pearson exact 95% CI on the binomial
+proportion. No normal approximation — fire_count may be 0 or very small, where
+Wald CI is degenerate.
+
+**Sufficient statistic.** (fire_count, K) overall and per (mismatch_kind,
+prd_context) cell. Stored as JSONL in
+`packages/benchmark/calibration/data/mismatch-fire-rate.<run-id>.jsonl`,
+one row per pipeline run.
 
 **Sample size.**
-- K=200 detects fire rate ≥ 1.5% with 95% confidence.
-- K=3,000 (Fermi recommendation) detects ≥ 0.1% — may be needed if K=200
-  shows zero fires.
-- Wall time at ~5ms per mocked run: 15 seconds for K=3000.
+- K=200 → Clopper-Pearson upper 95% bound at fire_count=0 is ≈ 1.83%
+  (sufficient to refute H1 only at the 1.83% level, NOT 1%).
+- K=300 → upper bound at 0 fires ≈ 1.22%.
+- K=460 → upper bound at 0 fires ≈ 0.80% (clears the 1% ceiling).
+- Recommended primary K = 460. Fall back to K=3,000 (≈0.12% upper bound) if
+  fire_count ∈ {1, 2} and finer resolution is needed.
+- Wall time at ~5ms per mocked run (`measurePipeline` with default canned
+  dispatcher): K=460 ≈ 2.3s, K=3,000 ≈ 15s.
+- Stratification floor (per Fisher): all 8 PRD context types represented at
+  ≥ K/8 each. K=460 ⇒ ≥ 58 per context. K=200 ⇒ ≥ 25 per context.
 
-**Stratification (Fisher).** All 8 PRD context types must be represented at
-minimum K_per_context = K/8 = 25 each.
+**Stratification (Fisher).** Round-robin assignment of `prd_context` over the
+8-element domain (`proposal`, `feature`, `bug`, `incident`, `poc`, `mvp`,
+`release`, `cicd` — source: `packages/core/src/domain/prd-context.ts`). Each
+run is tagged with its assigned context in the JSONL row so per-cell rates can
+be reconstructed.
 
-**Decision rule (binary).**
-- If upper Clopper-Pearson 95% bound < 1% (fire_count = 0 in K=200): delete
-  the fallback path; document the evidence in a source comment and a deleted
-  test.
-- If fire_count > 0: record mutation_kind for all fires, identify the causative
-  section using the persisted `[self_check] verification_plan mismatch (...)`
-  state.errors entries (curie A5 fix already landed), and fix root cause
-  before re-running.
+**Decision rule (pre-registered before data collection — four branches).**
+- **Branch A — H0 rejected:** Clopper-Pearson upper 95% bound on overall p̂ < 0.01
+  (typically: 0 fires in K ≥ 460 → upper ≈ 0.80%). Outcome: `fallback_unreached_delete_candidate`.
+  Publish the evidence, mark the fallback path as "demonstrably unreached,"
+  and proceed to deletion under a separate change with a regression test that
+  artificially injects a mismatch and verifies the diagnostic still surfaces.
+- **Branch B — underpowered regime (K=3,000 fallback trigger):**
+  fire_count ∈ {1, 2} on the K=460 primary run. The CP-95 upper bound sits
+  above 1% but the event count is too low to conclude root-cause investigation
+  with statistical confidence. Outcome: `underpowered_run_fallback_K3000`.
+  Run the pre-registered K=3,000 fallback dataset. FIRE_RATE_CEILING (1%) and
+  the same Clopper-Pearson upper-bound test apply identically on the fallback;
+  no new decision logic is introduced. Expected upper bound at 0 fires in
+  K=3,000: ≈ 0.12%.
+- **Branch C — investigate root cause:** fire_count ≥ 3 on K=460, OR
+  fire_count ≥ 1 on the K=3,000 fallback with CP-95 upper ≥ 0.01.
+  Outcome: `investigate_root_cause`. Capture every fire's
+  `(mismatch_kind, prd_context, causative_section_if_known, run_id)`, do NOT
+  delete the fallback path, hand off the root-cause investigation to the
+  orchestration owner.
+- **Branch D — underpowered (guard):** K < 460. Outcome: `underpowered`.
+  Collect more runs before deciding.
+- The control chart (CC-4) governs *re-evaluation* cadence; it does not
+  override the binary decision above for the initial K=460 study.
 
-**Ground-truth backing for the decision.** The mismatch reason is now
-persisted to `state.errors` (commit: self-check.ts mismatchKind fix). K=200
-runs accumulate analyzable distribution data.
+**Stopping rule.** The study stops when EITHER (a) K = 460 runs have completed
+AND each prd_context cell has ≥ 58 runs, OR (b) fire_count ≥ 5 — at which
+point further sampling cannot lower the upper bound below 1% within budget,
+and the priority shifts to root-cause analysis. Early-stopping is permitted
+ONLY at these two conditions; "stop because the rate looks fine" is a
+pre-registration violation.
 
-**Falsifiability.** Binary; well-specified.
+**RNG seed.** Round-robin context assignment is deterministic; seed only
+governs feature_description sampling (drawn from a fixed K=460-element corpus
+committed alongside the data). Seed value: `0xC0FFEE0403` (committed in
+`packages/benchmark/calibration/mismatch-fire-rate.ts` BEFORE any data row is
+written; fail-fast assertion in the runner verifies the constant has not
+changed at analysis time).
+
+**Analysis script (CC-2).**
+- Script: `packages/benchmark/calibration/mismatch-fire-rate.ts`.
+- Raw data: `packages/benchmark/calibration/data/mismatch-fire-rate.*.jsonl`
+  (one file per study run, content-addressable filename).
+- Re-run command: `pnpm --filter @prd-gen/benchmark run calibrate:mismatch`
+  (hooked once Phase 4.3 collects its first dataset).
+
+**Control chart (CC-4).** XmR chart on per-batch fire rate, batches of size
+n=20 runs (so 460/20 = 23 batches). Limits computed from the first 12 batches
+and frozen; subsequent batches plot against frozen limits. Re-tune the gate
+ONLY when (a) a point falls outside 3σ, OR (b) a run of 8 consecutive batches
+sits on one side of the centerline (Western Electric rule 1 + 4). Until then:
+hold the decision from the K=460 study.
+
+**Ground-truth backing for the decision.** The mismatch reason is persisted
+to `state.errors` by the Phase B handler (`self-check.ts` lines 244-256,
+CHANGELOG [0.2.0] HIGH fix). The instrumentation in
+`packages/benchmark/src/instrumentation.ts` parses these strings; if the
+string format changes, the parser asserts on an unknown-mismatch-kind and
+fails the calibration run loudly rather than silently.
+
+**Falsifiability.** Binary, well-specified. The H1 falsifier is the upper
+bound of the Clopper-Pearson 95% CI: if it sits below 0.01 with K ≥ 460, H1
+is rejected at the pre-registered level.
+
+**AP-5 negative falsifier — injection harness (Curie A3).**
+A 0-fire result is ONLY meaningful if the instrumentation can actually detect
+mismatch events. The negative falsifier is a synthetic injection round-trip:
+1. `packages/benchmark/calibration/__tests__/instrumentation-injection.test.ts`
+   — unit test that constructs synthetic `state.errors` with known-good and
+   known-bad mismatch strings, calls `extractMismatchEvents`, and asserts
+   exact event counts. Runs in CI on every commit; a failure here means the
+   prefix in `instrumentation.ts` has drifted from the handler emitter.
+2. `packages/benchmark/calibration/mismatch-fire-rate.ts:runPreflightInjectionCheck()`
+   — called as Step 0 in the CLI analysis script before any real dataset row
+   is consumed. If the injection round-trip returns 0 events, the analysis
+   aborts with a clear human-readable error; no decision is emitted and no
+   JSONL row is consumed. This ensures the K=460 study cannot accidentally
+   report "0 fires" when the upstream emitter has rotated formats.
 
 ---
 
@@ -402,6 +490,19 @@ percentile.
 ---
 
 ## Cross-cutting risks (revised)
+
+### Shannon: mismatch_kinds count-loss (deferred to Wave B+)
+
+`MismatchExtraction.distinctKinds` is a `ReadonlyArray<MismatchKind>` (deduped
+per run). Shannon flagged that this loses the per-kind fire count when a single
+run fires the same kind multiple times. The correct representation would be
+`Record<MismatchKind, number>`. This refactor is deferred: it requires changing
+the `PipelineKpis.mismatch_kinds` surface, the `CalibrationRun.mismatch_kinds`
+JSONL schema, and the per-kind CI computation in `analyze()`. It is NOT
+blocking Phase 4.3 data collection because the current dedup-per-run matches
+the pre-registered estimand (a run "fires" at most once per kind). File a
+Wave B+ task to migrate to the typed count before any per-kind rate is used
+for a Phase 4 deletion decision.
 
 ### Reflexivity (Curie A6, A8 / Popper AP-1, AP-3)
 

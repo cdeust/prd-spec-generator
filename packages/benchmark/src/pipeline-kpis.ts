@@ -40,6 +40,10 @@ import {
   type StepOutput,
 } from "@prd-gen/orchestration";
 import type { SectionType } from "@prd-gen/core";
+import {
+  extractMismatchEvents,
+  type MismatchKind,
+} from "./instrumentation.js";
 
 export interface PipelineKpiInput {
   readonly run_id: string;
@@ -70,6 +74,26 @@ export interface PipelineKpis {
   readonly distribution_pass_rate: number;
   readonly written_files_count: number;
   readonly safety_cap_hit: boolean;
+  /**
+   * source: Phase 4.3 (PHASE_4_PLAN.md §4.3) — non-invasive readout of
+   * `state.errors` for `[self_check] plan mismatch detected — mismatch_kind:*`
+   * diagnostics emitted by handleSelfCheckPhaseB (CHANGELOG [0.2.0] HIGH).
+   * Measurement-only: does not affect pipeline behaviour.
+   */
+  readonly mismatch_fired: boolean;
+  /** Distinct mismatch_kind values observed in this run (deduped). */
+  readonly mismatch_kinds: ReadonlyArray<MismatchKind>;
+  /**
+   * Count of Cortex `recall` invocations that returned zero hits during
+   * this run. Copied from `state.cortex_recall_empty_count`.
+   *
+   * source: shannon S-6 (Phase 3+4 cross-audit, 2026-04) — load-bearing
+   * quantity needed for recall-efficacy analysis; the state field was added
+   * in Wave A3 (packages/orchestration/src/types/state.ts). Surfaced on
+   * PipelineKpis so the benchmark runner can gate on it without post-hoc
+   * parsing. Gate constant: KPI_GATES.cortex_recall_empty_count_max.
+   */
+  readonly cortex_recall_empty_count: number;
 }
 
 /**
@@ -112,6 +136,51 @@ export function measurePipeline(input: PipelineKpiInput): PipelineKpis {
     (k) => k === "structural",
   ).length;
 
+  // Phase 4.3 measurement hook — read-only on state.errors, no effect
+  // on pipeline logic. Throws on unknown mismatch_kind to fail loudly
+  // if the handler emitter format drifts.
+  const mismatchExtraction = extractMismatchEvents(loop.state);
+
+  return buildKpis({
+    input,
+    loop,
+    cap,
+    wall_time_ms,
+    sectionKpis,
+    summaryKpis,
+    structural_error_count,
+    mismatchExtraction,
+  });
+}
+
+interface KpiAssemblyInput {
+  readonly input: PipelineKpiInput;
+  readonly loop: LoopOutcome;
+  readonly cap: number;
+  readonly wall_time_ms: number;
+  readonly sectionKpis: ReturnType<typeof extractSectionKpis>;
+  readonly summaryKpis: ReturnType<typeof parseSummaryKpis>;
+  readonly structural_error_count: number;
+  readonly mismatchExtraction: ReturnType<typeof extractMismatchEvents>;
+}
+
+/**
+ * Assemble the final `PipelineKpis` envelope from the components produced by
+ * `measurePipeline`. Extracted so that `measurePipeline` itself stays under
+ * the §4.2 50-line method cap; this helper is a pure mapping with no
+ * side-effects (Fowler 2018 Ch. 6, Extract Function).
+ */
+function buildKpis(args: KpiAssemblyInput): PipelineKpis {
+  const {
+    input,
+    loop,
+    cap,
+    wall_time_ms,
+    sectionKpis,
+    summaryKpis,
+    structural_error_count,
+    mismatchExtraction,
+  } = args;
   return {
     run_id: input.run_id,
     final_action_kind: loop.lastOutput?.action.kind ?? "failed",
@@ -133,6 +202,9 @@ export function measurePipeline(input: PipelineKpiInput): PipelineKpis {
     distribution_pass_rate: summaryKpis.distribution_pass_rate,
     written_files_count: loop.state.written_files.length,
     safety_cap_hit: loop.safety_cap_hit,
+    mismatch_fired: mismatchExtraction.fired,
+    mismatch_kinds: mismatchExtraction.distinctKinds,
+    cortex_recall_empty_count: loop.state.cortex_recall_empty_count,
   };
 }
 
@@ -340,6 +412,19 @@ export const KPI_GATES = {
    * a defect. No tuning required.
    */
   structural_error_count_max: 0,
+  /**
+   * source: provisional heuristic — to be calibrated in Phase 4.5.
+   *
+   * Rationale: a 9-section PRD run performs one Cortex recall per section in
+   * the retrieving→generating transition. An empty recall means that section
+   * was generated without memory context, degrading quality. A ceiling of 3
+   * (≈ 33% of sections) is the threshold beyond which absent recall context
+   * becomes the majority driver of generation quality, rather than the LLM's
+   * base knowledge alone. This is a conservative first gate; Phase 4.5 will
+   * replace it with the measured P95 from K ≥ 100 production-shaped runs.
+   * See also: packages/orchestration/src/types/state.ts cortex_recall_empty_count.
+   */
+  cortex_recall_empty_count_max: 3,
 } as const;
 
 export interface KpiGateReport {
@@ -387,6 +472,12 @@ export function evaluateGates(
     // uninformative; safety_cap_hit_allowed already fires on cap-hit.
     { metric: "mean_section_attempts_max", actual: kpis.mean_section_attempts, enabled: !kpis.safety_cap_hit },
     { metric: "structural_error_count_max", actual: kpis.structural_error_count, enabled: true },
+    // cortex_recall_empty_count_max: suspended on canned-dispatcher runs because
+    // the canned dispatcher never populates Cortex recall results, so the empty
+    // count equals the number of sections (11 on a full run). The gate is only
+    // meaningful when a real Cortex MCP is wired and recall may occasionally miss.
+    // source: provisional heuristic comment on cortex_recall_empty_count_max.
+    { metric: "cortex_recall_empty_count_max", actual: kpis.cortex_recall_empty_count, enabled: !is_canned_dispatcher },
   ];
 
   for (const g of numericGates) {
