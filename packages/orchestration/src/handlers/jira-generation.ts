@@ -77,6 +77,7 @@ export const handleJiraGeneration: StepHandler = ({ state, result }) => {
           attempt: 1,
           violation_count: 0,
           last_violations: [],
+          attempt_log: [],
           content: jiraMarkdown,
         },
       ],

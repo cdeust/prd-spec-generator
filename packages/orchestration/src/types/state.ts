@@ -60,6 +60,43 @@ export const SectionStatusSchema = z.object({
    * predating the wiring may be absent.
    */
   strategy_assignment: StrategyAssignmentSchema.optional(),
+  /**
+   * Per-attempt observation log. One entry per draft attempt, recording
+   * exactly which violations were fed into the prompt for that attempt.
+   *
+   * Invariant: attempt_log.length === section.attempt at any stable point
+   * (after each validateAndAdvance call). The log is written BEFORE the
+   * next draft action is emitted, so the benchmark extraction reads it
+   * synchronously rather than inferring from terminal state only.
+   *
+   * Field semantics:
+   *   attempt          — 1-indexed attempt number.
+   *   violations_fed   — the violation strings actually passed to the
+   *                      engineer subagent prompt for this attempt.
+   *                      Empty ([]) on attempt 1 (no prior violations exist).
+   *                      For attempt k≥2: the last_violations from the
+   *                      previous attempt — OR [] if the run is in the
+   *                      without_prior_violations ablation arm (D1.C).
+   *                      `violations_fed` is the OBSERVED value, not inferred
+   *                      from the arm; this closes the Curie A2 observability
+   *                      gap flagged in retry-observations.ts TODO(C1).
+   *
+   * Defaults to [] for backward compatibility with state snapshots predating
+   * Wave D1.B.
+   *
+   * source: Phase 4.2 ablation design (PHASE_4_PLAN.md §4.2) — per-attempt
+   * precision required for Schoenfeld N≈2,070 analysis (curie cross-audit
+   * A2: instrumentation must observe behavior, not infer it).
+   */
+  attempt_log: z
+    .array(
+      z.object({
+        attempt: z.number().int().positive(),
+        violations_fed: z.array(z.string()).readonly(),
+      }),
+    )
+    .readonly()
+    .default([]),
 });
 export type SectionStatus = z.infer<typeof SectionStatusSchema>;
 
@@ -213,6 +250,41 @@ export const PipelineStateSchema = z.object({
    * source: Phase 4 strategy-wiring (2026-04).
    */
   strategy_executions: z.array(ExecutionResultSchema).default([]),
+  /**
+   * Per-run retry policy injected by the composition root (mcp-server) before
+   * handing the state to the reducer. The reducer reads this field only —
+   * it never calls `getRetryArmForRun` or `getMaxAttemptsForRun` directly,
+   * preserving layer purity (§1.5 DIP / §2.2 layer rule: orchestration must
+   * not import from benchmark).
+   *
+   * Fields:
+   *   maxAttempts  — effective max attempts for this run (may differ from the
+   *                  baseline MAX_ATTEMPTS for calibration treatment runs).
+   *   arm          — ablation arm: "with_prior_violations" feeds last_violations
+   *                  to the retry prompt; "without_prior_violations" feeds [].
+   *
+   * Defaults to null (= use MAX_ATTEMPTS baseline, with_prior_violations arm)
+   * for backward compatibility. Wave D2 wires the composition root to populate
+   * this field using getRetryArmForRun + getMaxAttemptsForRun from the
+   * benchmark layer before starting the run.
+   *
+   * ADR (Wave D1.C, 2026-04-27): the seam is on the state object, not on a
+   * separate config argument, so that the runner's pure reducer signature
+   * (state → action) does not acquire a new parameter. State is the single
+   * authority for all reducer inputs. The composition root is the only site
+   * that calls benchmark-layer seams (§5.2 composition root pattern).
+   *
+   * source: Phase 4.2 ablation design (PHASE_4_PLAN.md §4.2).
+   * source: §1.5 DIP — high-level modules must not depend on low-level modules.
+   * source: §5.2 factory / composition root pattern.
+   */
+  retry_policy: z
+    .object({
+      maxAttempts: z.number().int().positive(),
+      arm: z.enum(["with_prior_violations", "without_prior_violations"]),
+    })
+    .nullable()
+    .default(null),
 })
   .refine((s) => s.errors.length === s.error_kinds.length, {
     message:

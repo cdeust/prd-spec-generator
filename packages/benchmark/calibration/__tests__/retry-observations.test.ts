@@ -59,16 +59,28 @@ function makeState(
     errors: [],
     error_kinds: [],
     written_files: [],
+    cortex_recall_empty_count: 0,
     verification_plan: null,
     strategy_executions: [],
+    retry_policy: null,
   };
 }
 
+/**
+ * Build a SectionStatus fixture. `attemptLog` is optional; when omitted the
+ * fixture has no attempt_log (simulating a state predating Wave D1.B). When
+ * provided, each entry records violations_fed for that attempt — this is what
+ * extractSectionObservations reads for prior_violations_count and
+ * prior_violations_used.
+ *
+ * source: Wave D1.B — attempt_log field added to SectionStatus.
+ */
 function makeSection(
   sectionType: PipelineState["sections"][number]["section_type"],
   attempt: number,
   status: PipelineState["sections"][number]["status"],
   lastViolations: string[] = [],
+  attemptLog?: ReadonlyArray<{ attempt: number; violations_fed: ReadonlyArray<string> }>,
 ): PipelineState["sections"][number] {
   return {
     section_type: sectionType,
@@ -76,6 +88,7 @@ function makeSection(
     attempt,
     violation_count: lastViolations.length,
     last_violations: lastViolations,
+    attempt_log: attemptLog ?? [],
   };
 }
 
@@ -136,32 +149,46 @@ describe("extractRetryObservations — ground-truth preservation", () => {
   });
 
   it("three-attempt failed section produces 3 observations with correct outcomes", () => {
+    // attempt_log records violations_fed per attempt (Wave D1.B):
+    //   attempt 1: [] (first draft, no prior violations)
+    //   attempt 2: 1 violation fed from attempt 1
+    //   attempt 3: 2 violations fed from attempt 2
     const state = makeState("run-max-attempts", [
-      makeSection("goals", 3, "failed", ["[HOR-2] missing bullet", "[HOR-3] wrong format"]),
+      makeSection(
+        "goals",
+        3,
+        "failed",
+        ["[HOR-2] missing bullet", "[HOR-3] wrong format"],
+        [
+          { attempt: 1, violations_fed: [] },
+          { attempt: 2, violations_fed: ["[HOR-1] earlier violation"] },
+          { attempt: 3, violations_fed: ["[HOR-2] missing bullet", "[HOR-3] wrong format"] },
+        ],
+      ),
     ]);
 
     const obs = extractRetryObservations(state, "with_prior_violations");
 
     expect(obs.length).toBe(3);
 
-    // Attempt 1: no violations yet, pending retry.
+    // Attempt 1: no violations fed (first draft), pending retry.
     const a1 = obs.find((o) => o.attempt === 1)!;
     expect(a1.prior_violations_count).toBe(0);
     expect(a1.prior_violations_used).toBe(false);
     expect(a1.retry_outcome).toBe("failed_pending_retry");
 
-    // Attempt 2: violations from attempt 1 would be fed (but we only have
-    // the final last_violations; earlier ones are 0 per the GAP note).
+    // Attempt 2: 1 violation fed from attempt 1.
     const a2 = obs.find((o) => o.attempt === 2)!;
-    expect(a2.prior_violations_used).toBe(true); // with_prior_violations arm
+    expect(a2.prior_violations_count).toBe(1);
+    expect(a2.prior_violations_used).toBe(true);
     expect(["failed_pending_retry", "failed_terminal"]).toContain(
       a2.retry_outcome,
     );
 
-    // Attempt 3 (terminal): violations count from last_violations.
+    // Attempt 3 (terminal): 2 violations fed from attempt 2.
     const a3 = obs.find((o) => o.attempt === 3)!;
     expect(a3.retry_outcome).toBe("failed_terminal");
-    expect(a3.prior_violations_count).toBe(2); // last_violations.length
+    expect(a3.prior_violations_count).toBe(2);
     expect(a3.prior_violations_used).toBe(true);
   });
 
@@ -200,28 +227,58 @@ describe("extractRetryObservations — ground-truth preservation", () => {
 // ─── Test 3: AP-5 injection — ablation arm round-trip ────────────────────────
 
 describe("extractRetryObservations — AP-5 ablation arm round-trip", () => {
-  it("with_prior_violations arm: attempt≥2 has prior_violations_used=true", () => {
+  it("with_prior_violations arm: attempt 2 with violations_fed=[HOR-1] has prior_violations_used=true", () => {
+    // Wave D1.B: prior_violations_used is now a direct observation from
+    // attempt_log, not inferred from arm. Supply attempt_log with a non-empty
+    // violations_fed for attempt 2 to confirm the direct-observation path.
     const arm: RetryArm = "with_prior_violations";
     const state = makeState("run-ap5-with", [
-      makeSection("overview", 2, "passed", ["[HOR-1] violation"]),
+      makeSection(
+        "overview",
+        2,
+        "passed",
+        ["[HOR-1] violation"],
+        [
+          { attempt: 1, violations_fed: [] },
+          { attempt: 2, violations_fed: ["[HOR-1] violation"] },
+        ],
+      ),
     ]);
 
     const obs = extractRetryObservations(state, arm);
     const attempt2 = obs.find((o) => o.attempt === 2)!;
     expect(attempt2.arm).toBe("with_prior_violations");
+    // Direct observation: violations_fed=[HOR-1] → count=1 → used=true.
+    expect(attempt2.prior_violations_count).toBe(1);
     expect(attempt2.prior_violations_used).toBe(true);
   });
 
-  it("without_prior_violations arm: all attempts have prior_violations_used=false", () => {
+  it("without_prior_violations arm: all attempts have prior_violations_used=false when violations_fed=[]", () => {
+    // Wave D1.B: in the without_prior_violations arm, validateAndAdvance sets
+    // last_violations=[] and violations_fed=[] in the attempt_log. Extraction
+    // observes violations_fed.length=0 → prior_violations_used=false.
+    // This test verifies the extraction path using explicit attempt_log entries.
     const arm: RetryArm = "without_prior_violations";
     const state = makeState("run-ap5-without", [
-      makeSection("overview", 3, "failed", ["[HOR-1] violation"]),
+      makeSection(
+        "overview",
+        3,
+        "failed",
+        [],  // last_violations=[] because arm zeroed them
+        [
+          { attempt: 1, violations_fed: [] },
+          { attempt: 2, violations_fed: [] }, // arm zeroed violations
+          { attempt: 3, violations_fed: [] }, // arm zeroed violations
+        ],
+      ),
     ]);
 
     const obs = extractRetryObservations(state, arm);
     expect(obs.length).toBe(3);
     for (const o of obs) {
       expect(o.arm).toBe("without_prior_violations");
+      // Direct observation: violations_fed=[] → count=0 → used=false.
+      expect(o.prior_violations_count).toBe(0);
       expect(o.prior_violations_used).toBe(false);
     }
   });
