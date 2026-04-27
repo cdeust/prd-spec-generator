@@ -814,3 +814,119 @@ This plan was revised after a 10-agent cross-audit (Phase 3+4):
 | Code-reviewer | KPI gate constants need use-site source comments; defaultCraftResult duplicates smoke harness (extract to shared) |
 | Test-engineer | iteration_count off-by-one bug (fixed); existsSync gate silently skips; missing connect timeout |
 | DevOps | 6/10 packages have zero tests; mcp-server dist drift untracked; --workspace-concurrency=1 unnecessary in pnpm v8+ |
+
+---
+
+## §4.1 Open design decision — calibration scope (Fermi cross-audit)
+
+**Status: UNDECIDED. This decision must be made before any annotation work begins.**
+
+**Context.** The 33-cell × 2-arm design (11 claim_types × 3 judge kinds ×
+{sensitivity, specificity}) requires N=292/arm observations per cell to detect
+|Δ|≥0.10 at power=0.80 (Laplace L4; docs/PHASE_4_PLAN.md §4.1 PRE-REGISTRATION).
+Total observations needed: 292 × 33 × 2 = 19,272 claims. At 5 observations/cell/run
+(1 run/day), each cell requires 292/5 ≈ 58.4 runs. Total calibration runs: 58.4 ×
+66 cells = 3,858 runs. At 1 run/day → 10.6 years. Even at 1 run/hr: 161 days.
+This is not a code bug; it is a methodological consequence of the cell design.
+
+---
+
+### Option 1 — Parallel annotator pool
+
+Hire K parallel annotator pairs to compress the timeline.
+
+**Math.** To complete 3,890 runs in 90 days at 1 run/pair/day: K = ceil(3,890 / 90)
+= 44 annotator pairs = 88 humans. Each claim requires ~1.07 hrs of annotation
+(dual-annotator × consensus → 1.07 hr at 2×30 min/claim + 7 min for third-reviewer
+adjudication). Total claims: 292/arm × 2 arms × 33 cells = 19,272. Cost:
+$25/hr × 1.07 hr/claim × 19,272 claims ≈ $515K.
+
+| Dimension | Value |
+|---|---|
+| Annotator-hour budget | ~20,621 hours |
+| Wall-clock (low / high) | 90 days / 180 days |
+| Statistical guarantee | |Δ|≥0.10 at power=0.80; full per-cell calibration |
+| Effect size detectable | 0.10 |
+| Falsifier sensitivity | full — all 66 cell-arms calibrated |
+| Code/spec changes | none — existing implementation supports this |
+| Risk | $500K+ commitment before v1 ships; annotator coordination overhead |
+
+---
+
+### Option 2 — Hierarchical pooling (multilevel model, claim_type as random effect)
+
+Estimate per-judge sensitivity/specificity with claim_type as a partial-pooling
+random effect (multilevel / mixed-effects Beta-Binomial). Reduces effective N
+from 292/cell to ~292/judge ≈ 9× fewer observations.
+
+**Math.** 3 judge kinds × 292/judge = 876 observations total (not 19,272).
+At 5 obs/run: 876/5 = 176 runs → 176 days at 1 run/day, or 6 months.
+At 2 runs/day: 88 days. Annotator cost: ~$25/hr × 1.07 hr/claim × 876 claims ≈ $23K.
+
+| Dimension | Value |
+|---|---|
+| Annotator-hour budget | ~937 hours |
+| Wall-clock (low / high) | 3 months / 6 months |
+| Statistical guarantee | |Δ|≥0.10 at the per-judge level; claim_type effect is pooled |
+| Effect size detectable | 0.10 at judge level; claim_type-level effects partially pooled |
+| Falsifier sensitivity | reduced — claim_type deviations partially pooled toward judge mean |
+| Code/spec changes | replace `splitSensitivitySpecificity` with hierarchical model (Stan or scipy); new `reliability.ts` math layer |
+| Risk | Statistical complexity; assumes claim_type random effects are well-behaved (no prior evidence); hierarchical model requires separate pre-registration |
+
+---
+
+### Option 3 — Lowered v1 N target (N=80/cell)
+
+Ship v1 with N=80/arm/cell (the originally-stated target before the Fermi
+power correction). This detects |Δ|≥0.20 at power=0.80 (not 0.10).
+
+**Math.** 80 × 66 cells = 5,280 observations. At 5 obs/run: 1,056 runs.
+At 1 run/day: ~2.9 years. At 5 runs/day: 211 days. At 10 runs/day: 106 days.
+Annotator cost: $25/hr × 1.07 hr/claim × 5,280 claims ≈ $141K at 1 annotator pair;
+roughly $28K at an achievable 95-hr/week pace (a 6-month sprint).
+
+| Dimension | Value |
+|---|---|
+| Annotator-hour budget | ~5,650 hours |
+| Wall-clock (low / high) | 6 months / 12 months |
+| Statistical guarantee | |Δ|≥0.20 at power=0.80 per cell |
+| Effect size detectable | 0.20 (weaker than target; misses small reliability shifts) |
+| Falsifier sensitivity | low — the falsifier detects large reliability failures only |
+| Code/spec changes | update N_TARGET constant in pre-registration; update PHASE_4_PLAN.md stopping rule |
+| Risk | Weaker statistical claims; if true reliability shift is 0.10, v1 will not detect it; must be communicated to stakeholders |
+
+---
+
+### Option 4 — Subset-of-judges first (calibrate top 1-2 judges in v1)
+
+Calibrate only the 1-2 most-frequently-dispatched judges in v1. Defer remaining
+judges to v2.
+
+**Math.** 1 judge × 33 cells × 2 arms × 292/arm = 19,272 → same per-judge cost
+as Option 1 for 1 judge. But if we use N=80 (Option 3 targeting): 1 judge ×
+33 × 2 × 80 = 5,280. At 5 obs/run: 1,056 runs → same as Option 3 but scoped
+to 1 judge. Annotator cost (N=80, 1 judge): ~$141K. For top-2 judges: ~$282K.
+
+| Dimension | Value |
+|---|---|
+| Annotator-hour budget | ~5,650 hrs (1 judge) / ~11,300 hrs (2 judges) at N=80 |
+| Wall-clock (low / high) | 6 months / 18 months for 1-2 judges |
+| Statistical guarantee | full per-cell for selected judges; uncalibrated for remainder |
+| Effect size detectable | 0.10 (if N=292) or 0.20 (if N=80) for selected judges |
+| Falsifier sensitivity | partial — only selected judges contribute to falsifier |
+| Code/spec changes | add judge-dispatch-frequency telemetry to select top judges; add fallback policy (use prior) for uncalibrated judges in consensus.ts |
+| Risk | Incomplete consensus weighting; requires defining fallback for uncalibrated judges; which judges are "top-dispatched" may change as dispatch patterns shift |
+
+---
+
+### Decision rule
+
+**Default if no decision is made before annotation work begins: Option 3 (N=80/cell,
+|Δ|≥0.20 detection threshold) for v1, with Option 2 (hierarchical pooling) tracked
+as a v2 upgrade path once v1 data is collected.**
+
+**This decision must be made before any annotation work begins. Proceeding without
+a decision wastes annotation budget and may void the pre-registration.**
+
+Source: Fermi cross-audit A1; docs/PHASE_4_PLAN.md §4.1 PRE-REGISTRATION;
+Laplace L4 (N=292 derivation); M4 residual (paired-bootstrap implementation site).
