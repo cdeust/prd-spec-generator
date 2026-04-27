@@ -117,3 +117,6 @@ export {
   SqliteReliabilityRepository,
   tryCreateReliabilityRepository,
 } from "./persistence/sqlite-reliability-repository.js";
+
+// Consensus reliability port — core declares, benchmark implements, verification consumes.
+export type { ConsensusReliabilityProvider } from "./persistence/consensus-reliability-provider.js";
