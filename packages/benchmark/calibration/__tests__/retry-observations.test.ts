@@ -24,7 +24,7 @@ import {
   appendRetryObservationLog,
   type RetryAttemptObservation,
   type RetryArm,
-} from "../calibration/retry-observations.js";
+} from "../retry-observations.js";
 import type { PipelineState } from "@prd-gen/orchestration";
 
 // ─── Fixture helpers ──────────────────────────────────────────────────────────

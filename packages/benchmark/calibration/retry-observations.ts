@@ -18,8 +18,7 @@
 
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { SectionType } from "@prd-gen/core";
-import type { PipelineState, SectionStatus } from "@prd-gen/orchestration";
+import type { SectionType, PipelineState, SectionStatus } from "@prd-gen/orchestration";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

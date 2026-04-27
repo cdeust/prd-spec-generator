@@ -8,9 +8,9 @@
  *      round-trip: invokeOracle dispatches to ORACLE_REGISTRY correctly.
  *   4. The ORACLE_REGISTRY is exhaustive — all 4 ExternalGroundingType values
  *      are present.
- *   5. calibration-seams.ts HeldoutPartitionLockSchema v2 validates correct
+ *   5. calibration-seams.ts ReliabilityHeldoutLockSchema v2 validates correct
  *      lock objects and rejects objects where grounding totals are inconsistent.
- *   6. verifyHeldoutPartitionSeal throws for a missing file, for bad JSON, and
+ *   6. verifyReliabilityHeldoutSeal throws for a missing file, for bad JSON, and
  *      for a schema-invalid lock.
  *   7. fnv1a32 is deterministic; assignPartition produces stable assignments.
  *
@@ -40,14 +40,14 @@ import {
   type ExternalGroundingType,
   type ExternalOracle,
   type OracleClaimInput,
-} from "../calibration/external-oracle.js";
+} from "../external-oracle.js";
 import {
   fnv1a32,
   assignPartition,
-  verifyHeldoutPartitionSeal,
-  HeldoutPartitionLockSchema,
-  HELDOUT_PARTITION_LOCK_SCHEMA_VERSION,
-} from "../calibration/calibration-seams.js";
+  verifyReliabilityHeldoutSeal,
+  ReliabilityHeldoutLockSchema,
+  RELIABILITY_HELDOUT_LOCK_SCHEMA_VERSION,
+} from "../calibration-seams.js";
 
 // ─── Test 1: all 4 stubs throw EXTERNAL_ORACLE_NOT_YET_IMPLEMENTED ───────────
 
@@ -157,12 +157,12 @@ describe("ORACLE_REGISTRY exhaustiveness", () => {
   });
 });
 
-// ─── Test 5: HeldoutPartitionLockSchema v2 ────────────────────────────────────
+// ─── Test 5: ReliabilityHeldoutLockSchema v2 ────────────────────────────────────
 
-describe("HeldoutPartitionLockSchema (v2)", () => {
+describe("ReliabilityHeldoutLockSchema (v2)", () => {
   it("accepts a valid v2 lock object", () => {
     const valid = {
-      schema_version: HELDOUT_PARTITION_LOCK_SCHEMA_VERSION,
+      schema_version: RELIABILITY_HELDOUT_LOCK_SCHEMA_VERSION,
       seed: "pre-registered-seed-2026-04-27",
       partition_size: 50,
       sealed_at: "2026-04-27T00:00:00.000Z",
@@ -177,13 +177,13 @@ describe("HeldoutPartitionLockSchema (v2)", () => {
       claim_set_hash: "abc123def456",
     };
 
-    const result = HeldoutPartitionLockSchema.safeParse(valid);
+    const result = ReliabilityHeldoutLockSchema.safeParse(valid);
     expect(result.success).toBe(true);
   });
 
   it("rejects a lock where breakdown sum does not equal external_grounding_total", () => {
     const invalid = {
-      schema_version: HELDOUT_PARTITION_LOCK_SCHEMA_VERSION,
+      schema_version: RELIABILITY_HELDOUT_LOCK_SCHEMA_VERSION,
       seed: "seed",
       partition_size: 50,
       sealed_at: "2026-04-27T00:00:00.000Z",
@@ -199,13 +199,13 @@ describe("HeldoutPartitionLockSchema (v2)", () => {
       claim_set_hash: "abc",
     };
 
-    const result = HeldoutPartitionLockSchema.safeParse(invalid);
+    const result = ReliabilityHeldoutLockSchema.safeParse(invalid);
     expect(result.success).toBe(false);
   });
 
   it("rejects a lock where external_grounding_total does not equal partition_size", () => {
     const invalid = {
-      schema_version: HELDOUT_PARTITION_LOCK_SCHEMA_VERSION,
+      schema_version: RELIABILITY_HELDOUT_LOCK_SCHEMA_VERSION,
       seed: "seed",
       partition_size: 50,
       sealed_at: "2026-04-27T00:00:00.000Z",
@@ -221,7 +221,7 @@ describe("HeldoutPartitionLockSchema (v2)", () => {
       claim_set_hash: "abc",
     };
 
-    const result = HeldoutPartitionLockSchema.safeParse(invalid);
+    const result = ReliabilityHeldoutLockSchema.safeParse(invalid);
     expect(result.success).toBe(false);
   });
 
@@ -239,13 +239,13 @@ describe("HeldoutPartitionLockSchema (v2)", () => {
       claim_set_hash: "abc",
     };
 
-    const result = HeldoutPartitionLockSchema.safeParse(invalid);
+    const result = ReliabilityHeldoutLockSchema.safeParse(invalid);
     expect(result.success).toBe(false);
   });
 
   it("rejects a lock missing external_grounding_breakdown", () => {
     const invalid = {
-      schema_version: HELDOUT_PARTITION_LOCK_SCHEMA_VERSION,
+      schema_version: RELIABILITY_HELDOUT_LOCK_SCHEMA_VERSION,
       seed: "seed",
       partition_size: 50,
       sealed_at: "2026-04-27T00:00:00.000Z",
@@ -255,14 +255,14 @@ describe("HeldoutPartitionLockSchema (v2)", () => {
       claim_set_hash: "abc",
     };
 
-    const result = HeldoutPartitionLockSchema.safeParse(invalid);
+    const result = ReliabilityHeldoutLockSchema.safeParse(invalid);
     expect(result.success).toBe(false);
   });
 });
 
-// ─── Test 6: verifyHeldoutPartitionSeal ──────────────────────────────────────
+// ─── Test 6: verifyReliabilityHeldoutSeal ──────────────────────────────────────
 
-describe("verifyHeldoutPartitionSeal", () => {
+describe("verifyReliabilityHeldoutSeal", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -278,7 +278,7 @@ describe("verifyHeldoutPartitionSeal", () => {
 
   it("throws for a missing file", () => {
     const missingPath = join(tmpDir, "does-not-exist.json");
-    expect(() => verifyHeldoutPartitionSeal(missingPath)).toThrow(
+    expect(() => verifyReliabilityHeldoutSeal(missingPath)).toThrow(
       /lock file not found/,
     );
   });
@@ -286,7 +286,7 @@ describe("verifyHeldoutPartitionSeal", () => {
   it("throws for invalid JSON", () => {
     const badPath = join(tmpDir, "bad.json");
     writeFileSync(badPath, "{ not valid json", "utf-8");
-    expect(() => verifyHeldoutPartitionSeal(badPath)).toThrow(
+    expect(() => verifyReliabilityHeldoutSeal(badPath)).toThrow(
       /failed to parse lock file/,
     );
   });
@@ -298,7 +298,7 @@ describe("verifyHeldoutPartitionSeal", () => {
       JSON.stringify({ schema_version: 2, seed: "s" }),
       "utf-8",
     );
-    expect(() => verifyHeldoutPartitionSeal(badPath)).toThrow(
+    expect(() => verifyReliabilityHeldoutSeal(badPath)).toThrow(
       /failed schema validation/,
     );
   });
@@ -306,7 +306,7 @@ describe("verifyHeldoutPartitionSeal", () => {
   it("returns the parsed lock for a valid v2 file", () => {
     const validPath = join(tmpDir, "valid.json");
     const lock = {
-      schema_version: HELDOUT_PARTITION_LOCK_SCHEMA_VERSION,
+      schema_version: RELIABILITY_HELDOUT_LOCK_SCHEMA_VERSION,
       seed: "test-seed-2026-04-27",
       partition_size: 20,
       sealed_at: "2026-04-27T00:00:00.000Z",
@@ -318,7 +318,7 @@ describe("verifyHeldoutPartitionSeal", () => {
       claim_set_hash: "deadbeef",
     };
     writeFileSync(validPath, JSON.stringify(lock), "utf-8");
-    const result = verifyHeldoutPartitionSeal(validPath);
+    const result = verifyReliabilityHeldoutSeal(validPath);
     expect(result.seed).toBe("test-seed-2026-04-27");
     expect(result.partition_size).toBe(20);
   });

@@ -1,3 +1,8 @@
+// Re-export core domain types consumed by the benchmark layer.
+// The benchmark must depend on orchestration, not directly on core (§2.2).
+// source: B3 layer-compliance fix — Wave C integration.
+export { type SectionType, SectionTypeSchema } from "@prd-gen/core";
+
 // Types
 export {
   PipelineStepSchema,
