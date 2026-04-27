@@ -20,7 +20,15 @@
  *     is non-empty; sum = 0 (empty distribution) when verdicts is empty.
  */
 
-import type { Verdict, JudgeVerdict, AgentIdentity } from "@prd-gen/core";
+import type {
+  Verdict,
+  JudgeVerdict,
+  AgentIdentity,
+  JudgeReliabilityRecord,
+  VerdictDirection,
+  ConsensusReliabilityProvider,
+} from "@prd-gen/core";
+import { DEFAULT_RELIABILITY_PRIOR } from "@prd-gen/core";
 
 // Verdict severity for ordering — higher = more concerning.
 const VERDICT_SEVERITY: Record<Verdict, number> = {
@@ -65,14 +73,95 @@ export interface ConsensusVerdict {
  */
 export type ConsensusStrategy = "weighted_average" | "bayesian";
 
+/**
+ * Reliability lookup callback — injected by the composition root.
+ *
+ * Layer contract (§2.2): verification cannot import @prd-gen/benchmark.
+ * `getReliabilityForRun` (the CC-3 control-arm seam) lives in benchmark.
+ * The composition root (mcp-server) wires this callback to:
+ *   `(judge, claimType, direction) =>
+ *      getReliabilityForRun(runId, judge, claimType, direction, repository)`
+ *
+ * This keeps the control-arm logic (and the benchmark import) entirely outside
+ * the verification layer. Verification receives only the resolved value —
+ * null (control arm or no data → use prior) or a JudgeReliabilityRecord.
+ *
+ * Precondition: callback is pure (no side effects, idempotent for the same
+ *   triple on a given run). Postcondition: returns null → caller falls back
+ *   to DEFAULT_RELIABILITY_PRIOR (Beta(7,3) mean = 0.7).
+ *
+ * source: §2.2 (dependency rule); CC-3 / B-Popper-1 (control-arm seam).
+ */
+export type ReliabilityLookup = (
+  judge: AgentIdentity,
+  claimType: string,
+  direction: VerdictDirection,
+) => JudgeReliabilityRecord | null;
+
 export interface ConsensusConfig {
   readonly strategy?: ConsensusStrategy;
   /**
-   * Reliability priors per agent — Bayesian only.
+   * Reliability priors per agent — Bayesian only. Kept for backward compatibility
+   * with callers that inject a static map (e.g. tests, CLI tools). When
+   * `reliabilityLookup` is also provided, `reliabilityLookup` takes precedence
+   * for each judge whose lookup returns non-null.
    * source: chosen heuristically (uniform weak prior); calibrate per-agent
    * once we have JudgeVerdict history with ground-truth comparison.
    */
   readonly reliability?: ReadonlyMap<string, number>;
+  /**
+   * Calibrated per-judge reliability lookup (Phase 4.1, Wave D2).
+   *
+   * When provided, the Bayesian strategy calls this for each (judge, claimType,
+   * direction) triple. A non-null return overrides any value in `reliability`;
+   * null falls back to `reliability` map, then to DEFAULT_RELIABILITY_PRIOR (Beta(7,3) mean = 0.7).
+   *
+   * MUST be provided by the composition root for calibrated production use.
+   * When absent, the engine behaves exactly as before (scalar prior only).
+   *
+   * source: docs/PHASE_4_PLAN.md §4.1; CC-3 / B-Popper-1.
+   */
+  readonly reliabilityLookup?: ReliabilityLookup;
+  /**
+   * Pipeline run identifier — required when `reliabilityLookup` or
+   * `reliabilityProvider` is provided.
+   * Passed to reliabilityProvider.getReliabilityForRun so the CC-3 control-arm
+   * seam can partition by run_id. For reliabilityLookup callers, run_id is
+   * baked into the callback closure; this field is kept for audit / logging.
+   *
+   * source: CC-3 — run_id partitioning for ε-greedy exploration.
+   */
+  readonly runId?: string;
+  /**
+   * Calibrated per-judge reliability provider (Phase 4.1, Wave D2).
+   *
+   * When provided, the Bayesian strategy calls
+   * `reliabilityProvider.getReliabilityForRun(runId, judge, claimType, direction)`
+   * for each judge. A non-null return uses the posteriorMean (alpha/(alpha+beta))
+   * as the reliability weight. Null falls back to `reliabilityLookup`,
+   * then `reliability` map, then the prior mean from DEFAULT_RELIABILITY_PRIOR.
+   *
+   * Preferred wiring for production callers using the ConsensusReliabilityProvider
+   * port. `reliabilityLookup` is kept for backward compatibility with callers
+   * that bind runId into a closure.
+   *
+   * Requires `runId` to be set for the CC-3 control arm to partition by run.
+   * When `runId` is absent, this provider is not called.
+   *
+   * Backward-compat: when absent, all weights fall back to the prior (identical
+   * to pre-Wave-D behaviour regardless of reliabilityLookup state).
+   *
+   * source: docs/PHASE_4_PLAN.md §4.1; Wave D2 — ConsensusReliabilityProvider port.
+   */
+  readonly reliabilityProvider?: ConsensusReliabilityProvider;
+  /**
+   * The claim_type of verdicts being aggregated — required for per-cell
+   * reliability lookup. When absent, the lookup cannot be called (falls back
+   * to scalar prior). The orchestrator sets this per claim batch.
+   *
+   * source: docs/PHASE_4_PLAN.md §4.1 — per-(agent, claim_type) Beta cell.
+   */
+  readonly claimType?: string;
   /**
    * If at least this fraction of weight votes a "FAIL" verdict, force FAIL.
    * source: precautionary principle — a 50% confidence-weighted minority
@@ -83,25 +172,13 @@ export interface ConsensusConfig {
   readonly fail_threshold?: number;
 }
 
-const DEFAULT_CONFIG: Required<Omit<ConsensusConfig, "reliability">> = {
+const DEFAULT_CONFIG: Required<
+  Omit<ConsensusConfig, "reliability" | "reliabilityLookup" | "reliabilityProvider" | "runId" | "claimType">
+> = {
   strategy: "weighted_average",
   // source: see ConsensusConfig.fail_threshold doc-comment.
   fail_threshold: 0.5,
 };
-
-/**
- * Default per-agent reliability prior used by the Bayesian strategy.
- *
- * source: provisional heuristic — Beta(7,3) (mean 0.7, effective sample
- * size 10, moderately informative toward reliability). The previous
- * doc-comment described this as a "uniform weak prior," which is
- * incorrect: a uniform prior would be 0.5; ESS=10 is informative, not
- * weak. Phase 4.1 (docs/PHASE_4_PLAN.md §4.1) will replace this with
- * per-agent Beta(α+correct, β+incorrect) calibrated from history.
- *
- * Bound: must lie in [0, 1] — `clampUnit` enforces at every use site.
- */
-const DEFAULT_RELIABILITY_PRIOR_MEAN = 0.7;
 
 /**
  * Clamp a probability-typed value to [0, 1]. Used as a defensive guard
@@ -218,6 +295,91 @@ function weightedAverage(
  */
 const NO_INFORMATION_FLOOR = 0.2;
 
+/**
+ * Determine the VerdictDirection arm to read from the reliability repository
+ * for a given judge verdict.
+ *
+ * When ground truth is unknown (consensus-majority context), we use the judge's
+ * reported verdict to select the arm:
+ *   - PASS-class (PASS, SPEC-COMPLETE) → specificity_arm
+ *     (tracks P(judge says PASS | ground truth is PASS))
+ *   - FAIL-class (FAIL, NEEDS-RUNTIME, INCONCLUSIVE) → sensitivity_arm
+ *     (tracks P(judge says FAIL | ground truth is FAIL))
+ *
+ * This is an annotator-circularity approximation: we do not know ground truth,
+ * so we use the verdict itself as a proxy. Phase 4.1 external-grounding (Wave E)
+ * will break this circularity by providing oracle verdicts as ground truth.
+ *
+ * source: docs/PHASE_4_PLAN.md §4.1 — "verdict_direction from judge_verdict
+ * when ground truth is unknown; annotator-circularity documented."
+ */
+function verdictToDirection(verdict: Verdict): VerdictDirection {
+  if (verdict === "PASS" || verdict === "SPEC-COMPLETE") {
+    return "specificity_arm";
+  }
+  return "sensitivity_arm";
+}
+
+/**
+ * Resolve per-judge reliability for Bayesian weighting.
+ *
+ * Precondition: judge is a valid AgentIdentity; claimType and direction are
+ *   valid strings matching their respective domain types.
+ * Postcondition: returns a value in [0, 1] clamped to unit interval.
+ *   Priority order:
+ *     1. reliabilityProvider.getReliabilityForRun(runId, judge, claimType, direction)
+ *        → posteriorMean if non-null and runId + claimType are present
+ *     2. reliabilityLookup(judge, claimType, direction) → posteriorMean if non-null
+ *     3. reliabilityMap.get(agentKey(judge)) if present
+ *     4. DEFAULT_RELIABILITY_PRIOR mean = alpha/(alpha+beta) (scalar fallback)
+ *
+ * source: docs/PHASE_4_PLAN.md §4.1; CC-3 control-arm seam; Wave D2.
+ */
+function resolveReliability(
+  judge: AgentIdentity,
+  runId: string | undefined,
+  claimType: string | undefined,
+  direction: VerdictDirection,
+  reliabilityProvider: ConsensusReliabilityProvider | undefined,
+  reliabilityLookup: ReliabilityLookup | undefined,
+  reliabilityMap: ReadonlyMap<string, number>,
+): number {
+  // 1. ConsensusReliabilityProvider (highest priority — named interface, Wave D2).
+  //    Requires both runId and claimType to call; otherwise falls through.
+  //    posteriorMean = alpha / (alpha + beta).
+  //    source: Gelman et al. (2013) §2.4, eqn 2.13.
+  if (reliabilityProvider !== undefined && runId !== undefined && claimType !== undefined) {
+    // Type assertion: ConsensusConfig.claimType is `string` to avoid importing
+    // the Claim enum into ConsensusConfig (keep types simple). The orchestrator
+    // always passes a valid Claim["claim_type"] value. If an invalid string is
+    // passed, getReliabilityForRun returns null and we fall through to the prior.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const record = reliabilityProvider.getReliabilityForRun(runId, judge, claimType as any, direction);
+    if (record !== null) {
+      return clampUnit(record.alpha / (record.alpha + record.beta));
+    }
+  }
+  // 2. Closure-based lookup (Wave D1 / backward-compat — runId baked into closure).
+  if (reliabilityLookup !== undefined && claimType !== undefined) {
+    const record = reliabilityLookup(judge, claimType, direction);
+    if (record !== null) {
+      // posteriorMean = alpha / (alpha + beta); inlined to avoid importing
+      // @prd-gen/benchmark into the verification layer (§2.2 layer rule).
+      return clampUnit(record.alpha / (record.alpha + record.beta));
+    }
+  }
+  // 3. Static map (backward-compat for tests and CLI callers).
+  const key = agentKey(judge);
+  const mapped = reliabilityMap.get(key);
+  if (mapped !== undefined) {
+    return clampUnit(mapped);
+  }
+  // 4. Prior mean fallback (control arm or cold start).
+  //    Computed from DEFAULT_RELIABILITY_PRIOR (single source of truth in core).
+  //    source: DEFAULT_RELIABILITY_PRIOR = Beta(7,3); mean = 7/10 = 0.7.
+  return DEFAULT_RELIABILITY_PRIOR.alpha / (DEFAULT_RELIABILITY_PRIOR.alpha + DEFAULT_RELIABILITY_PRIOR.beta);
+}
+
 function bayesian(
   claim_id: string,
   verdicts: readonly JudgeVerdict[],
@@ -228,9 +390,19 @@ function bayesian(
   const reliabilityMap = config.reliability ?? new Map<string, number>();
 
   for (const v of verdicts) {
-    const key = agentKey(v.judge);
-    const rawReliability =
-      reliabilityMap.get(key) ?? DEFAULT_RELIABILITY_PRIOR_MEAN;
+    // Determine which reliability arm to consult based on the judge's verdict.
+    // When ground truth is unknown, the judge's own verdict is used as a proxy.
+    // This is the annotator-circularity path; Wave E external oracles will break it.
+    const direction = verdictToDirection(v.verdict);
+    const rawReliability = resolveReliability(
+      v.judge,
+      config.runId,
+      config.claimType,
+      direction,
+      config.reliabilityProvider,
+      config.reliabilityLookup,
+      reliabilityMap,
+    );
     // Both factors must lie in [0,1] to keep adjustedReliability in [0,1].
     // Without clamping, an out-of-band reliability (caller-supplied map)
     // or confidence (upstream bug) would produce negative likelihoods in

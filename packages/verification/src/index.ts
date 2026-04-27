@@ -19,6 +19,7 @@ export {
   type ConsensusVerdict,
   type ConsensusStrategy,
   type ConsensusConfig,
+  type ReliabilityLookup,
 } from "./consensus.js";
 
 // Orchestrator
@@ -30,6 +31,9 @@ export {
   type VerificationPlan,
   type VerificationReport,
   type PlanOptions,
+  type ConcludeOptions,
+  type ClaimObservationFlushed,
+  type ObservationFlusher,
 } from "./orchestrator.js";
 
 // Judge prompt construction
