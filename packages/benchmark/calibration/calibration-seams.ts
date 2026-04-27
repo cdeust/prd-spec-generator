@@ -21,9 +21,105 @@
  * source: docs/PHASE_4_PLAN.md §CC-3, §4.1.
  */
 
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import type { JudgeId, JudgeObservation } from "./observations.js";
+
+// ─── Held-out partition seal (M2 / Popper AP-5) ──────────────────────────────
+
+/**
+ * Lock-file schema for the held-out 20% evaluation partition.
+ *
+ * The lock file at `packages/benchmark/calibration/data/heldout-partition.lock.json`
+ * is the mechanical sealing artifact required by Phase 4.1 §4.1.
+ * It MUST be committed before any annotation work begins.
+ *
+ * source: docs/PHASE_4_PLAN.md §4.1 negative-falsifier procedure.
+ * source: M2 residual — B-Popper-AP5 (sealing has no mechanical enforcement).
+ */
+export interface HeldoutPartitionLock {
+  readonly schema_version: 1;
+  readonly rng_seed: number;
+  readonly partition_hash: string; // sha256 hex over sorted-newline-joined claim_ids
+  readonly partition_size: number;
+  readonly sealed_at: string; // ISO-8601 UTC
+}
+
+/**
+ * Verify the held-out partition seal before any evaluation run.
+ *
+ * MUST be called BEFORE any held-out evaluation (see docs/PHASE_4_PLAN.md §4.1
+ * implementation: `packages/benchmark/calibration/calibration-seams.ts::verifyHeldoutPartitionSeal`).
+ *
+ * Precondition: `observed_indices` is the list of claim_ids in the held-out
+ *   set being evaluated; `lockPath` points to the committed lock file.
+ * Postcondition: returns void when the partition hash matches the lock and the
+ *   lock is validly sealed.
+ * Throws:
+ *   - Error if the lock file is missing or unreadable.
+ *   - Error if `schema_version` is not 1.
+ *   - Error if `sealed_at` is in the future (clock drift guard).
+ *   - Error if the sha256 of the sorted claim_ids does not match `partition_hash`.
+ *
+ * source: docs/PHASE_4_PLAN.md §4.1 negative-falsifier sealing requirement.
+ * source: M2 residual — Popper AP-5 mechanical enforcement.
+ */
+export function verifyHeldoutPartitionSeal(
+  observed_indices: ReadonlyArray<string>,
+  lockPath: string,
+): void {
+  if (!existsSync(lockPath)) {
+    throw new Error(
+      `verifyHeldoutPartitionSeal: lock file missing at "${lockPath}". ` +
+        `The held-out partition must be sealed before any evaluation run. ` +
+        `See docs/PHASE_4_PLAN.md §4.1.`,
+    );
+  }
+
+  let lock: HeldoutPartitionLock;
+  try {
+    lock = JSON.parse(readFileSync(lockPath, "utf8")) as HeldoutPartitionLock;
+  } catch (err) {
+    throw new Error(
+      `verifyHeldoutPartitionSeal: failed to parse lock file at "${lockPath}": ${String(err)}`,
+    );
+  }
+
+  if (lock.schema_version !== 1) {
+    throw new Error(
+      `verifyHeldoutPartitionSeal: unrecognized schema_version=${lock.schema_version} in "${lockPath}". Expected 1.`,
+    );
+  }
+
+  // Guard: sealed_at must not be in the future (clock drift or pre-dated lock).
+  const sealedAt = new Date(lock.sealed_at).getTime();
+  if (Number.isNaN(sealedAt)) {
+    throw new Error(
+      `verifyHeldoutPartitionSeal: sealed_at="${lock.sealed_at}" is not a valid ISO-8601 timestamp.`,
+    );
+  }
+  if (sealedAt > Date.now()) {
+    throw new Error(
+      `verifyHeldoutPartitionSeal: sealed_at="${lock.sealed_at}" is in the future. ` +
+        `Lock files must be sealed at or before use.`,
+    );
+  }
+
+  // Compute sha256 over sorted, newline-joined claim_ids.
+  const sorted = [...observed_indices].sort();
+  const observed_hash = createHash("sha256")
+    .update(sorted.join("\n"))
+    .digest("hex");
+
+  if (observed_hash !== lock.partition_hash) {
+    throw new Error(
+      `verifyHeldoutPartitionSeal: partition hash mismatch. ` +
+        `Lock expects "${lock.partition_hash}" but observed indices hash to "${observed_hash}". ` +
+        `The held-out set has changed since sealing — this voids the falsifier (Popper AP-5).`,
+    );
+  }
+}
 
 // ─── Dropped-claims queue (C-Curie-A4) ───────────────────────────────────────
 

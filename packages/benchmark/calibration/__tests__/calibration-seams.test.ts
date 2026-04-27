@@ -1,5 +1,5 @@
 /**
- * Tests for calibration-seams.ts — B-Curie-4, B-Shannon-6, B-Popper-1.
+ * Tests for calibration-seams.ts — B-Curie-4, B-Shannon-6, B-Popper-1, M2.
  *
  * Split from observations.test.ts to keep both files under 500 lines
  * (coding-standards §4.1).
@@ -8,9 +8,16 @@
  *   B-Curie-4: AnnotatorView removes judge_verdict and judge_confidence.
  *   B-Shannon-6: JudgeId structured record round-trips losslessly.
  *   B-Popper-1: isControlArmRun deterministic; getReliabilityForRun seam.
+ *   M2 / Popper AP-5: verifyHeldoutPartitionSeal — lock-missing, hash-mismatch,
+ *     sealed_at-in-future, and hash-match-passes tests.
  */
 
 import { describe, it, expect } from "vitest";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   extractJudgeObservations,
   toAnnotatorView,
@@ -20,6 +27,7 @@ import {
   type JudgeId,
   type GoldenSet,
 } from "../observations.js";
+import { verifyHeldoutPartitionSeal } from "../calibration-seams.js";
 import type { JudgeVerdict } from "@prd-gen/core";
 
 function makeVerdict(overrides: Partial<JudgeVerdict> = {}): JudgeVerdict {
@@ -191,5 +199,100 @@ describe("isControlArmRun — B-Popper-1 CC-3 control arm", () => {
       fakeRepo,
     );
     expect(result).toBe(sentinel);
+  });
+});
+
+// ─── M2 / Popper AP-5: verifyHeldoutPartitionSeal ───────────────────────────
+
+/**
+ * Helper: build a valid HeldoutPartitionLock JSON string.
+ * `sealed_at` defaults to one second in the past (valid).
+ * `observed_indices` are the claim_ids that will be hashed.
+ */
+function makeLockJson(
+  observed_indices: string[],
+  overrides: Record<string, unknown> = {},
+): string {
+  const sorted = [...observed_indices].sort();
+  const partition_hash = createHash("sha256").update(sorted.join("\n")).digest("hex");
+  const lock = {
+    schema_version: 1,
+    rng_seed: 42,
+    partition_hash,
+    partition_size: observed_indices.length,
+    sealed_at: new Date(Date.now() - 1000).toISOString(),
+    ...overrides,
+  };
+  return JSON.stringify(lock);
+}
+
+function makeTmpDir(): string {
+  const dir = join(tmpdir(), `seal-test-${randomUUID()}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+describe("verifyHeldoutPartitionSeal — M2 / Popper AP-5", () => {
+  it("throws when lock file is missing", () => {
+    const lockPath = join(tmpdir(), `nonexistent-${randomUUID()}.lock.json`);
+    expect(() =>
+      verifyHeldoutPartitionSeal(["C1", "C2"], lockPath),
+    ).toThrow(/lock file missing/);
+  });
+
+  it("throws when partition_hash does not match observed indices", () => {
+    const dir = makeTmpDir();
+    const lockPath = join(dir, "lock.json");
+    // Lock is sealed for ["C1", "C2"] but we pass ["C1", "C3"].
+    writeFileSync(lockPath, makeLockJson(["C1", "C2"]), "utf8");
+
+    expect(() =>
+      verifyHeldoutPartitionSeal(["C1", "C3"], lockPath),
+    ).toThrow(/partition hash mismatch/);
+
+    rmSync(dir, { recursive: true });
+  });
+
+  it("passes silently when hash matches the lock", () => {
+    const dir = makeTmpDir();
+    const lockPath = join(dir, "lock.json");
+    const indices = ["C1", "C2", "C3"];
+    writeFileSync(lockPath, makeLockJson(indices), "utf8");
+
+    // Postcondition: no error thrown.
+    expect(() =>
+      verifyHeldoutPartitionSeal(indices, lockPath),
+    ).not.toThrow();
+
+    rmSync(dir, { recursive: true });
+  });
+
+  it("throws when sealed_at is in the future", () => {
+    const dir = makeTmpDir();
+    const lockPath = join(dir, "lock.json");
+    const indices = ["C1"];
+    writeFileSync(
+      lockPath,
+      makeLockJson(indices, { sealed_at: new Date(Date.now() + 60_000).toISOString() }),
+      "utf8",
+    );
+
+    expect(() =>
+      verifyHeldoutPartitionSeal(indices, lockPath),
+    ).toThrow(/in the future/);
+
+    rmSync(dir, { recursive: true });
+  });
+
+  it("passes silently for an empty observed_indices array when lock reflects empty set", () => {
+    const dir = makeTmpDir();
+    const lockPath = join(dir, "lock.json");
+    writeFileSync(lockPath, makeLockJson([]), "utf8");
+
+    expect(() =>
+      verifyHeldoutPartitionSeal([], lockPath),
+    ).not.toThrow();
+
+    rmSync(dir, { recursive: true });
   });
 });

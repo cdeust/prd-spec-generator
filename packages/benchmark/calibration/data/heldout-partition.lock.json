@@ -1,0 +1,16 @@
+{
+  "$schema": "heldout-partition-lock-schema-v1",
+  "schema_version": 1,
+  "_comment": "This file is the sealing artifact for the held-out 20% evaluation partition (Phase 4.1 §4.1). It must be committed. Fill fields below ONCE before any annotation work begins; never modify after sealing. See packages/benchmark/calibration/calibration-seams.ts::verifyHeldoutPartitionSeal for the enforcement function.",
+  "_fields": {
+    "rng_seed": "integer — the frozen RNG seed used to draw the partition (commit alongside annotation tooling)",
+    "partition_hash": "string — sha256 hex digest over sorted-newline-joined claim_ids in the held-out set",
+    "partition_size": "integer — count of claim_ids in the held-out set",
+    "sealed_at": "ISO-8601 UTC timestamp at which the partition was sealed",
+    "schema_version": 1
+  },
+  "rng_seed": null,
+  "partition_hash": null,
+  "partition_size": null,
+  "sealed_at": null
+}

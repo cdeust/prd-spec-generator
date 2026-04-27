@@ -318,6 +318,15 @@ Empty-DB / prior contract: `getReliability(judge, claimType, direction)` returns
   - The held-out 20% set is *sealed*: it does not feed any posterior
     update, no judge sees it during calibration, no human reviewer
     re-labels it during calibration tuning.
+  - **Mechanical sealing enforcement (M2)**: the partition is sealed by
+    writing `packages/benchmark/calibration/data/heldout-partition.lock.json`
+    (schema: `{ rng_seed, partition_hash, partition_size, sealed_at, schema_version: 1 }`).
+    `verifyHeldoutPartitionSeal(observed_indices, lockPath)` in
+    `packages/benchmark/calibration/calibration-seams.ts` MUST be called
+    BEFORE any held-out evaluation. It throws if the lock file is missing,
+    if the sha256 of the sorted claim_ids does not match `partition_hash`,
+    or if `sealed_at` is in the future. No evaluation may proceed without
+    this check passing.
   - After calibration, the calibrated reliability map is evaluated on
     the held-out set against the Beta(7,3) prior baseline using
     consensus accuracy as the metric.
