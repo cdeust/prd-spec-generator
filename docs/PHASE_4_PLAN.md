@@ -824,67 +824,266 @@ Without it, "improvement" is unmeasurable. Closed loops without holdout =
 
 ## 4.5 — KPI gate threshold tuning
 
-### PRE-REGISTRATION (mandatory before implementation)
+### PRE-REGISTRATION (mandatory before implementation) — REVISED for C3
 
-**Hypothesis.** H1: gate thresholds set at the upper bound of the 95% CI of
-P95 of K=100+ runs (a) do not trigger on ±5% normal variation and (b) do
-trigger on a +20% regression.
+**Status.** Methodology + scaffolding published in this revision (C3 deliverable,
+Wave C). Final threshold calibration is BLOCKED on 4.2 + 4.4 producing K≥100
+stable runs against a frozen baseline. No threshold value here may be promoted
+from "provisional heuristic" to "calibrated" until the calibration runs
+specified below complete.
 
-**Estimand.** Per-KPI per-machine-class P95.
+**Hypothesis (per gate, two-sided).**
+- H0: each gate's current provisional value equals the value derived from the
+  frozen-baseline distribution (per-gate estimand below) within ±5%.
+- H1: at least one gate's calibrated value departs from its provisional value
+  by more than ±5% (relative).
+- Per-gate H0/H1 specialisations are listed below in "Per-gate pre-registration
+  subsections".
+
+**Estimand (per gate).** EITHER (95th-percentile of the canned-baseline
+distribution) OR (3σ XmR upper control limit), chosen per gate based on
+whether the gate codifies a "P95 envelope" or a "process-stable mean ± noise".
+Each subsection below names which one.
 
 **Estimator.** Empirical P95 with Clopper-Pearson 95% CI on the order
-statistic. Gate placed at upper CI bound, NOT at point estimate (Fisher 4.5).
+statistic (gates of P95 type) OR XmR `computeLimits` over 12-batch baseline
+(gates of process-stable type). Source: `packages/benchmark/calibration/{clopper-pearson,xmr}.ts`.
 
-**Sample size.**
-- Fermi K5: K ≥ 100 minimum for stable P95.
-- Fisher Fi-4.5: K=20 produces a P95 estimate that is the 19th-order statistic
-  with very wide CI. K=100 brings CI half-width ≈ 5%.
-- For real-ecosystem at ~30s/run: K=100 = 50 minutes (manageable).
-- For mocked: K=100 = 0.5 seconds.
+**Sufficient statistic (per gate).** The K=100 vector of per-run KPI values,
+emitted to `packages/benchmark/calibration/data/kpi-gate-tuning.<bucket>.<run-batch>.jsonl`
+with one row per run, schema:
 
-**Frozen-baseline anchor (Popper AP-1).**
-- Run K=100 calibration runs against a tagged baseline version of the
-  pipeline. Record the full distribution per KPI per machine class.
-- Set initial gates at upper-CI-bound P95 of this frozen baseline.
-- Subsequent calibration MAY widen bands but MUST NOT move the anchor.
-  This prevents the threshold-ratchet failure mode where gradual regression
-  is calibrated as the new normal.
+```json
+{
+  "run_id": "string",
+  "machine_class": "m_series_high|m_series_mid|x86_intel|x86_amd|ci_runner",
+  "frozen_baseline_commit": "string (must match the merge-base hash)",
+  "kpis": "PipelineKpis (full object)",
+  "schema_version": 1,
+  "timestamp": "ISO-8601 UTC"
+}
+```
 
-**Censoring mitigation (Curie R6).**
-- Run the K=100 calibration with gates DISABLED (all runs complete). Record
-  the full distribution.
-- After gates are enabled, maintain a "gate-blocked run log" separate from
-  EvidenceRepository, recording the KPIs of blocked runs even though they
-  did not complete. Use this to audit threshold drift.
+**Power calculation (per gate, +20% true regression at 80% power).**
 
-**Per-KPI strategy.**
-- iteration_count: P95 + 1σ as gate. Verify a +20% regression triggers.
-- wall_time_ms: per-machine-class gate. Normalize against a calibration
-  benchmark run on each machine.
-- section_fail_count + structural_error_count: gate at 0 (any failure is a
-  defect — Deming special-cause).
-- distribution_pass_rate: SUSPENDED for canned-dispatcher runs (already
-  implemented). For real runs, calibrate against known-good vs known-bad
-  PRDs to establish a defensible threshold.
-- safety_cap_hit: gate at false (any hit is a defect).
-- mean_section_attempts: keep provisional 2.5 until N≥100 real runs;
-  recalibrate to upper-CI-bound P95.
+For a P95-type gate with binomial false-positive rate α=0.05:
+- Under H0 (no regression), P(KPI > calibrated_P95) ≈ 0.05 by construction.
+- Under H1 (+20% true regression on the perturbed KPI), the perturbed value
+  shifts the distribution rightward; for a near-symmetric distribution the
+  P(KPI > old_P95) ≈ 0.50–0.85 depending on tail shape.
+- N runs to detect this shift at 80% power, two-proportion z-test:
+  N ≈ (1.96 + 0.84)² · (p₀(1-p₀) + p₁(1-p₁)) / Δ²
+  with p₀=0.05, p₁=0.50, Δ=0.45 → N ≈ 13 per arm. K=100 (the calibration
+  budget) is therefore overpowered by 7.7× for the +20% test on a single
+  gate, leaving headroom for stratification across machine-class buckets.
+- For a 3σ XmR-type gate, Wheeler 1995 §3 demonstrates that a +20% true
+  shift in the mean of an in-control process is detected within 8
+  consecutive points (Western Electric Rule 4) with probability >0.95.
+  K=100 with 12-batch baseline + 38 monitored batches (n=20/batch) easily
+  clears this.
+
+**Frozen-baseline definition.**
+- "Frozen baseline" = the canned-dispatcher run produced by
+  `makeCannedDispatcher` at the merge-base of Wave B (commit `1152299` or
+  whatever was on `main` at the moment 4.5 calibration begins).
+- The K≥100 calibration runs MUST be reproducible from the committed RNG
+  seed (below) against that exact source-tree state. The seed is committed
+  BEFORE any data row is written.
+- The calibration runner asserts at startup that
+  `git merge-base --is-ancestor <frozen-baseline-commit> HEAD` succeeds and
+  that `pipeline-kpis.ts` content hash at the merge-base matches the
+  recorded reference; if either check fails, the run aborts with a clear
+  error rather than producing data against a moved baseline (Popper AP-1
+  ratchet protection).
+
+**Per-machine-class wall_time_ms gate.**
+- Detection: `detectMachineClass()` in
+  `packages/benchmark/calibration/machine-class.ts` buckets the host into
+  one of `MACHINE_CLASSES` = `{m_series_high, m_series_mid, x86_intel,
+  x86_amd, ci_runner}` from `os.cpus()[0].model` + `os.totalmem()`.
+  Heuristics:
+  - `Apple M*` model + `totalmem ≥ 32 GB` → `m_series_high`
+  - `Apple M*` model + `totalmem < 32 GB` → `m_series_mid`
+  - `Intel\b` in model → `x86_intel`
+  - `AMD\b` in model → `x86_amd`
+  - any other case (unrecognised, virtualised CPU model, empty `cpus()`)
+    → `ci_runner` (conservative fallback)
+- Per-bucket gate values come from per-bucket K≥100 calibration runs.
+  Until those land, every bucket maps to `null` in
+  `WALL_TIME_MS_GATE_BY_CLASS` and the function falls back to
+  `WALL_TIME_MS_GATE_FALLBACK` (= the current provisional 500ms in
+  `KPI_GATES.wall_time_ms_max`).
+- Code seam: `getWallTimeMsGateForMachine(): number` in
+  `packages/benchmark/calibration/machine-class.ts`. Called by the gate
+  evaluator only after the calibrated map is non-empty for the host's
+  bucket; before calibration, callers MUST keep using
+  `KPI_GATES.wall_time_ms_max` so behaviour is unchanged.
+
+**Synthetic +20% regression test.**
+- POSITIVE arm: take canned baseline; apply synthetic +20% perturbation to
+  one KPI at a time (`wall_time_ms`, `iteration_count`,
+  `mean_section_attempts`); confirm the corresponding gate fires under
+  `evaluateGates(perturbed, /* canned */ true)`.
+- NEGATIVE arm: take canned baseline UNPERTURBED; apply ±5%
+  multiplicative noise; confirm `evaluateGates` returns no violations.
+- Test file: `packages/benchmark/calibration/__tests__/gate-tuning-regression.test.ts`.
+  Both arms use `it.skip` until the per-machine-class calibration data
+  exists; the test SHAPE (perturbation helpers + KPI surface assertions) is
+  locked in a non-skipped sanity test against the `KPI_GATES` and
+  `PipelineKpis` symbols so type drift is caught at compile time.
+
+**Gate-blocked-run log (Curie R6 censoring mitigation).**
+- Every time `evaluateGates` returns a violation in a benchmark run, the
+  caller appends one row per (run_id, gate_name) to
+  `packages/benchmark/calibration/data/gate-blocked-log.jsonl` via
+  `appendGateBlockedEntry({ run_id, gate_name, observed, threshold,
+  machine_class })` (timestamp + schema_version are added by the appender).
+- Path constant: `GATE_BLOCKED_LOG_PATH` in
+  `packages/benchmark/calibration/machine-class.ts`. Gitignored alongside
+  the other calibration data sinks.
+- The log is the canonical source for auditing whether a tightened gate is
+  censoring an underlying distribution shift (Phase 4.5 "Censoring
+  mitigation"). Reuses the calibration-seams JSONL append pattern.
+
+**CC-3 control arm — KPI gates.** Phase 4.5 IS a closed loop: calibrated
+thresholds gate future runs whose outputs (KPI distributions) feed the next
+calibration cycle. Per CC-3:
+- Allocation: `isControlArmRun(runId)` (FNV-1a 32-bit, the same partition
+  function as 4.1 and 4.4 — a run on the control arm for reliability is on
+  the control arm for KPI gates too). ε = 0.20.
+- Mechanism: `getKpiGatesForRun<T>(runId, calibratedGates,
+  provisionalGates): T` in
+  `packages/benchmark/calibration/calibration-seams.ts` returns the
+  provisional gate set for control-arm runs and the calibrated gate set
+  for treatment-arm runs.
+- Comparison metric: downstream consensus accuracy / section_pass_rate on
+  the held-out partition (below) — NOT the loop's own output (KPI
+  distribution after gating).
+- Wiring into `evaluateGates` callers is part of Phase 4.5 finalisation,
+  NOT this scaffolding step. The seam exists so the wiring cannot ship
+  without using it.
+
+**CC-4 control chart per gate.** Each calibrated gate gets an XmR control
+chart over per-batch (n=20-run) means. Limits are computed from the first
+12 batches and frozen; subsequent batches plot against frozen limits.
+Re-tune ONLY when (a) a point falls outside 3σ, OR (b) Western Electric
+Rule 4 (run of 8 on one side of mean) fires. Reuses
+`packages/benchmark/calibration/xmr.ts::xmrAnalyze`. One XmR record per
+gate per machine-class bucket, persisted to
+`packages/benchmark/calibration/data/wall-time-ms.<bucket>.xmr.json` for
+the per-bucket gate, and `<gate-name>.xmr.json` for global gates.
+
+**Negative falsifier — held-out 20% partition (Popper AP-5).**
+- Partitioning: stratified random split of the K≥100 calibration runs into
+  80% calibration / 20% held-out, drawn using the frozen RNG seed below.
+  Stratified by `machine_class` so each held-out cell preserves the
+  machine-class distribution.
+- Sealing: written to `data/kpigates-heldout.lock.json` (committed, schema
+  identical to `heldout-partition.lock.json`). The same
+  `verifyHeldoutPartitionSeal` function from
+  `packages/benchmark/calibration/calibration-seams.ts` enforces the seal
+  before any held-out evaluation — sha256 over sorted-newline-joined
+  run_ids must match `partition_hash`; `sealed_at` must not be in the
+  future; `rng_seed` must match the committed pre-registration constant.
+- Decision: REJECT calibration (revert to provisional gates; investigate)
+  IFF, on the held-out 20%:
+  - calibrated false-positive rate (% of unperturbed runs that fire any
+    gate) > provisional FPR by any margin exceeding the 95% bootstrap CI
+    of the difference, OR
+  - calibrated false-negative rate at +20% perturbation > provisional FNR
+    by the same criterion.
+- Re-using the held-out partition after a tuning iteration constitutes
+  leakage and voids the falsifier (Popper AP-5).
+
+**RNG seed (frozen).** `seed = 0x4_05_C3` (interpretation: phase 4.5,
+sub-stream C3). Committed in this pre-registration block before any
+calibration data is collected. Re-using a different seed post-hoc
+invalidates the run.
+
+**Decision rule (per gate).**
+- If 95% CI on the calibrated estimand (P95 or 3σ UCL) excludes the
+  current provisional value AND the held-out negative falsifier above
+  does NOT reject: promote calibrated value with a `// source:
+  benchmark/<script>, run <date>, N=<count>` comment at the use site,
+  the analysis script and JSONL data committed (CC-2), and an XmR
+  baseline record (CC-4).
+- If 95% CI INCLUDES the provisional value: hold the provisional value;
+  document the null result.
+- If the held-out falsifier rejects: revert to provisional; investigate
+  before any further calibration cycle.
+
+**Stopping rule (per gate per bucket).** Sampling stops when EITHER (a)
+K=100 runs have completed for that bucket AND no batch has fired the XmR
+"outside-3σ" rule on the in-process calibration metric, OR (b) the
+`gate-blocked-log` shows ≥ 5 violations on a SINGLE gate during
+calibration — at which point the gate is presumed already miscalibrated
+and the priority shifts to root-cause analysis before more runs.
+
+**Per-gate pre-registration subsections.**
+
+Each gate below specifies its own H0/H1, estimand type, and outlier
+definition. Eight gates are enumerated; the count matches the
+`KPI_GATES` surface in `packages/benchmark/src/pipeline-kpis.ts`.
+
+| # | Gate | Estimand type | H0 (provisional) | H1 (calibrated departs) | Outlier definition |
+|---|---|---|---|---|---|
+| 1 | `iteration_count_max` | 95th-percentile of baseline + 1σ headroom | 100 | calibrated > 100 by ≥5% (P95+1σ) | run with `iteration_count > calibrated UCL` |
+| 2 | `wall_time_ms_max` (per-bucket) | 95th-percentile of per-bucket baseline | 500ms (fallback, all buckets) | calibrated bucket value diverges from 500 by ≥5% | run on bucket B with `wall_time_ms > P95(B)` |
+| 3 | `section_fail_count_max` | 95th-percentile of baseline | 5 | calibrated < 5 (canned content enriched) | run with `section_fail_count > P95` |
+| 4 | `distribution_pass_rate_max` | suspended on canned; defer to real-ecosystem run | 0.95 (canned-suspended) | calibrate against known-good vs known-bad PRDs only | run with PASS rate > UCL on real ecosystem |
+| 5 | `error_count_max` | 95th-percentile of baseline | 5 | calibrated diverges from 5 by ≥5% | run with `error_count > P95` |
+| 6 | `safety_cap_hit_allowed` | special-cause defect | false | unchanged (any hit is a defect) | any `safety_cap_hit = true` |
+| 7 | `mean_section_attempts_max` | 95th-percentile of baseline | 2.5 | calibrated diverges from 2.5 by ≥5% (real-LLM expected ≈ 1.0–1.2) | run with mean attempts > P95 |
+| 8 | `structural_error_count_max` | special-cause defect | 0 | unchanged (any structural error is a defect) | any `structural_error_count > 0` |
+| 9 | `cortex_recall_empty_count_max` | 95th-percentile of baseline (real Cortex only) | 3 (canned-suspended) | calibrated bound from real-Cortex K≥100 | run with empty-recall count > P95 on real Cortex |
+
+(Nine rows, not eight — `cortex_recall_empty_count_max` is the ninth gate
+introduced by Wave A3; the brief's "~8 KPI gates" estimate predates that
+addition. All nine are enumerated to match the actual `KPI_GATES`
+surface.)
 
 **Tampering safeguard (Deming + CC-4).** Gate thresholds may only change
-when:
-- The control chart for the corresponding KPI shows a sustained shift
-  (run of 8 on one side of mean), OR
-- A pre-registered re-calibration cycle (e.g., quarterly).
+when the corresponding XmR chart shows a sustained shift (run of 8 on one
+side of the mean) OR a pre-registered re-calibration cycle (e.g., quarterly
+or per-major-release). Individual gate violations are NOT grounds for
+adjusting the gate. Repeats §4.5 of the prior revision; preserved here so
+the tampering rule is co-located with the per-gate table.
 
-Individual gate violations are NOT grounds for adjusting the gate.
+**Falsifiability.** Two arms of the synthetic test (§"Synthetic +20%
+regression test" above) plus the held-out negative falsifier. If either
+synthetic arm fails on the calibrated thresholds OR the held-out falsifier
+rejects, the gate is miscalibrated; tune K higher, change the percentile,
+or revert to provisional.
 
-**Falsifiability.** Two arms:
-- Inject a synthetic +20% regression in iteration_count: gate must fire.
-- Re-run the baseline distribution: < 5% of runs should fire the gate
-  (false-positive rate = 1 - confidence level).
+**Analysis script (CC-2).**
+- Script: `packages/benchmark/calibration/kpi-gate-tuning.ts` (NOT YET
+  WRITTEN — Wave D scope; the C3 deliverable is methodology + seams +
+  tests, not the runner).
+- Raw data: `packages/benchmark/calibration/data/kpi-gate-tuning.*.jsonl`.
+- Re-run command: `pnpm --filter @prd-gen/benchmark run calibrate:kpigates`
+  (hooked once Wave D writes the runner).
 
-If either fails: the gate is miscalibrated; tune K higher or change the
-percentile.
+**Implementation gates (Phase 4.5 finalisation, NOT this scaffolding).**
+- [ ] K ≥ 100 calibration runs completed per machine-class bucket
+- [ ] Frozen-baseline commit pinned + asserted at runner startup
+- [ ] `WALL_TIME_MS_GATE_BY_CLASS` populated for at least one bucket with
+      use-site source comment + JSONL data + XmR record (CC-2)
+- [ ] Held-out 20% partition sealed in `data/kpigates-heldout.lock.json`
+- [ ] Negative falsifier evaluated and not rejecting
+- [ ] Synthetic +20% regression test un-skipped and passing
+- [ ] CC-3 wiring: `evaluateGates` callers consume `getKpiGatesForRun`
+- [ ] CC-4 XmR record committed per calibrated gate
+
+**Wave dependencies (downstream of 4.5 finalisation).**
+- Wave D (release-readiness gate): consumes calibrated gates as the
+  ship/no-ship signal for the canned-baseline benchmark in CI. Cannot
+  flip its required-gate set from "any" to "calibrated subset" until
+  4.5 finalises.
+- Release pipeline: the 4.5 finalisation gate is a precondition for
+  flipping `is_canned_dispatcher` from `true` to `false` on
+  real-ecosystem CI runs (real runs unsuspend the
+  `distribution_pass_rate_max` and `cortex_recall_empty_count_max`
+  gates, which only meaningfully fire after their per-gate calibration).
 
 ---
 
