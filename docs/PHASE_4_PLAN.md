@@ -130,22 +130,50 @@ the dual-annotator-consensus calibration set. The sens arm consumes
 independent because they index disjoint subsets of the ground-truth
 labels (PASS for sens, FAIL for spec).
 
-**Power calculation (per arm, per cell).**
-- Goal: detect a 0.10 swing in posterior mean from the Beta(7,3) prior at
-  80% power, two-sided α = 0.05.
-- Frequentist proxy via Wilson score interval: at p̂ = 0.70 with
-  half-width 0.10 and α = 0.05 → N ≈ 81. At 80% power for a 0.10 shift
-  (p₀=0.70 vs p₁=0.80 or p₀=0.70 vs p₁=0.60), the two-proportion
-  z-test gives N ≈ 80–82 per arm.
-- Adopt **N = 80 per arm per (judge × claim_type) cell** as the design
-  target, with a hard ceiling at N = 130 to bound wall-time.
-- Note: an arm requires N ground-truth observations of the corresponding
-  class. A judge facing 50/50 PASS/FAIL claims needs ~160 calibration
-  claims per claim_type to fill both arms.
-- Total budget: 11 claim_types × ~3 judges/panel × 2 arms × 80 ≈ 5,280
-  arm-observations, ≈ 2,640 calibration claims (each yielding both
-  arms by consensus class).
-- Wall-time at ~5ms per canned-judge call: ≈ 13 s total.
+**Power calculation (per arm, per cell) — CORRECTED (B-Fermi-2).**
+
+The original N=80 figure was wrong. Correct derivation:
+
+Two-proportion z-test for p₀=0.70 vs p₁=0.80, |Δ|=0.10, α=0.05 (two-sided),
+power=0.80:
+
+    p̄ = (p₀ + p₁) / 2 = 0.375 (note: pooled proportion differs from p̄ below)
+    
+    More precisely:
+      p̄ = (0.70 + 0.80) / 2 = 0.75
+      pooled_variance_under_H0 = p̄(1-p̄) = 0.75 × 0.25 = 0.1875
+      variance_under_H1 = p₀(1-p₀)/2 + p₁(1-p₁)/2 = 0.21/2 + 0.16/2 = 0.185
+      
+    Formula: N = (z_{α/2} √(2·p̄(1-p̄)) + z_{β} √(p₀(1-p₀)+p₁(1-p₁)))² / Δ²
+    
+    z_{0.025} = 1.96, z_{0.20} = 0.84, Δ = 0.10
+    
+    Numerator term A = 1.96 × √(2 × 0.75 × 0.25) = 1.96 × √0.375 = 1.96 × 0.6124 = 1.200
+    Numerator term B = 0.84 × √(0.70×0.30 + 0.80×0.20) = 0.84 × √(0.21+0.16) = 0.84 × √0.37 = 0.84 × 0.6083 = 0.511
+    
+    N = (1.200 + 0.511)² / 0.01 = (1.711)² / 0.01 = 2.928 / 0.01 ≈ **292 per arm**
+
+- **CORRECTED: N ≈ 292 per arm per (judge × claim_type) cell** (was wrongly stated as N=80).
+- Hard ceiling N = 400 to bound annotator time.
+- Source: Fermi cross-audit B-Fermi-2; two-proportion z-test (Fleiss, Levin, Paik
+  2003, "Statistical Methods for Rates and Proportions", 3rd ed., Ch. 4).
+
+**Annotation cost (RESOURCE-ALLOCATION GATE — B-Fermi-2).**
+- 11 claim_types × 3 judges/panel × 2 arms × 292 ≈ 19,272 arm-observations.
+  Each calibration claim yields ≈ 2 arms (one per consensus class), so
+  ≈ 9,636 calibration claims needed per panel.
+- At 2.15 min/claim (dual-annotator procedure with third-reviewer conflict
+  resolution): 9,636 × 2.15 ≈ 344 annotator-hours (3 panels ≈ 1,032 hours).
+- The original estimate of ~95 hours (N=80 × 2,640 claims) was 3.6× too low.
+- **This estimate is a resource-allocation gate. Annotator time must be
+  budgeted before data collection begins. Do not start calibration without
+  this commitment in writing.**
+- Wall-time for automated judge calls at ~5ms each: ~48 s total (negligible).
+- Note: an arm requires N ground-truth observations of the corresponding class.
+  A judge facing 50/50 PASS/FAIL claims needs ~584 calibration claims per
+  claim_type to fill both arms (292 per arm × 2 arms).
+- Total budget per panel: 11 claim_types × ~3 judges × 2 arms × 292 ≈ 19,272
+  arm-observations, ≈ 9,636 calibration claims.
 
 **Decision rule (per (judge, claim_type) cell, per arm).**
 Persist a calibrated posterior IFF all three hold:
@@ -307,6 +335,37 @@ live in `packages/benchmark/calibration/reliability.ts`:
 `dominanceThreshold`, `splitSensitivitySpecificity`, `tallyConfusion`.
 No I/O. No verification or orchestration imports. Tests under
 `packages/benchmark/calibration/__tests__/reliability.test.ts`.
+
+**Control arm — CC-3 (B-Popper-1).**
+
+4.1 is a closed feedback loop (judge reliability estimates feed the consensus
+engine, which drives future calibration runs). Per CC-3, every closed loop must
+include a forced-exploration control arm.
+
+Specification:
+- **Allocation**: deterministic partition `fnv1a32(run_id) % 5 === 0` → control
+  arm (ε = 0.20; 1 in 5 runs is held back). The hash function is FNV-1a 32-bit
+  (deterministic, no external deps); the same run_id always maps to the same arm.
+- **Control arm behaviour**: ignores `ReliabilityRepository`; uses Beta(7,3)
+  prior for ALL (judge × claim_type) cells. This simulates the uncalibrated
+  pipeline.
+- **Treatment arm behaviour**: uses the persisted posterior from
+  `ReliabilityRepository` (the normal path).
+- **Comparison metric**: downstream consensus accuracy on the held-out 20% of
+  the dual-annotator-consensus pool — NOT the calibration loop's own output.
+  Self-referential comparison is forbidden (Curie A6).
+
+Published seam (Wave B delivery):
+- `isControlArmRun(runId: string): boolean` — deterministic partition predicate.
+- `getReliabilityForRun(runId, judge, claimType, direction, repo)` — returns
+  `null` (= use prior) for control-arm runs; delegates to `repo.getReliability`
+  for treatment-arm runs.
+- Both exported from `packages/benchmark/calibration/observations.ts`.
+
+Wiring into `consensus.ts` is Wave C+ scope. The seam exists so 4.4 and 4.5
+CANNOT ship without explicitly wiring it.
+
+source: CC-3 (docs/PHASE_4_PLAN.md §CC-3); B-Popper-1 cross-audit finding.
 
 ---
 
@@ -688,6 +747,16 @@ Before 4.1 ships:
 - [ ] Beta(7,3) prior with sensitivity/specificity split (Laplace)
 - [ ] Persistence schema with version snapshot (Laplace L6)
 - [ ] Negative falsifier on held-out set (Popper AP-5)
+- [ ] CC-3 control arm seam: `isControlArmRun` / `getReliabilityForRun` published
+      and wired at call sites in 4.4 / 4.5 (B-Popper-1)
+- [ ] Annotation resource commitment: 344+ annotator-hours budgeted before
+      data collection begins (B-Fermi-2 gate)
+- [ ] dominanceThreshold ESS correction deployed (B-Fermi-3)
+- [ ] VerdictDirection renamed to sensitivity_arm/specificity_arm (C-Shannon-CONCERN-3)
+- [ ] AnnotatorView enforced at all queue drain consumers (B-Curie-4)
+- [ ] busy_timeout = 5000 in SqliteReliabilityRepository (B-Curie-5)
+- [ ] judge_id structured record deployed (B-Shannon-6)
+- [ ] DEFAULT_RELIABILITY_PRIOR single source of truth in @prd-gen/core (B-Shannon-7)
 
 Before 4.2 ships:
 - [ ] Conditional (not marginal) estimand + Kaplan-Meier (Fisher Fi-4.2)
