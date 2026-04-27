@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "."
   },
   "references": [
     { "path": "../core" },
@@ -10,6 +10,11 @@
     { "path": "../strategy" },
     { "path": "../validation" }
   ],
-  "include": ["src/**/*"],
-  "exclude": ["src/**/__tests__/**", "src/**/*.test.ts"]
+  "include": ["src/**/*", "calibration/**/*"],
+  "exclude": [
+    "src/**/__tests__/**",
+    "src/**/*.test.ts",
+    "calibration/**/__tests__/**",
+    "calibration/**/*.test.ts"
+  ]
 }

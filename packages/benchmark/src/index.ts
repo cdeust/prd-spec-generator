@@ -31,3 +31,18 @@ export {
   type MismatchEvent,
   type MismatchExtraction,
 } from "./instrumentation.js";
+
+// Phase 4.1 / Wave D2 — ConsensusReliabilityProvider adapter.
+// Lives in src/ so it is included in the compiled benchmark package.
+// The calibration/ copy (consensus-reliability-adapter.ts) is used only
+// by calibration/__tests__/ which run via vitest without tsc compilation.
+export { BenchmarkConsensusReliabilityProvider } from "./consensus-reliability-adapter.js";
+
+// Phase 4.1 / Wave D2 — Observation audit log helpers.
+// Re-exported here for the composition root's observation flush hook.
+// source: calibration-seams.ts (via heldout-seals.ts).
+export {
+  appendObservationLog,
+  JUDGE_OBSERVATION_LOG_PATH,
+  type JudgeObservationLogEntry,
+} from "../calibration/heldout-seals.js";
