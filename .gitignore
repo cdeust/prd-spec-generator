@@ -3,6 +3,10 @@ node_modules
 .DS_Store
 *.db
 
+# Pending calibration observations — grows at runtime; resolved asynchronously
+# by the dual-annotator procedure (Phase 4.1, Curie R2). Never commit.
+packages/benchmark/calibration/data/pending-observations.jsonl
+
 # Keep MCP server dist/ (needed for plugin execution)
 # Other packages' dist/ are build artifacts
 packages/core/dist
