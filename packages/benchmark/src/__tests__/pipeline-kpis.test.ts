@@ -385,6 +385,10 @@ function baseFakeKpis(overrides: Partial<ReturnType<typeof measurePipeline>> = {
     distribution_pass_rate: 0,
     written_files_count: 9,
     safety_cap_hit: false,
+    // Phase 4.3 instrumentation defaults — measurement-only, see
+    // src/instrumentation.ts and PHASE_4_PLAN.md §4.3.
+    mismatch_fired: false,
+    mismatch_kinds: [] as ReadonlyArray<never>,
     ...overrides,
   } as ReturnType<typeof measurePipeline>;
 }

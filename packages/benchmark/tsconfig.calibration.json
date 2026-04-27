@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist/calibration",
+    "rootDir": "./",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false
+  },
+  "references": [
+    { "path": "../core" },
+    { "path": "../orchestration" }
+  ],
+  "include": ["calibration/**/*", "src/instrumentation.ts"],
+  "exclude": ["calibration/**/__tests__/**", "calibration/**/*.test.ts"]
+}

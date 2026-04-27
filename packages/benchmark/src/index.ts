@@ -22,3 +22,12 @@ export {
   type PipelineKpis,
   type KpiGateReport,
 } from "./pipeline-kpis.js";
+export {
+  extractMismatchEvents,
+  tallyByKind,
+  MISMATCH_KINDS,
+  MISMATCH_DIAGNOSTIC_PREFIX,
+  type MismatchKind,
+  type MismatchEvent,
+  type MismatchExtraction,
+} from "./instrumentation.js";

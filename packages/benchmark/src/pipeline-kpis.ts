@@ -40,6 +40,10 @@ import {
   type StepOutput,
 } from "@prd-gen/orchestration";
 import type { SectionType } from "@prd-gen/core";
+import {
+  extractMismatchEvents,
+  type MismatchKind,
+} from "./instrumentation.js";
 
 export interface PipelineKpiInput {
   readonly run_id: string;
@@ -70,6 +74,15 @@ export interface PipelineKpis {
   readonly distribution_pass_rate: number;
   readonly written_files_count: number;
   readonly safety_cap_hit: boolean;
+  /**
+   * source: Phase 4.3 (PHASE_4_PLAN.md §4.3) — non-invasive readout of
+   * `state.errors` for `[self_check] plan mismatch detected — mismatch_kind:*`
+   * diagnostics emitted by handleSelfCheckPhaseB (CHANGELOG [0.2.0] HIGH).
+   * Measurement-only: does not affect pipeline behaviour.
+   */
+  readonly mismatch_fired: boolean;
+  /** Distinct mismatch_kind values observed in this run (deduped). */
+  readonly mismatch_kinds: ReadonlyArray<MismatchKind>;
 }
 
 /**
@@ -112,6 +125,11 @@ export function measurePipeline(input: PipelineKpiInput): PipelineKpis {
     (k) => k === "structural",
   ).length;
 
+  // Phase 4.3 measurement hook — read-only on state.errors, no effect
+  // on pipeline logic. Throws on unknown mismatch_kind to fail loudly
+  // if the handler emitter format drifts.
+  const mismatchExtraction = extractMismatchEvents(loop.state);
+
   return {
     run_id: input.run_id,
     final_action_kind: loop.lastOutput?.action.kind ?? "failed",
@@ -133,6 +151,8 @@ export function measurePipeline(input: PipelineKpiInput): PipelineKpis {
     distribution_pass_rate: summaryKpis.distribution_pass_rate,
     written_files_count: loop.state.written_files.length,
     safety_cap_hit: loop.safety_cap_hit,
+    mismatch_fired: mismatchExtraction.fired,
+    mismatch_kinds: mismatchExtraction.distinctKinds,
   };
 }
 
