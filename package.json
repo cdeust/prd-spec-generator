@@ -6,8 +6,8 @@
   "scripts": {
     "build": "pnpm -r --workspace-concurrency=1 build",
     "bundle": "esbuild packages/mcp-server/dist/index.js --bundle --platform=node --target=node20 --format=esm --external:better-sqlite3 --outfile=mcp-server/index.js && chmod +x mcp-server/index.js",
-    "test": "vitest run --workspace ./vitest.workspace.ts",
-    "test:watch": "vitest --workspace ./vitest.workspace.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "tsc --noEmit",
     "clean": "pnpm -r clean && rm -f mcp-server/index.js",
     "verify": "pnpm install --frozen-lockfile && pnpm build && pnpm bundle && pnpm test"
