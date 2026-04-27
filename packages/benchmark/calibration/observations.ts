@@ -303,12 +303,12 @@ export function extractJudgeObservations(
     // B-Shannon-6: structured record instead of "<kind>:<name>" string to
     // eliminate delimiter-encoding lossy round-trip when name contains ":".
     const judge_id: JudgeId = { kind: v.judge.kind, name: v.judge.name };
-    const claim_type = claimTypes.get(v.claim_id) ?? (() => {
-      console.warn(
-        `[observations] extractJudgeObservations: claim_id "${v.claim_id}" not found in claimTypes map; defaulting to "correctness"`,
+    const claim_type = claimTypes.get(v.claim_id);
+    if (claim_type === undefined) {
+      throw new Error(
+        `extractJudgeObservations: missing claim_type for claim_id=${v.claim_id}; the caller must populate the claimTypes map for every claim`,
       );
-      return "correctness" as const;
-    })();
+    }
 
     const ground_truth: boolean | "unknown" = goldenSet.has(v.claim_id)
       ? (goldenSet.get(v.claim_id) as boolean)

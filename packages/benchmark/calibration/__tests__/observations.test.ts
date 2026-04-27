@@ -236,6 +236,9 @@ describe("JSONL queue — schema versioning", () => {
   });
 });
 
+// M1 / AP-4 claim_type-missing-throws tests are in observations-mapping.test.ts
+// (split to satisfy coding-standards §4.1 500-line limit).
+
 // ─── I5: Unknown verdict shape throws loudly ──────────────────────────────────
 
 describe("extractJudgeObservations — loud-fail on bad shape", () => {
@@ -486,103 +489,10 @@ describe("loadGoldenSet", () => {
   });
 });
 
-// ─── Verdict-to-boolean mapping ───────────────────────────────────────────────
+// Verdict-boolean-mapping and ground-truth-derivation tests are in
+// observations-mapping.test.ts (split to satisfy coding-standards §4.1 500-line limit).
 
-describe("extractJudgeObservations — verdict boolean mapping", () => {
-  it("maps PASS verdict to judge_verdict=true", () => {
-    const verdict = makeVerdict({ verdict: "PASS", claim_id: "X" });
-    const claimTypes = new Map([["X", "correctness" as const]]);
-    const obs = extractJudgeObservations("r", [verdict], claimTypes, new Map());
-    expect(obs[0].judge_verdict).toBe(true);
-  });
-
-  it("maps SPEC-COMPLETE verdict to judge_verdict=true", () => {
-    const verdict = makeVerdict({ verdict: "SPEC-COMPLETE", claim_id: "X" });
-    const claimTypes = new Map([["X", "correctness" as const]]);
-    const obs = extractJudgeObservations("r", [verdict], claimTypes, new Map());
-    expect(obs[0].judge_verdict).toBe(true);
-  });
-
-  it("maps FAIL verdict to judge_verdict=false", () => {
-    const verdict = makeVerdict({ verdict: "FAIL", claim_id: "X" });
-    const claimTypes = new Map([["X", "correctness" as const]]);
-    const obs = extractJudgeObservations("r", [verdict], claimTypes, new Map());
-    expect(obs[0].judge_verdict).toBe(false);
-  });
-
-  it("maps INCONCLUSIVE verdict to judge_verdict=false", () => {
-    const verdict = makeVerdict({ verdict: "INCONCLUSIVE", claim_id: "X" });
-    const claimTypes = new Map([["X", "correctness" as const]]);
-    const obs = extractJudgeObservations("r", [verdict], claimTypes, new Map());
-    expect(obs[0].judge_verdict).toBe(false);
-  });
-
-  it("maps NEEDS-RUNTIME verdict to judge_verdict=false", () => {
-    const verdict = makeVerdict({ verdict: "NEEDS-RUNTIME", claim_id: "X" });
-    const claimTypes = new Map([["X", "correctness" as const]]);
-    const obs = extractJudgeObservations("r", [verdict], claimTypes, new Map());
-    expect(obs[0].judge_verdict).toBe(false);
-  });
-});
-
-// ─── Ground-truth derivation from golden set ─────────────────────────────────
-
-describe("extractJudgeObservations — ground_truth derivation", () => {
-  it("assigns true ground_truth when claim_id is in golden set as true", () => {
-    const verdict = makeVerdict({ claim_id: "FR-001" });
-    const claimTypes = new Map([["FR-001", "correctness" as const]]);
-    const goldenSet: GoldenSet = new Map([["FR-001", true]]);
-
-    const obs = extractJudgeObservations("r", [verdict], claimTypes, goldenSet);
-    expect(obs[0].ground_truth).toBe(true);
-  });
-
-  it("assigns false ground_truth when claim_id is in golden set as false", () => {
-    const verdict = makeVerdict({ claim_id: "FR-002" });
-    const claimTypes = new Map([["FR-002", "correctness" as const]]);
-    const goldenSet: GoldenSet = new Map([["FR-002", false]]);
-
-    const obs = extractJudgeObservations("r", [verdict], claimTypes, goldenSet);
-    expect(obs[0].ground_truth).toBe(false);
-  });
-
-  it("assigns unknown ground_truth when claim_id is not in golden set", () => {
-    const verdict = makeVerdict({ claim_id: "FR-003" });
-    const claimTypes = new Map([["FR-003", "correctness" as const]]);
-    const goldenSet: GoldenSet = new Map(); // empty
-
-    const obs = extractJudgeObservations("r", [verdict], claimTypes, goldenSet);
-    expect(obs[0].ground_truth).toBe("unknown");
-  });
-});
-
-// ─── Queue file is created if data directory is absent ────────────────────────
-
-describe("flushObservations — data directory creation", () => {
-  it("creates the data directory if it does not exist before appending", () => {
-    const repo = new RecordingRepository();
-    const rootDir = join(tmpdir(), `obs-newdir-${randomUUID()}`);
-    const queuePath = join(rootDir, "sub", "data", "pending-observations.jsonl");
-
-    const obs: JudgeObservation = {
-      run_id: "run-dir",
-      judge_id: { kind: "genius", name: "feynman" },
-      claim_id: "FR-001",
-      claim_type: "correctness",
-      judge_verdict: true,
-      judge_confidence: 0.9,
-      ground_truth: "unknown",
-    };
-
-    flushObservations([obs], repo, queuePath);
-
-    expect(existsSync(queuePath)).toBe(true);
-    const lines = readQueueLines(queuePath);
-    expect(lines.length).toBe(1);
-
-    rmSync(rootDir, { recursive: true, force: true });
-  });
-});
-
-// B-Curie-4, B-Shannon-6, and B-Popper-1 tests are in calibration-seams.test.ts
-// (split to keep this file under 500 lines per coding-standards §4.1).
+// B-Curie-4, B-Shannon-6, and B-Popper-1 tests are in calibration-seams.test.ts.
+// Verdict-boolean-mapping, ground-truth-derivation, M1/AP-4, and
+// flushObservations-data-directory tests are in observations-mapping.test.ts.
+// (Both splits keep this file under 500 lines per coding-standards §4.1.)
