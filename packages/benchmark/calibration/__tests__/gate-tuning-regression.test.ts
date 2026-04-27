@@ -1,43 +1,85 @@
 /**
- * Phase 4.5 — KPI gate tuning, synthetic +20% regression test.
+ * Phase 4.5 — KPI gate tuning, synthetic regression test (Wave C unconditional).
  *
  * Two pre-registered falsifier arms (docs/PHASE_4_PLAN.md §4.5):
  *
  *   POSITIVE arm — synthetic regression must FIRE the gate:
- *     1. Take the canned baseline (`measurePipeline` with the default
- *        canned dispatcher).
- *     2. Apply a synthetic +20% perturbation to ONE KPI at a time
- *        (inject artificial wall_time, fail random sections, etc.).
+ *     1. Synthesise a baseline `PipelineKpis` whose target metric sits at
+ *        80% of its provisional gate (deterministic anchor).
+ *     2. Apply +20% multiplicative perturbation to that metric.
  *     3. Confirm the corresponding gate fires under
- *        evaluateGates(perturbed, /is_canned=true/).
+ *        `evaluateGates(perturbed, /is_canned/=true)`.
  *
  *   NEGATIVE arm — ±5% noise must NOT fire any gate:
- *     1. Take the canned baseline UNPERTURBED.
- *     2. Apply ±5% multiplicative noise to numeric KPIs.
- *     3. Confirm `evaluateGates(noisy, true)` returns no violations.
+ *     1. Synthesise a baseline whose every metric sits at 80% of its gate.
+ *     2. Apply +5% multiplicative noise to one metric (worst case for a
+ *        max-gate is the positive direction).
+ *     3. Confirm `evaluateGates(noisy, /is_canned/=true)` returns no
+ *        violations on that metric.
  *
- * Both arms are CURRENTLY skipped (`it.skip`) because:
- *   - The calibrated per-machine-class wall_time_ms gate (Phase 4.5)
- *     does not yet exist; the K≥100 calibration runs against the frozen
- *     Wave-B baseline have not been run.
- *   - Several gates (iteration_count_max, distribution_pass_rate_max,
- *     mean_section_attempts_max) are still provisional heuristics and
- *     have NOT been recalibrated against the frozen-baseline distribution.
+ * Why the unconditional rewrite (Wave C cross-audit "no-skip" mandate):
+ *   The earlier draft drove `measurePipeline()` against the canned
+ *   dispatcher and skipped the assertions because the empirical baseline
+ *   distribution might overshoot or undershoot the provisional gates. A
+ *   synthetic baseline crafted at exactly 80% of each gate eliminates that
+ *   uncertainty: +20% lands at 96% of the gate (still under) by raw value,
+ *   but 0.8 × 1.2 = 0.96 — which is still UNDER the gate. The correct
+ *   anchor for "+20% must fire" is to start AT the gate (1.0×) — then 1.2×
+ *   exceeds it. The arithmetic below uses anchor = 1.0 × gate (POSITIVE)
+ *   and anchor = 0.5 × gate (NEGATIVE). This converts the prior shape-only
+ *   skipped test into a load-bearing falsifier check on the gate-evaluation
+ *   machinery itself.
  *
- * The test SHAPE is locked here so when 4.5 finalisation lands, only the
- * `it.skip` → `it` flip and the gate-set parameterisation are needed.
+ *   Limitation: this verifies that the perturb-and-evaluate machinery
+ *   produces the correct fire / no-fire decision for known inputs. It does
+ *   NOT verify that the provisional gate VALUES (e.g., wall_time_ms_max=500)
+ *   are correctly calibrated against the production distribution — that
+ *   semantic check requires K≥100 calibration runs and is the Wave D work.
  *
  * source: docs/PHASE_4_PLAN.md §4.5 PRE-REGISTRATION → "Falsifiability".
- * source: C3 deliverable, Phase 4 Wave C.
+ * source: C3 deliverable, Phase 4 Wave C. Wave C cross-audit "no-skip" rule.
  */
 
 import { describe, it, expect } from "vitest";
 import {
-  measurePipeline,
   evaluateGates,
   KPI_GATES,
   type PipelineKpis,
 } from "../../src/pipeline-kpis.js";
+
+/**
+ * Construct a synthetic baseline whose every numeric metric sits at
+ * `factor × gate`. Default factor = 0.5 (well under every gate, used by the
+ * NEGATIVE arm). Pass factor = 1.0 to land exactly at the gate boundary
+ * (used by the POSITIVE arm — any positive perturbation then trips the
+ * gate).
+ *
+ * source: provisional heuristic. Anchoring at 0.5×gate gives 50% headroom
+ * against +5% noise in the NEGATIVE arm; anchoring at 1.0×gate gives a
+ * deterministic boundary for the POSITIVE arm.
+ */
+function syntheticAtFactor(factor: number): PipelineKpis {
+  return {
+    run_id: "synthetic-gate-tuning",
+    final_action_kind: "done",
+    current_step: "done",
+    iteration_count: Math.round(KPI_GATES.iteration_count_max * factor),
+    wall_time_ms: KPI_GATES.wall_time_ms_max * factor,
+    section_pass_rate: 1,
+    section_fail_count: 0,
+    section_fail_ids: [],
+    mean_section_attempts: KPI_GATES.mean_section_attempts_max * factor,
+    error_count: 0,
+    structural_error_count: 0,
+    judge_dispatch_count: 0,
+    distribution_pass_rate: 1,
+    written_files_count: 0,
+    safety_cap_hit: false,
+    mismatch_fired: false,
+    mismatch_kinds: [],
+    cortex_recall_empty_count: 0,
+  };
+}
 
 /** Apply +20% multiplicative perturbation to a numeric KPI. */
 function perturbPositive<K extends keyof PipelineKpis>(
@@ -51,12 +93,7 @@ function perturbPositive<K extends keyof PipelineKpis>(
   return { ...kpis, [metric]: cur * 1.2 };
 }
 
-/**
- * Apply ±5% noise to a numeric KPI. Deterministic per-call (no RNG) so the
- * test is reproducible — alternates +5% and -5% across calls would also
- * work, but we use a fixed +5% here (worst case for a max-gate is the
- * positive direction).
- */
+/** Apply +5% multiplicative noise to a numeric KPI (worst-case for a max-gate). */
 function noise5pct<K extends keyof PipelineKpis>(
   kpis: PipelineKpis,
   metric: K,
@@ -69,16 +106,10 @@ function noise5pct<K extends keyof PipelineKpis>(
 }
 
 describe("Phase 4.5 — KPI gate tuning regression test (synthetic)", () => {
-  // POSITIVE ARM — +20% perturbation must fire the corresponding gate.
-  // SKIPPED until 4.5 publishes calibrated thresholds; the test asserts
-  // gate FIRING relative to the calibrated baseline distribution, which
-  // does not exist yet (provisional heuristics may pass a +20% perturbation
-  // by accident if their headroom > 20%).
-  it.skip("synthetic +20% wall_time_ms regression fires the gate", () => {
-    const baseline = measurePipeline({
-      run_id: "phase4_5-pos-walltime",
-      feature_description: "synthetic regression baseline",
-    });
+  // ── POSITIVE ARM — anchored at 1.0×gate; +20% must fire ──────────────────
+
+  it("synthetic +20% wall_time_ms regression fires the gate", () => {
+    const baseline = syntheticAtFactor(1.0);
     const perturbed = perturbPositive(baseline, "wall_time_ms");
     const report = evaluateGates(perturbed, /* is_canned */ true);
     expect(
@@ -86,11 +117,8 @@ describe("Phase 4.5 — KPI gate tuning regression test (synthetic)", () => {
     ).toBe(true);
   });
 
-  it.skip("synthetic +20% iteration_count regression fires the gate", () => {
-    const baseline = measurePipeline({
-      run_id: "phase4_5-pos-iter",
-      feature_description: "synthetic regression baseline",
-    });
+  it("synthetic +20% iteration_count regression fires the gate", () => {
+    const baseline = syntheticAtFactor(1.0);
     const perturbed = perturbPositive(baseline, "iteration_count");
     const report = evaluateGates(perturbed, /* is_canned */ true);
     expect(
@@ -98,11 +126,8 @@ describe("Phase 4.5 — KPI gate tuning regression test (synthetic)", () => {
     ).toBe(true);
   });
 
-  it.skip("synthetic +20% mean_section_attempts regression fires the gate", () => {
-    const baseline = measurePipeline({
-      run_id: "phase4_5-pos-mean-attempts",
-      feature_description: "synthetic regression baseline",
-    });
+  it("synthetic +20% mean_section_attempts regression fires the gate", () => {
+    const baseline = syntheticAtFactor(1.0);
     const perturbed = perturbPositive(baseline, "mean_section_attempts");
     const report = evaluateGates(perturbed, /* is_canned */ true);
     expect(
@@ -112,59 +137,36 @@ describe("Phase 4.5 — KPI gate tuning regression test (synthetic)", () => {
     ).toBe(true);
   });
 
-  // NEGATIVE ARM — ±5% noise must not fire any gate. Skipped because the
-  // baseline gates are provisional and may already be tight enough that
-  // +5% noise on, e.g., wall_time_ms tips over a too-tight gate. Once
-  // calibrated, the false-positive rate must be ≤ (1 - confidence level).
-  it.skip("baseline + 5% noise on wall_time_ms does not fire any gate", () => {
-    const baseline = measurePipeline({
-      run_id: "phase4_5-neg-walltime",
-      feature_description: "synthetic regression baseline",
-    });
+  // ── NEGATIVE ARM — anchored at 0.5×gate; +5% noise must NOT fire ──────────
+
+  it("baseline + 5% noise on wall_time_ms does not fire the wall_time_ms gate", () => {
+    const baseline = syntheticAtFactor(0.5);
     const noisy = noise5pct(baseline, "wall_time_ms");
     const report = evaluateGates(noisy, /* is_canned */ true);
-    expect(report.violations).toEqual([]);
+    // 0.5 × 1.05 = 0.525 of the gate — well under. The gate must NOT fire.
+    expect(
+      report.violations.some((v) => v.metric === "wall_time_ms_max"),
+    ).toBe(false);
   });
 
-  it.skip("baseline + 5% noise on iteration_count does not fire any gate", () => {
-    const baseline = measurePipeline({
-      run_id: "phase4_5-neg-iter",
-      feature_description: "synthetic regression baseline",
-    });
+  it("baseline + 5% noise on iteration_count does not fire the iteration_count gate", () => {
+    const baseline = syntheticAtFactor(0.5);
     const noisy = noise5pct(baseline, "iteration_count");
     const report = evaluateGates(noisy, /* is_canned */ true);
-    expect(report.violations).toEqual([]);
+    expect(
+      report.violations.some((v) => v.metric === "iteration_count_max"),
+    ).toBe(false);
   });
 
-  // SHAPE-LOCK: this test runs unconditionally to make sure the
-  // gate-key surface + perturbation helpers continue to compile.
-  // It does NOT exercise the 4.5 falsifier semantics — it merely guards
-  // against silent type drift on KPI_GATES.
+  // ── SHAPE-LOCK — guards against silent KPI_GATES surface drift ────────────
+
   it("perturbation helpers compile against KPI_GATES surface", () => {
-    const synthetic: PipelineKpis = {
-      run_id: "synthetic",
-      final_action_kind: "done",
-      current_step: "done",
-      iteration_count: 50,
-      wall_time_ms: 100,
-      section_pass_rate: 1,
-      section_fail_count: 0,
-      section_fail_ids: [],
-      mean_section_attempts: 1.5,
-      error_count: 0,
-      structural_error_count: 0,
-      judge_dispatch_count: 0,
-      distribution_pass_rate: 1,
-      written_files_count: 0,
-      safety_cap_hit: false,
-      mismatch_fired: false,
-      mismatch_kinds: [],
-      cortex_recall_empty_count: 0,
-    };
+    const synthetic = syntheticAtFactor(0.5);
     const perturbed = perturbPositive(synthetic, "wall_time_ms");
-    expect(perturbed.wall_time_ms).toBeCloseTo(120, 5);
-    // Sanity: the symbol KPI_GATES is reachable so the test asserts
-    // against the same surface a future un-skipped run will use.
+    expect(perturbed.wall_time_ms).toBeCloseTo(
+      KPI_GATES.wall_time_ms_max * 0.5 * 1.2,
+      5,
+    );
     expect(typeof KPI_GATES.wall_time_ms_max).toBe("number");
   });
 });
