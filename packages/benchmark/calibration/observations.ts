@@ -36,8 +36,14 @@ import type { JudgeVerdict, Claim } from "@prd-gen/core";
  * Schema version for the JSONL queue file. Increment when the JudgeObservation
  * shape changes in a backward-incompatible way.
  *
+ * Independent versioning namespace: bumping this constant does NOT require
+ * bumping RELIABILITY_SCHEMA_VERSION (packages/core/src/persistence/reliability-repository.ts).
+ * They version separate artifacts — this versions the pending-observations.jsonl
+ * queue; RELIABILITY_SCHEMA_VERSION versions the SQLite agent_reliability DB.
+ *
  * source: semantic versioning convention; the queue consumer (B1 dual-annotator
  * procedure) must reject lines with an unrecognized schema_version.
+ * source: N1 residual — B-residual cross-reference between independent version namespaces.
  */
 const QUEUE_SCHEMA_VERSION = 1 as const;
 

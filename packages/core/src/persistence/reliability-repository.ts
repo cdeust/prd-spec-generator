@@ -19,15 +19,24 @@ import type { Claim } from "../domain/agent.js";
 // ─── Schema version ──────────────────────────────────────────────────────────
 
 /**
- * Schema version for the agent_reliability table.
+ * Schema version for the agent_reliability SQLite DB (schema_meta table).
  *
  * On open, the implementation reads this value from the DB and refuses to
  * proceed if it does not match. Auto-migration is out of scope for Wave B.
  *
+ * Independent versioning namespace: bumping this constant does NOT require
+ * bumping QUEUE_SCHEMA_VERSION (packages/benchmark/calibration/observations.ts).
+ * They version separate artifacts — this versions the SQLite agent_reliability DB;
+ * QUEUE_SCHEMA_VERSION versions the pending-observations.jsonl queue.
+ *
  * source: Laplace L6 — "Implementation gates require persisted records carry
  * a schema-version snapshot for forward compatibility."
+ * source: N1 residual — B-residual cross-reference between independent version namespaces.
+ * source: N2 residual — bumped from 1 to 2 because the SQL CHECK constraint changed
+ *   from ('pass','fail') to ('sensitivity_arm','specificity_arm'); pre-rename DBs
+ *   cannot be opened safely.
  */
-export const RELIABILITY_SCHEMA_VERSION = 1 as const;
+export const RELIABILITY_SCHEMA_VERSION = 2 as const;
 
 // ─── Beta prior — single source of truth (B-Shannon-7) ──────────────────────
 
