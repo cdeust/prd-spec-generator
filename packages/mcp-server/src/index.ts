@@ -28,6 +28,15 @@ type EvidenceRepositoryLike = EvidenceRepository;
 import { validateSection, validateDocument } from "@prd-gen/validation";
 import { registerBudgetTools } from "./budget-tools.js";
 import { registerPipelineTools } from "./pipeline-tools.js";
+import {
+  checkReliabilityHealth,
+  getConsensusReliabilityProvider,
+} from "./reliability-wiring.js";
+
+// ─── Reliability wiring (D2.4 / D2.6) ───────────────────────────────────────
+// Re-exported so pipeline-tools and other callers can inject the provider into
+// ConsensusConfig.reliabilityProvider without importing benchmark directly.
+export { getConsensusReliabilityProvider } from "./reliability-wiring.js";
 
 /**
  * PRD Generator MCP Server — native TypeScript.
@@ -367,6 +376,18 @@ registerPipelineTools(server);
 // ─── Start Server ────────────────────────────────────────────────────────────
 
 async function main() {
+  // D2.6 — reliability DB health check at startup.
+  // FAILS_ON: better-sqlite3 missing, schema_version mismatch, file locked.
+  // A failed health check is NOT fatal — consensus falls back to the Beta(7,3)
+  // prior for all cells, preserving backward-compat (pre-Wave-D behaviour).
+  const reliabilityHealth = checkReliabilityHealth();
+  if (!reliabilityHealth.healthy) {
+    console.error(
+      `[prd-gen] reliability.db health check FAILED: ${reliabilityHealth.message}`,
+    );
+    // Log only; do not exit. Degraded mode (prior fallback) is acceptable.
+  }
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
