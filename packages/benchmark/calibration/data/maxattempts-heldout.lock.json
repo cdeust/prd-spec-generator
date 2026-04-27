@@ -1,0 +1,16 @@
+{
+  "$schema": "heldout-partition-lock-schema-v1",
+  "schema_version": 1,
+  "_comment": "Phase 4.2 — MAX_ATTEMPTS calibration held-out 20% partition. Must be committed and sealed BEFORE any calibration analysis is run. The negative falsifier (Popper AP-5) requires that the calibrated MAX_ATTEMPTS outperform MAX_ATTEMPTS_BASELINE=3 on this held-out set, otherwise the calibration is rejected. Sealed via packages/benchmark/calibration/calibration-seams.ts::verifyHeldoutPartitionSeal. See docs/PHASE_4_PLAN.md §4.2 negative-falsifier procedure.",
+  "_fields": {
+    "rng_seed": "integer — frozen RNG seed for the 80/20 partition",
+    "partition_hash": "string — sha256 hex over sorted-newline-joined run_ids in the held-out set",
+    "partition_size": "integer — count of run_ids in the held-out set",
+    "sealed_at": "ISO-8601 UTC timestamp",
+    "schema_version": 1
+  },
+  "rng_seed": null,
+  "partition_hash": null,
+  "partition_size": null,
+  "sealed_at": null
+}
