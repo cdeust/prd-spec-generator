@@ -141,6 +141,46 @@ export function measurePipeline(input: PipelineKpiInput): PipelineKpis {
   // if the handler emitter format drifts.
   const mismatchExtraction = extractMismatchEvents(loop.state);
 
+  return buildKpis({
+    input,
+    loop,
+    cap,
+    wall_time_ms,
+    sectionKpis,
+    summaryKpis,
+    structural_error_count,
+    mismatchExtraction,
+  });
+}
+
+interface KpiAssemblyInput {
+  readonly input: PipelineKpiInput;
+  readonly loop: LoopOutcome;
+  readonly cap: number;
+  readonly wall_time_ms: number;
+  readonly sectionKpis: ReturnType<typeof extractSectionKpis>;
+  readonly summaryKpis: ReturnType<typeof parseSummaryKpis>;
+  readonly structural_error_count: number;
+  readonly mismatchExtraction: ReturnType<typeof extractMismatchEvents>;
+}
+
+/**
+ * Assemble the final `PipelineKpis` envelope from the components produced by
+ * `measurePipeline`. Extracted so that `measurePipeline` itself stays under
+ * the §4.2 50-line method cap; this helper is a pure mapping with no
+ * side-effects (Fowler 2018 Ch. 6, Extract Function).
+ */
+function buildKpis(args: KpiAssemblyInput): PipelineKpis {
+  const {
+    input,
+    loop,
+    cap,
+    wall_time_ms,
+    sectionKpis,
+    summaryKpis,
+    structural_error_count,
+    mismatchExtraction,
+  } = args;
   return {
     run_id: input.run_id,
     final_action_kind: loop.lastOutput?.action.kind ?? "failed",
