@@ -46,6 +46,22 @@ const SHOULD_RUN =
   PIPELINE_BIN.length > 0 &&
   existsSync(PIPELINE_BIN);
 
+// Explicit skip-with-reason: a silent skip would hide misconfigured CI from
+// the developer. The log line below surfaces when the binary is absent so
+// the developer knows WHY the tests did not run rather than assuming they
+// passed.
+// source: test-engineer TE3 (Phase 3+4 cross-audit, 2026-04) — existsSync
+// gate must be loud, not silent.
+if (!SHOULD_RUN) {
+  const reason = PIPELINE_BIN === undefined || PIPELINE_BIN.length === 0
+    ? "AIPRD_PIPELINE_BIN is not set"
+    : `AIPRD_PIPELINE_BIN binary not found at: ${PIPELINE_BIN}`;
+  console.warn(
+    `[integration skip] live automatised-pipeline tests NOT running: ${reason}. ` +
+    "To enable: AIPRD_PIPELINE_BIN=/path/to/ai-architect-mcp pnpm test",
+  );
+}
+
 describe.skipIf(!SHOULD_RUN)(
   "live automatised-pipeline integration",
   () => {

@@ -19,6 +19,22 @@ export interface StdioMcpClientConfig {
   readonly cwd?: string;
 }
 
+/**
+ * Maximum milliseconds to wait for the MCP server process to complete its
+ * capability-exchange handshake after spawn.
+ *
+ * source: provisional heuristic — MCP SDK capability exchange on a locally-
+ * built Rust binary completes in <500 ms on Mac M-series hardware; 10 000 ms
+ * gives 20× headroom for cold-start on slow CI runners and first-launch
+ * compilation. If the exchange does not complete in this window the binary
+ * is considered unreachable (not merely slow), which is the failure mode
+ * the integration test's existsSync gate cannot catch.
+ * Phase 4.5 will calibrate from measured p99 connect latency on CI.
+ *
+ * source: test-engineer TE4 (Phase 3+4 cross-audit, 2026-04).
+ */
+const CONNECT_TIMEOUT_MS = 10_000;
+
 export class StdioMcpClient {
   private client: Client | null = null;
   private transport: StdioClientTransport | null = null;
@@ -55,7 +71,22 @@ export class StdioMcpClient {
       { capabilities: {} },
     );
 
-    await this.client.connect(this.transport);
+    const connectWithTimeout = Promise.race([
+      this.client.connect(this.transport),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `${this.config.serverName}: connect() timed out after ${CONNECT_TIMEOUT_MS} ms. ` +
+                "Verify the binary path is correct and the process can start.",
+              ),
+            ),
+          CONNECT_TIMEOUT_MS,
+        ),
+      ),
+    ]);
+    await connectWithTimeout;
   }
 
   /**
