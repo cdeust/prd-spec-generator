@@ -334,6 +334,13 @@ Empty-DB / prior contract: `getReliability(judge, claimType, direction)` returns
     IFF held-out consensus accuracy under the calibrated map is lower
     than under the prior baseline by any margin that exceeds the 95%
     bootstrap CI of the difference.
+  - **Paired bootstrap implementation site (M4)**: the bootstrap
+    accuracy-difference estimator is stubbed at
+    `packages/benchmark/calibration/paired-bootstrap.ts::pairedBootstrapAccuracyDifference`.
+    The stub throws `PAIRED_BOOTSTRAP_NOT_YET_IMPLEMENTED` — Wave C+ scope.
+    Types `HeldoutClaim` and `AccuracyMap` are defined there and are final.
+    The rejection rule (ci95[1] < 0 → revert) is documented in the function
+    contract. Do not implement before the held-out partition is sealed.
   - The held-out set is used at most ONCE per calibration generation;
     re-using it after a tuning iteration constitutes leakage and
     voids the falsifier (Popper AP-5).
