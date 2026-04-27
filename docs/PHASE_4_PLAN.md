@@ -164,6 +164,14 @@ agent_reliability(
 ConsensusVerdict snapshots the reliability map version used so audit replays
 are reproducible.
 
+**Persistence implementation (Wave B2 delivery).**
+
+The persistence layer is `SqliteReliabilityRepository` at `~/.prd-gen/reliability.db`, separate from `evidence.db` to allow independent backup and schema evolution. The port (`ReliabilityRepository` interface and all types) lives in `packages/core/src/persistence/reliability-repository.ts` with no SQLite import, satisfying DIP (coding-standards §1.5). The SQLite adapter lives in `packages/core/src/persistence/sqlite-reliability-repository.ts`.
+
+Schema-version policy: a `schema_meta` table holds a single `schema_version` integer row (currently `1`, constant `RELIABILITY_SCHEMA_VERSION`). The constructor reads this and throws a human-readable error if it does not match the constant. Auto-migration is out of scope for Wave B — a version mismatch requires manual intervention before the DB can be read. This hard-stop prevents silent corruption from an incompatible schema.
+
+Empty-DB / prior contract: `getReliability(judge, claimType, direction)` returns `null` for unseen cells. Callers must substitute `Beta(BETA_PRIOR_ALPHA=7, BETA_PRIOR_BETA=3)` when they receive `null`. The repository does not embed fallback policy. The `n_observations` field is stored explicitly (redundant with `α + β - 10`) for human-readable diagnostics and control-chart queries (CC-4). WAL mode is on; concurrent writers serialise at the SQLite file lock; each `recordObservation` is an atomic UPSERT, so final state matches sequential application regardless of call ordering. Lamport should review the multi-process scenario if >1 calibration process writes to the same `reliability.db` simultaneously.
+
 **Falsifiability (positive + negative — Popper AP-5).**
 - Positive: at least one claim flips verdict between calibrated and
   uncalibrated runs.
