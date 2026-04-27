@@ -342,6 +342,55 @@ export function analyze(
   };
 }
 
+function formatPerKindBlock(
+  perKindCI: Record<MismatchKind, ClopperPearsonInterval>,
+): string[] {
+  const lines = ["", "## Per mismatch_kind (CP-95)"];
+  for (const k of MISMATCH_KINDS) {
+    const ci = perKindCI[k];
+    lines.push(
+      `  ${k.padEnd(22)} fires=${ci.successes}/${ci.trials}  rate=${ci.pointEstimate.toFixed(4)}  upper=${ci.upper.toFixed(4)}`,
+    );
+  }
+  return lines;
+}
+
+function formatStratificationBlock(
+  perContext: ReadonlyArray<PerContextStats>,
+): string[] {
+  const lines = ["", "## Stratification (per prd_context)"];
+  for (const c of perContext) {
+    const flag = c.meetsFloor ? "OK" : `FLOOR-MISS (need ${PER_CONTEXT_FLOOR})`;
+    lines.push(
+      `  ${c.context.padEnd(10)} trials=${c.trials.toString().padStart(4)}  fires=${c.fires.toString().padStart(3)}  ${flag}`,
+    );
+  }
+  return lines;
+}
+
+function formatXmrBlock(xmr: XmRReport | null): string[] {
+  const lines = ["", "## XmR control chart"];
+  if (!xmr) {
+    lines.push(
+      `  not yet computable — need ≥ ${XMR_BASELINE_BATCHES} batches of ${XMR_BATCH_SIZE} runs`,
+    );
+  } else {
+    lines.push(
+      `  centerline:           ${xmr.limits.centerline.toFixed(4)}`,
+      `  UCL:                  ${xmr.limits.upperControlLimit.toFixed(4)}`,
+      `  LCL:                  ${xmr.limits.lowerControlLimit.toFixed(4)}`,
+      `  in-control:           ${xmr.inControl}`,
+      `  signals:              ${xmr.signals.length}`,
+    );
+    for (const s of xmr.signals) {
+      lines.push(
+        `    batch[${s.index}] value=${s.value.toFixed(4)} rule=${s.rule}`,
+      );
+    }
+  }
+  return lines;
+}
+
 function formatReport(r: FireRateReport): string {
   const lines: string[] = [
     "# Plan-mismatch fire-rate (Phase 4.3) — analysis report",
@@ -352,41 +401,12 @@ function formatReport(r: FireRateReport): string {
     `  CP-95 lower:         ${r.overallCI.lower.toFixed(4)}`,
     `  CP-95 upper:         ${r.overallCI.upper.toFixed(4)}`,
     `  H0 ceiling (p=${FIRE_RATE_CEILING}): ${r.overallCI.upper < FIRE_RATE_CEILING ? "REJECTED" : "NOT REJECTED"}`,
-    "",
-    "## Per mismatch_kind (CP-95)",
   ];
-  for (const k of MISMATCH_KINDS) {
-    const ci = r.perKindCI[k];
-    lines.push(
-      `  ${k.padEnd(22)} fires=${ci.successes}/${ci.trials}  rate=${ci.pointEstimate.toFixed(4)}  upper=${ci.upper.toFixed(4)}`,
-    );
-  }
-  lines.push("", "## Stratification (per prd_context)");
-  for (const c of r.perContext) {
-    const flag = c.meetsFloor ? "OK" : `FLOOR-MISS (need ${PER_CONTEXT_FLOOR})`;
-    lines.push(
-      `  ${c.context.padEnd(10)} trials=${c.trials.toString().padStart(4)}  fires=${c.fires.toString().padStart(3)}  ${flag}`,
-    );
-  }
-  lines.push("", "## XmR control chart");
-  if (!r.xmr) {
-    lines.push(
-      `  not yet computable — need ≥ ${XMR_BASELINE_BATCHES} batches of ${XMR_BATCH_SIZE} runs`,
-    );
-  } else {
-    lines.push(
-      `  centerline:           ${r.xmr.limits.centerline.toFixed(4)}`,
-      `  UCL:                  ${r.xmr.limits.upperControlLimit.toFixed(4)}`,
-      `  LCL:                  ${r.xmr.limits.lowerControlLimit.toFixed(4)}`,
-      `  in-control:           ${r.xmr.inControl}`,
-      `  signals:              ${r.xmr.signals.length}`,
-    );
-    for (const s of r.xmr.signals) {
-      lines.push(
-        `    batch[${s.index}] value=${s.value.toFixed(4)} rule=${s.rule}`,
-      );
-    }
-  }
+
+  lines.push(...formatPerKindBlock(r.perKindCI));
+  lines.push(...formatStratificationBlock(r.perContext));
+  lines.push(...formatXmrBlock(r.xmr));
+
   lines.push(
     "",
     "## Decision",
