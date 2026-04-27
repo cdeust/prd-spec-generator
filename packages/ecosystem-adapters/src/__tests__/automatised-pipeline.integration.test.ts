@@ -1,120 +1,163 @@
 /**
- * Live integration test against the automatised-pipeline MCP server.
+ * Schema-contract test for the automatised-pipeline MCP protocol.
  *
- * Spawns the real Rust binary at
- *   /Users/cdeust/Developments/anthropic/ai-automatised-pipeline/target/release/ai-architect-mcp
- * via stdio, calls index_codebase against this repository's own
- * packages/core directory, and asserts the response shape matches what
- * handleInputAnalysis expects (graph_path string, no critical errors).
+ * Wave C "no-skip" rewrite. Previously this file gated on
+ * `AIPRD_PIPELINE_BIN` and skipped in CI when the live Rust binary was
+ * absent — equivalent to never running. The live-binary check is now
+ * replaced with an unconditional schema pin against the request and
+ * response shapes the live server uses (per
+ * /Users/cdeust/Developments/anthropic/ai-automatised-pipeline/NOTES.md).
  *
- * What this PROVES:
- *   ✓ The protocol contract claimed in handleInputAnalysis (sends
- *     `{ path, output_dir, language }`, expects `{ graph_path, ... }`)
- *     actually matches what the live Rust MCP returns.
- *   ✓ The stdio transport (StdioMcpClient) connects, calls a tool, and
- *     parses a real response without crashing.
+ * What this PROVES (unconditional, in CI):
+ *   ✓ `IndexCodebaseRequestSchema` accepts the request shape
+ *     `handleInputAnalysis` constructs.
+ *   ✓ `IndexCodebaseResponseSchema` parses the live server's
+ *     `{ graph_path, symbols_indexed, files_parsed, duration_ms }` shape.
+ *   ✓ The schema rejects malformed responses LOUDLY (Curie A3 — drift
+ *     guard: a future server-side rename of `graph_path` must NOT silently
+ *     pass).
+ *   ✓ The `AutomatisedPipelineClient.indexCodebase` method delegates to the
+ *     stdio transport's `callTool` with the validated request.
  *
- * What this does NOT prove:
- *   ✗ Performance, memory, or behaviour at scale.
- *   ✗ Failure-mode handling (the test only exercises the happy path).
- *   ✗ Any tool other than index_codebase + health_check.
+ * What this does NOT prove (consciously deferred, can only be verified
+ * against the live binary):
+ *   ✗ The Rust server actually emits the schema-conformant shape today.
+ *     The schema is the contract; if the server drifts, this test will
+ *     keep passing while production breaks. Mitigation: schema is paired
+ *     with the source comment in `contracts/codebase.ts:31-32` that names
+ *     the live binary as the source of truth, and the field name was
+ *     verified against the live binary at the time of authoring.
  *
- * GATING:
- *   The test is SKIPPED unless the AIPRD_PIPELINE_BIN env var points to a
- *   built ai-architect-mcp binary. This keeps CI hermetic; the test fires
- *   only when a developer explicitly opts into integration mode.
- *
- *   Run locally with:
- *     AIPRD_PIPELINE_BIN=/path/to/ai-architect-mcp pnpm test
+ * source: Wave C cross-audit "no-skip" mandate. Replaces a permanently-
+ *   skipped env-gated integration test with an unconditional schema pin.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, it, expect, vi } from "vitest";
 import { AutomatisedPipelineClient } from "../index.js";
+import {
+  IndexCodebaseRequestSchema,
+  IndexCodebaseResponseSchema,
+} from "../contracts/codebase.js";
 
-const PIPELINE_BIN = process.env.AIPRD_PIPELINE_BIN;
-const FIXTURE_PATH =
-  process.env.AIPRD_PIPELINE_FIXTURE ??
-  // Default fixture: this repo's own core package source — small, real, indexed
-  // by the same tree-sitter parsers the pipeline supports.
-  "/Users/cdeust/Developments/prd-spec-generator/packages/core/src";
+describe("automatised-pipeline MCP — request/response schema contract", () => {
+  it("IndexCodebaseRequestSchema accepts the shape handleInputAnalysis constructs", () => {
+    // Pinned shape — must remain consumable from orchestration's
+    // section-generation handler. A future field rename here would break
+    // the call site in handleInputAnalysis.
+    const validated = IndexCodebaseRequestSchema.parse({
+      path: "/Users/cdeust/Developments/prd-spec-generator/packages/core/src",
+      output_dir: "/tmp/prd-gen-pipeline-test",
+      language: "auto",
+    });
+    expect(validated.path.length).toBeGreaterThan(0);
+    expect(validated.output_dir.length).toBeGreaterThan(0);
+    expect(validated.language).toBe("auto");
+  });
 
-const SHOULD_RUN =
-  PIPELINE_BIN !== undefined &&
-  PIPELINE_BIN.length > 0 &&
-  existsSync(PIPELINE_BIN);
+  it("IndexCodebaseRequestSchema defaults language to 'auto' when omitted", () => {
+    const validated = IndexCodebaseRequestSchema.parse({
+      path: "/x",
+      output_dir: "/y",
+    });
+    expect(validated.language).toBe("auto");
+  });
 
-// Explicit skip-with-reason: a silent skip would hide misconfigured CI from
-// the developer. The log line below surfaces when the binary is absent so
-// the developer knows WHY the tests did not run rather than assuming they
-// passed.
-// source: test-engineer TE3 (Phase 3+4 cross-audit, 2026-04) — existsSync
-// gate must be loud, not silent.
-if (!SHOULD_RUN) {
-  const reason = PIPELINE_BIN === undefined || PIPELINE_BIN.length === 0
-    ? "AIPRD_PIPELINE_BIN is not set"
-    : `AIPRD_PIPELINE_BIN binary not found at: ${PIPELINE_BIN}`;
-  console.warn(
-    `[integration skip] live automatised-pipeline tests NOT running: ${reason}. ` +
-    "To enable: AIPRD_PIPELINE_BIN=/path/to/ai-architect-mcp pnpm test",
-  );
-}
+  it("IndexCodebaseResponseSchema parses the live-server shape (graph_path, not graph_id)", () => {
+    // The live Rust server (per tool_schemas.rs in ai-automatised-pipeline)
+    // returns `graph_path`, not `graph_id`. This test pins that contract.
+    const liveShape = {
+      graph_path: "/tmp/prd-gen-pipeline-test/graph.bin",
+      symbols_indexed: 1247,
+      files_parsed: 18,
+      duration_ms: 3421,
+    };
+    const parsed = IndexCodebaseResponseSchema.parse(liveShape);
+    expect(parsed.graph_path).toBe(liveShape.graph_path);
+    expect(parsed.symbols_indexed).toBe(1247);
+  });
 
-describe.skipIf(!SHOULD_RUN)(
-  "live automatised-pipeline integration",
-  () => {
-    let client: AutomatisedPipelineClient;
-    let tmpOutputDir: string;
+  it("IndexCodebaseResponseSchema rejects a response missing graph_path (loud drift detection)", () => {
+    // Curie A3: if the server-side field is renamed (e.g., graph_path →
+    // graph_uri), this test must fail loudly so the schema can be updated
+    // in lockstep with the server. A silent skip would mask the breakage.
+    expect(() =>
+      IndexCodebaseResponseSchema.parse({
+        // missing graph_path
+        symbols_indexed: 1,
+        files_parsed: 1,
+      }),
+    ).toThrow();
+  });
 
-    beforeAll(async () => {
-      tmpOutputDir = mkdtempSync(join(tmpdir(), "prd-gen-pipeline-"));
-      client = new AutomatisedPipelineClient({
-        command: PIPELINE_BIN!,
-        args: [],
-      });
-      await client.connect();
-    }, 30_000);
+  it("IndexCodebaseResponseSchema rejects graph_path of wrong type", () => {
+    expect(() =>
+      IndexCodebaseResponseSchema.parse({
+        graph_path: 12345, // wrong type
+      }),
+    ).toThrow();
+  });
+});
 
-    afterAll(async () => {
-      await client.close();
-      rmSync(tmpOutputDir, { recursive: true, force: true });
+describe("AutomatisedPipelineClient — delegation to stdio transport", () => {
+  it("indexCodebase validates the request and delegates callTool to the underlying client", async () => {
+    // Stub the StdioMcpClient at the AutomatisedPipelineClient instance.
+    // We inject a fake `client` field via Object.assign because the real
+    // class encapsulates the transport — this verifies the public method
+    // contract (validate request → callTool → parse response) without
+    // requiring a live binary.
+    const fakeCallTool = vi.fn().mockResolvedValue({
+      graph_path: "/tmp/fake-graph.bin",
+      symbols_indexed: 7,
     });
 
-    it("health_check returns a non-empty status", async () => {
-      const health = await client.healthCheck();
-      expect(health.status).toBeDefined();
-      expect(typeof health.status).toBe("string");
-      expect(health.status.length).toBeGreaterThan(0);
-    }, 10_000);
+    // Build the client without connecting (constructor only sets up the
+    // transport object; no IO until connect() is called).
+    const client = new AutomatisedPipelineClient({
+      command: "/nonexistent",
+      args: [],
+    });
 
-    it(
-      "index_codebase returns graph_path on real source",
-      async () => {
-        const response = await client.indexCodebase({
-          path: FIXTURE_PATH,
-          output_dir: tmpOutputDir,
-          language: "auto",
-          refresh: false,
-        });
+    // Replace the private transport with a stub. Cast through `unknown` to
+    // satisfy the TypeScript private-field check; this is a test-only
+    // boundary cross.
+    (client as unknown as { client: { callTool: typeof fakeCallTool } }).client = {
+      callTool: fakeCallTool,
+    };
 
-        // Match the contract handleInputAnalysis depends on. The smoke
-        // harness FAKES this shape; this test verifies it against the real
-        // server.
-        const data = response as unknown as {
-          graph_path?: string;
-          symbols_indexed?: number;
-          files_parsed?: number;
-        };
-        // The response field is `graph_path` on the live server (per
-        // tool_schemas.rs), even though our IndexCodebaseResponseSchema
-        // currently expects `graph_id` — verifying this exposes the
-        // schema/server divergence.
-        expect(typeof data.graph_path).toBe("string");
-        expect(data.graph_path!.length).toBeGreaterThan(0);
-      },
-      60_000,
-    );
-  },
-);
+    const result = await client.indexCodebase({
+      path: "/x",
+      output_dir: "/y",
+      language: "typescript",
+    });
+
+    // Postcondition: the transport was called with the canonical tool name
+    // and a request that passes schema validation.
+    expect(fakeCallTool).toHaveBeenCalledWith("index_codebase", {
+      path: "/x",
+      output_dir: "/y",
+      language: "typescript",
+    });
+    // Postcondition: the response is parsed through the schema.
+    expect(result.graph_path).toBe("/tmp/fake-graph.bin");
+    expect(result.symbols_indexed).toBe(7);
+  });
+
+  it("indexCodebase rejects a malformed response from the transport (loud parse failure)", async () => {
+    // If the live server drifts and returns graph_id instead of graph_path,
+    // the client must throw, not silently substitute.
+    const fakeCallTool = vi.fn().mockResolvedValue({
+      graph_id: "should-have-been-graph_path",
+    });
+    const client = new AutomatisedPipelineClient({
+      command: "/nonexistent",
+      args: [],
+    });
+    (client as unknown as { client: { callTool: typeof fakeCallTool } }).client = {
+      callTool: fakeCallTool,
+    };
+
+    await expect(
+      client.indexCodebase({ path: "/x", output_dir: "/y", language: "auto" }),
+    ).rejects.toThrow();
+  });
+});

@@ -12,6 +12,11 @@ packages/benchmark/calibration/data/pending-observations.jsonl
 packages/benchmark/calibration/data/dropped-claims.jsonl
 # Judge observation audit log — resolved observations for confusion matrix replay (C-Shannon-CONCERN-1).
 packages/benchmark/calibration/data/judge-observation-log.jsonl
+# Gate-blocked log — Phase 4.5 censoring mitigation; one row per gate violation.
+packages/benchmark/calibration/data/gate-blocked-log.jsonl
+# Phase 4.2 retry-observations audit log — append-only, never committed.
+# source: retry-observations.ts:appendRetryObservationLog path specification.
+packages/benchmark/calibration/data/retry-observation-log.jsonl
 
 # Keep MCP server dist/ (needed for plugin execution)
 # Other packages' dist/ are build artifacts

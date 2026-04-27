@@ -394,59 +394,318 @@ source: CC-3 (docs/PHASE_4_PLAN.md §CC-3); B-Popper-1 cross-audit finding.
 
 ---
 
+### §4.1 Open design decision — Externally-grounded held-out subset
+
+**Resolution (commit aa42c42, Option b).** The held-out 20% partition must
+contain claims with EXTERNALLY-VERIFIABLE ground truth — not LLM-opinion
+ground truth. Without this, the negative falsifier measures "agreement with
+annotator-LLM" instead of "agreement with reality" (Curie A2 circularity).
+
+**What counts as externally-verifiable ground truth.**
+
+Each claim in the held-out partition must be assigned to exactly one of the
+four ExternalGroundingType categories. The oracle for that category provides
+ground truth without any LLM involvement.
+
+**Schema-grounded** (`type: "schema"`). Oracle: Ajv / Zod validator.
+Examples:
+- "The JSON object `{"name":"Alice","age":30}` is valid against the schema
+  `{type:object, required:[name,age], properties:{name:{type:string},age:{type:integer}}}`."
+- "The payload `{"id":"abc"}` is INVALID against the schema that requires id
+  to be a UUID format string."
+- "The array `[1,"two",3]` fails the schema `{type:array, items:{type:integer}}`."
+
+**Math-grounded** (`type: "math"`). Oracle: Python/SymPy.
+Examples:
+- "The number of distinct 3-element subsets of a 5-element set is 10."
+- "The expression (7 + 3) × 4 − 2 evaluates to 38."
+- "The intersection of {1,2,3,4} and {2,4,6} is {2,4}."
+
+**Code-grounded** (`type: "code"`). Oracle: `tsc --noEmit --strict`.
+Examples:
+- "The snippet `const x: number = 'hello'` fails strict TypeScript compilation."
+- "The snippet `const y: string = 'world'` compiles without errors."
+- "The snippet `function f(a: number, b: string): number { return a + b; }`
+  produces a type error under strict mode."
+
+**Spec-grounded** (`type: "spec"`). Oracle: Hard Output Rules validator
+in `packages/validation` (`validateSection`).
+Examples:
+- "A requirements section that contains '- [ ] MUST' items and a Summary
+  subsection passes the requirements HOR validator."
+- "An overview section missing the mandatory H2 'Goals' subsection fails the
+  overview HOR validator."
+- "A technical_specification section with an unfenced code block fails the
+  spec validator."
+
+**Code seam.**
+`packages/benchmark/src/calibration/external-oracle.ts` defines:
+- `ExternalGroundingType = "schema" | "math" | "code" | "spec"`
+- `ExternalOracle = (claim: OracleClaimInput) => Promise<OracleResult>`
+- `ORACLE_REGISTRY: Record<ExternalGroundingType, ExternalOracle>` — 4
+  stubs throwing `EXTERNAL_ORACLE_NOT_YET_IMPLEMENTED`. Wave D implements.
+- `invokeOracle(claim)` — dispatches via ORACLE_REGISTRY.
+
+**Partition lock schema (v2).**
+`packages/benchmark/src/calibration/calibration-seams.ts` defines
+`HeldoutPartitionLockSchema` (schema_version: 2) which requires:
+- `external_grounding_breakdown: Record<ExternalGroundingType, number>`
+- `external_grounding_total: number` (must equal `partition_size`)
+- `external_grounding_schema_version: 1`
+
+`HELDOUT_PARTITION_LOCK_SCHEMA_VERSION = 2`. C1 must write v2 lock files.
+v1 lock files are rejected by `verifyHeldoutPartitionSeal`.
+
+**Invariant.** `external_grounding_total === partition_size`. Every claim
+in the held-out partition has an assigned oracle category. Enforced by Zod
+refine in the schema.
+
+---
+
 ## 4.2 — MAX_ATTEMPTS calibration
 
-### PRE-REGISTRATION (mandatory before implementation)
+### PRE-REGISTRATION (mandatory before implementation) — REVISED for C1
 
-**Hypothesis.** H1: P(passed at attempt 3 | failed at attempt 2) < 0.05,
-justifying a reduction of MAX_ATTEMPTS from 3 to 2.
+**Status.** Methodology + Kaplan-Meier math layer + Schoenfeld sample-size +
+ablation/control-arm seams published in this revision (C1 deliverable, Wave C).
+Final calibration is BLOCKED on the ≥823-trial benchmark run feeding the
+math layer with real (or mocked-end-to-end) (attempt, pass) data, AND on the
+held-out 20% partition being sealed via `data/maxattempts-heldout.lock.json`.
+No promotion of the calibrated MAX_ATTEMPTS value (whether 2 or another) may
+land in `section-generation.ts` until the falsifier passes (see below).
 
-**Estimand.** CONDITIONAL pass probability — P(passed | attempt = k, failed
-at all attempts < k). This is a survival-analysis quantity, NOT the marginal
-P(passed | attempt = k). The plan's original specification was wrong (Fisher
-Fi-4.2 critical specification error).
+**Hypothesis (two-sided, conditional).**
+- H0: the conditional hazard of passing at attempt k+1 given a failure at
+  attempt k is statistically indistinguishable between the two ablation arms
+  (with vs. without `prior_violations`); equivalently, hazard ratio HR = 1.
+- H1: HR ≠ 1; specifically, the calibration targets detection of HR ≤ 0.7
+  (a 30% reduction in the conditional fail-hazard when prior_violations is
+  passed forward — a clinically meaningful improvement the retry mechanism
+  must demonstrate to justify MAX_ATTEMPTS > 1).
 
-**Estimator.** Kaplan-Meier survival estimator over attempt number, treating
-"pass at attempt k" as the event. Stratified by section_type.
+**Estimand — CONDITIONAL, not marginal (Fisher Fi-4.2 critical correction).**
+The MAX_ATTEMPTS calibration question is:
+  P(passed at attempt k | failed at all attempts < k)
+This is a survival quantity. The original Phase-4 plan specified the marginal
+P(passed at attempt = k), which conflates first-attempt easy sections with
+multi-attempt hard sections and underestimates the value of retries on
+already-failing sections. The marginal estimand is hereby retired.
 
-**Sufficient statistic.** (k_passed_at_attempt_k, n_at_risk_at_attempt_k)
-per (section_type, attempt) cell. n_at_risk_at_k = sections that reached
-attempt k (failed all prior attempts).
+The Kaplan-Meier survival function S(k) = P(T > k), where T is the first
+attempt at which a section passes, gives the marginal at-risk fraction at
+each attempt level; the conditional pass probability at k+1 equals
+1 − S(k+1)/S(k), which is the quantity that drives the
+"is one more attempt worth it?" decision.
 
-**Sample size (per Fermi + Fisher + Test-engineer).**
-- For 5pp effect detection at α=0.05, power=0.80, baseline ~0.7: N ≈ 1156
-  per attempt level, OR
-- ≥620 second-attempt observations + 620 third-attempt observations.
-- If first-attempt fail rate ≈ 30%, total trials needed: ~2,070.
-- N=50 (original plan) is underpowered by 23×.
-- Wall-time at ~5ms per mocked trial: ~10 seconds for 2,000 runs.
+**Estimator.** Kaplan-Meier non-parametric survival estimator with
+Greenwood's-formula 95% CI, stratified by section_type and by ablation arm
+(`with_prior_violations` vs `without_prior_violations`). Two-sample
+comparison across ablation arms uses the log-rank (Mantel 1966) test.
 
-**Decision rule.**
-- If 95% CI for P(passed at attempt 3 | failed at attempt 2) excludes 0.05
-  AND the upper bound of that CI is below 0.05: lower MAX_ATTEMPTS to 2.
-- If 95% CI is wide (insufficient data): hold MAX_ATTEMPTS = 3.
-- If P(passed at attempt 2 | failed at attempt 1) is also below 0.05: this
-  is a separate signal — `prior_violations` is not improving drafts. Surface
-  as Phase 4.2-secondary investigation; do NOT lower MAX_ATTEMPTS until the
-  retry mechanism is fixed.
+Math layer published this wave (Wave C1) at
+`packages/benchmark/calibration/kaplan-meier.ts`:
+- `kmEstimate(events): { times, survival, ci95 }` — KM curve + Greenwood CI.
+- `kmMedianAttempts(events): { median, ci95 }` — median attempts-to-pass with
+  Brookmeyer-Crowley (1982) CI.
+- `logRankTest(armA, armB): { chi2, pValue }` — two-arm log-rank (1 df).
+- `schoenfeldRequiredEvents(input): { events, sampleSize }` — sample-size
+  derivation (see "Sample size" below).
 
-**Stopping rule.** All N=2,070 runs must complete OR until each (section_type,
-attempt) cell reaches the per-cell minimum required for variance estimation.
+Module is pure-stdlib (§2.2 layer rule), no I/O, no @prd-gen/core imports.
+Tested at `__tests__/kaplan-meier.test.ts` against:
+- closed-form check (no censoring → 1 − empirical CDF),
+- Kalbfleisch & Prentice 2002 §1.1.1 textbook example (S(6), S(7), S(10)),
+- log-rank chi² hand-computation on a 5-subject reference dataset,
+- Schoenfeld D=247 / N=823 on the §4.2 production parameters.
 
-**Mechanistic instrumentation (Curie A4 / Deming).** Add a `prior_violations_used`
-boolean to recordExecution: true if the engineer's draft contains at least
-one of the violation strings from `prior_violations`. Without this, retry
-pass-rate cannot be attributed to violation feedback vs random variation.
+**Sufficient statistic.** Per (section_type, ablation_arm, attempt k) cell:
+(d_k = events at k, n_k = at-risk just before k, c_k = censored at k).
+n_{k+1} = n_k − d_k − c_k. The pooled 4-tuple per arm reproduces the
+log-rank chi² without re-reading per-section data.
 
-**Ablation arm.** Run a second arm where `prior_violations = []` is passed
-to the engineer subagent on retries. If pass-rate-by-attempt is identical
-between arms, retries are random draws and MAX_ATTEMPTS = 1 is the correct
-choice.
+**Sample size (REVISED — Schoenfeld 1981 derivation, replaces ad-hoc 2,070).**
+Two-sample log-rank test for HR = 0.7, α = 0.05 two-sided, power = 0.80,
+50/50 allocation:
 
-**Falsifiability.**
-- Positive: P(passed at k=3 | failed at k=2) < 0.05 with 95% CI excluding 0.05.
-- Negative: ablation shows no difference between with/without prior_violations
-  → retry mechanism is broken; do NOT lower MAX_ATTEMPTS until fixed.
+    D = (z_{α/2} + z_β)² / (p_A · p_B · (log HR)²)
+      = (1.95996 + 0.84162)² / (0.5 · 0.5 · (log 0.7)²)
+      = (2.80158)² / (0.25 · 0.12722)
+      = 7.8489 / 0.031806
+      ≈ 246.78  →  ceil = 247 events
+
+Convert to subjects via the first-attempt fail rate (the fraction of sections
+that produce ≥ 1 retry observation, i.e. the fraction that ever enter the
+at-risk set for log-rank). Production telemetry: first-attempt fail rate
+≈ 30% (provisional; recalibrate from real runs before the calibration study).
+
+    N = ceil(D / event_rate) = ceil(246.78 / 0.30) = 823 subjects
+
+The earlier ~2,070 figure derived from a marginal-estimand power calculation
+for a different hypothesis (5pp difference in marginal pass rate) and is
+hereby superseded. The revised target is **823 sections (~412 per arm)**
+under the conditional/survival framing. If first-attempt fail rate is lower
+than 0.30 in production, N rises proportionally; the runner MUST recompute
+N from the observed event rate before any decision rule fires.
+
+**event_rate=0.30 PROVISIONAL anchor hedge (Popper AP-1 / B9).**
+The value 0.30 is a provisional anchor pending CC-2 measurement from real runs.
+Pre-flight check: BEFORE running the N=823 calibration study, an initial
+K=50 calibration runs against the canned baseline MUST measure the actual
+first-attempt fail rate. If the observed event_rate differs from 0.30 by more
+than ±0.05 absolute, the Schoenfeld N must be recomputed via
+`schoenfeldRequiredEvents({ hr: 0.7, alpha: 0.05, power: 0.80,
+allocationA: 0.5, eventRate: observed })` and the study budget revised before
+any further data collection.
+
+source: provisional anchor — measure before use (Wave C integration B9,
+2026-04-27).
+
+source: Schoenfeld, D. (1981). "The Asymptotic Properties of Nonparametric
+  Tests for Comparing Survival Distributions." Biometrika 68(1), 316-319.
+source: Collett, D. (2015). "Modelling Survival Data in Medical Research,"
+  3rd ed., Ch. 10.2.
+source: implementation `schoenfeldRequiredEvents` at
+  `packages/benchmark/calibration/kaplan-meier.ts`, tested against the
+  hand-computed D=247 / N=823.
+
+**Decision rule (per pre-registered contract).**
+1. If `logRankTest(arm_with, arm_without).pValue ≥ 0.05`: ablation arms are
+   indistinguishable — `prior_violations` feedback is NOT driving retry
+   improvement. Set `calibrated_MAX_ATTEMPTS = 1` (retries are random
+   draws). Surface "retry mechanism broken" as a separate Phase-4.2-secondary
+   investigation; do NOT silently leave MAX_ATTEMPTS = 3.
+2. Else (arms separable; treatment beats control): compute the KM curve on
+   the with-prior-violations arm and find the smallest k* such that
+   `1 − S(k+1)/S(k) < 0.05` with the upper Greenwood-CI bound also below
+   0.05. Set `calibrated_MAX_ATTEMPTS = k*`.
+3. If no k* satisfies (2) within the observed support: hold MAX_ATTEMPTS = 3
+   (status quo); collect more data.
+4. The calibrated value is then validated on the held-out 20% set (negative
+   falsifier, below). A failure to outperform the baseline reverts to
+   MAX_ATTEMPTS_BASELINE = 3.
+
+**Stopping rule.** Sampling stops when EITHER (a) N = 823 subjects have been
+observed AND each (section_type × ablation_arm) cell has reached its minimum
+event count per Schoenfeld, OR (b) the first-attempt fail rate observed in
+the first 200 subjects is below 0.10 — at which point the conditional
+estimand is unidentifiable in budget and MAX_ATTEMPTS = 3 is held by default
+(no calibration possible). Early-stopping for any other reason is a
+pre-registration violation.
+
+**RNG seed (frozen).** `seed = 4_020_704` (interpretation: phase 4.2,
+sub-stream 4020704). Committed in this pre-registration block. All
+stratified-random partitions over (section_type × ablation_arm) MUST
+consume this seed. Re-using a different seed post-hoc invalidates the run.
+
+**Mechanistic instrumentation (Curie A4 / Deming).** Add a
+`prior_violations_used: boolean` field to `recordExecution`: true iff the
+engineer's draft contains at least one of the violation strings from
+`prior_violations`. Without this, retry pass-rate cannot be attributed to
+violation feedback vs. random variation. C2's scope (orchestration wiring)
+includes this instrumentation; this pre-reg block locks the field name and
+type so C2 cannot drift.
+
+**Ablation arm specification (Wave C1 seam).**
+- Arm A — `with_prior_violations` (treatment): retry receives the full
+  `prior_violations` array from the previous attempt. Current behaviour.
+- Arm B — `without_prior_violations` (control): retry receives an EMPTY
+  `prior_violations` array. The ablation. Engineer subagent must NOT
+  receive the previous violations list in any form.
+- **Allocation**: deterministic 50/50 partition by FNV-1a top-bit
+  extraction: `(fnv1a32(run_id) >>> 30) < 2` → arm B. ε = 0.50 matches
+  Schoenfeld's symmetric-allocation assumption used in the power
+  calculation. Top-bit (vs. low-bit `% 4`) extraction avoids FNV-1a's
+  known low-bit skew on short ASCII inputs.
+- **Seam**: `getRetryArmForRun(runId): RetryArm` exported from
+  `packages/benchmark/calibration/calibration-seams.ts`. Reuses the same
+  fnv1a32 hash function used by `isControlArmRun`; partition is independent
+  of the CC-3 reliability arm because the modulus base differs.
+- C2 wires this seam into the retry loop in
+  `packages/orchestration/src/handlers/section-generation.ts`. NOT done in
+  C1 — only the seam is published.
+
+source: PHASE_4_PLAN.md §4.2 ablation arm; implementation
+  `packages/benchmark/calibration/calibration-seams.ts::getRetryArmForRun`.
+
+**Forced-exploration control arm — CC-3 (closed-loop falsifier).**
+Phase 4.2 IS a closed loop: a calibrated MAX_ATTEMPTS feeds retry behaviour,
+which changes future (attempt, pass) observations, which feeds the next
+calibration cycle. Per CC-3, every closed loop must include a
+forced-exploration control arm.
+
+- **Allocation**: same partition predicate as Phase 4.1 — `fnv1a32(runId) % 5
+  === 0` → control arm (ε = 0.20). Reusing the same predicate intentionally
+  so a single run is fully control or fully treatment across both 4.1 and
+  4.2; analyses can be joined on run_id without cross-arm contamination.
+- **Control arm behaviour**: ignore the calibrated MAX_ATTEMPTS; use the
+  hardcoded baseline `MAX_ATTEMPTS_BASELINE = 3`.
+- **Treatment arm behaviour**: use the calibrated value.
+- **Comparison metric**: section_pass_rate on the held-out 20% set, NOT
+  the calibration loop's own (attempt, pass) output (Curie A6 self-reference
+  forbidden).
+- **Seam**: `getMaxAttemptsForRun(runId, calibratedValue): number` and
+  `MAX_ATTEMPTS_BASELINE` exported from `calibration-seams.ts`.
+- C2 wires this seam at the retry-loop call site (Wave C2 scope, not C1).
+
+source: PHASE_4_PLAN.md §CC-3; implementation
+  `packages/benchmark/calibration/calibration-seams.ts::getMaxAttemptsForRun`.
+
+**Falsifiability (positive + negative — Popper AP-5).**
+
+- *Positive falsifier (H1 evidence):* `logRankTest(arm_with, arm_without).pValue
+  < 0.05` AND the calibrated MAX_ATTEMPTS k* lies strictly below the current
+  baseline (3) AND the held-out evaluation passes.
+
+- *Negative falsifier (rejection trigger): held-out 80/20 split.*
+  - Before any calibration is run, the candidate-run pool is partitioned 80%
+    calibration / 20% held-out using the frozen RNG seed `4_020_704`,
+    stratified by section_type so each held-out cell preserves the
+    population pass/fail ratio.
+  - The held-out 20% set is *sealed*: it does not feed any KM or log-rank
+    update; no calibration tuning may inspect it.
+  - **Mechanical sealing enforcement.** The partition is sealed by writing
+    `packages/benchmark/calibration/data/maxattempts-heldout.lock.json`
+    (schema reuses the Phase-4.1 `HeldoutPartitionLockSchema`:
+    `{ schema_version: 1, rng_seed, partition_hash, partition_size, sealed_at }`).
+    `verifyHeldoutPartitionSeal(observed_indices, lockPath)` from
+    `calibration-seams.ts` MUST be called BEFORE any held-out evaluation. It
+    throws on missing lock, hash mismatch, future `sealed_at`, or null
+    template fields.
+  - After calibration, the held-out set is replayed under the calibrated
+    MAX_ATTEMPTS and (separately) under MAX_ATTEMPTS_BASELINE = 3. Compare
+    section_pass_rate using paired-bootstrap CI of the difference.
+  - **Reject calibration** (revert to MAX_ATTEMPTS = 3; investigate) IFF the
+    held-out section_pass_rate under the calibrated value is lower than
+    under the baseline by any margin that exceeds the 95% bootstrap CI of
+    the difference.
+  - The held-out set is used at most ONCE per calibration generation; re-use
+    after a tuning iteration constitutes leakage and voids the falsifier.
+
+- *Ablation falsifier (mechanism check).* If the log-rank test on
+  with-vs-without prior_violations returns p ≥ 0.05, the retry MECHANISM is
+  broken regardless of the survival-rate signal. Set MAX_ATTEMPTS = 1 and
+  surface as a separate engineering investigation. Do NOT lower MAX_ATTEMPTS
+  to 2 in this case — that would bake in random-draw-as-feature.
+
+source: docs/PHASE_4_PLAN.md §4.1 negative-falsifier procedure (template);
+  M2 mechanical enforcement; Popper AP-5.
+
+**Math layer (this wave, C1).** Pure-stdlib KM/log-rank/Schoenfeld primitives
+at `packages/benchmark/calibration/kaplan-meier.ts`. Tests at
+`__tests__/kaplan-meier.test.ts`. Seam tests at
+`__tests__/calibration-seams.test.ts`. No I/O, no orchestration imports.
+
+**Orchestration wiring (Wave C2 scope, NOT this wave).** C2 will:
+1. Replace the hardcoded `MAX_ATTEMPTS = 3` in
+   `packages/orchestration/src/handlers/section-generation.ts:46` with a
+   call to `getMaxAttemptsForRun(state.run_id, calibratedValue)`.
+2. Thread `getRetryArmForRun(state.run_id)` into the retry-prompt builder
+   so arm B sections receive an empty prior_violations array.
+3. Emit the `prior_violations_used` boolean on every recordExecution.
+
+C1 publishes the seams; C2 consumes them. The seams cannot be removed
+without breaking the calibration plan, so Wave C2 cannot ship without
+explicit wiring (B-Popper-1 same-pattern enforcement).
 
 ---
 
@@ -646,67 +905,291 @@ Without it, "improvement" is unmeasurable. Closed loops without holdout =
 
 ## 4.5 — KPI gate threshold tuning
 
-### PRE-REGISTRATION (mandatory before implementation)
+### PRE-REGISTRATION (mandatory before implementation) — REVISED for C3
 
-**Hypothesis.** H1: gate thresholds set at the upper bound of the 95% CI of
-P95 of K=100+ runs (a) do not trigger on ±5% normal variation and (b) do
-trigger on a +20% regression.
+**Status.** Methodology + scaffolding published in this revision (C3 deliverable,
+Wave C). Final threshold calibration is BLOCKED on 4.2 + 4.4 producing K≥100
+stable runs against a frozen baseline. No threshold value here may be promoted
+from "provisional heuristic" to "calibrated" until the calibration runs
+specified below complete.
 
-**Estimand.** Per-KPI per-machine-class P95.
+**Hypothesis (per gate, two-sided).**
+- H0: each gate's current provisional value equals the value derived from the
+  frozen-baseline distribution (per-gate estimand below) within ±5%.
+- H1: at least one gate's calibrated value departs from its provisional value
+  by more than ±5% (relative).
+- Per-gate H0/H1 specialisations are listed below in "Per-gate pre-registration
+  subsections".
+
+**Estimand (per gate).** EITHER (95th-percentile of the canned-baseline
+distribution) OR (3σ XmR upper control limit), chosen per gate based on
+whether the gate codifies a "P95 envelope" or a "process-stable mean ± noise".
+Each subsection below names which one.
 
 **Estimator.** Empirical P95 with Clopper-Pearson 95% CI on the order
-statistic. Gate placed at upper CI bound, NOT at point estimate (Fisher 4.5).
+statistic (gates of P95 type) OR XmR `computeLimits` over 12-batch baseline
+(gates of process-stable type). Source: `packages/benchmark/calibration/{clopper-pearson,xmr}.ts`.
 
-**Sample size.**
-- Fermi K5: K ≥ 100 minimum for stable P95.
-- Fisher Fi-4.5: K=20 produces a P95 estimate that is the 19th-order statistic
-  with very wide CI. K=100 brings CI half-width ≈ 5%.
-- For real-ecosystem at ~30s/run: K=100 = 50 minutes (manageable).
-- For mocked: K=100 = 0.5 seconds.
+**Sufficient statistic (per gate).** The K=100 vector of per-run KPI values,
+emitted to `packages/benchmark/calibration/data/kpi-gate-tuning.<bucket>.<run-batch>.jsonl`
+with one row per run, schema:
 
-**Frozen-baseline anchor (Popper AP-1).**
-- Run K=100 calibration runs against a tagged baseline version of the
-  pipeline. Record the full distribution per KPI per machine class.
-- Set initial gates at upper-CI-bound P95 of this frozen baseline.
-- Subsequent calibration MAY widen bands but MUST NOT move the anchor.
-  This prevents the threshold-ratchet failure mode where gradual regression
-  is calibrated as the new normal.
+```json
+{
+  "run_id": "string",
+  "machine_class": "m_series_high|m_series_mid|x86_intel|x86_amd|ci_runner",
+  "frozen_baseline_commit": "string (must match the merge-base hash)",
+  "kpis": "PipelineKpis (full object)",
+  "schema_version": 1,
+  "timestamp": "ISO-8601 UTC"
+}
+```
 
-**Censoring mitigation (Curie R6).**
-- Run the K=100 calibration with gates DISABLED (all runs complete). Record
-  the full distribution.
-- After gates are enabled, maintain a "gate-blocked run log" separate from
-  EvidenceRepository, recording the KPIs of blocked runs even though they
-  did not complete. Use this to audit threshold drift.
+**Power calculation (per gate, +20% true regression at 80% power).**
 
-**Per-KPI strategy.**
-- iteration_count: P95 + 1σ as gate. Verify a +20% regression triggers.
-- wall_time_ms: per-machine-class gate. Normalize against a calibration
-  benchmark run on each machine.
-- section_fail_count + structural_error_count: gate at 0 (any failure is a
-  defect — Deming special-cause).
-- distribution_pass_rate: SUSPENDED for canned-dispatcher runs (already
-  implemented). For real runs, calibrate against known-good vs known-bad
-  PRDs to establish a defensible threshold.
-- safety_cap_hit: gate at false (any hit is a defect).
-- mean_section_attempts: keep provisional 2.5 until N≥100 real runs;
-  recalibrate to upper-CI-bound P95.
+For a P95-type gate with binomial false-positive rate α=0.05:
+- Under H0 (no regression), P(KPI > calibrated_P95) ≈ 0.05 by construction.
+- Under H1 (+20% true regression on the perturbed KPI), the perturbed value
+  shifts the distribution rightward; for a near-symmetric distribution the
+  P(KPI > old_P95) ≈ 0.50–0.85 depending on tail shape.
+- N runs to detect this shift at 80% power, two-proportion z-test:
+  N ≈ (1.96 + 0.84)² · (p₀(1-p₀) + p₁(1-p₁)) / Δ²
+  with p₀=0.05, p₁=0.50, Δ=0.45 → N ≈ 13 per arm. K=100 (the calibration
+  budget) is therefore overpowered by 7.7× for the +20% test on a single
+  gate, leaving headroom for stratification across machine-class buckets.
+- For a 3σ XmR-type gate, Wheeler 1995 §3 demonstrates that a +20% true
+  shift in the mean of an in-control process is detected within 8
+  consecutive points (Western Electric Rule 4) with probability >0.95.
+  K=100 with 12-batch baseline + 38 monitored batches (n=20/batch) easily
+  clears this.
+
+**Frozen-baseline definition.**
+- "Frozen baseline" = the canned-dispatcher run produced by
+  `makeCannedDispatcher` at the merge-base of Wave B (commit `1152299` or
+  whatever was on `main` at the moment 4.5 calibration begins).
+- The K≥100 calibration runs MUST be reproducible from the committed RNG
+  seed (below) against that exact source-tree state. The seed is committed
+  BEFORE any data row is written.
+- The calibration runner asserts at startup that
+  `git merge-base --is-ancestor <frozen-baseline-commit> HEAD` succeeds and
+  that `pipeline-kpis.ts` content hash at the merge-base matches the
+  recorded reference; if either check fails, the run aborts with a clear
+  error rather than producing data against a moved baseline (Popper AP-1
+  ratchet protection).
+
+**Per-machine-class wall_time_ms gate.**
+- Detection: `detectMachineClass()` in
+  `packages/benchmark/calibration/machine-class.ts` buckets the host into
+  one of `MACHINE_CLASSES` = `{m_series_high, m_series_mid, x86_intel,
+  x86_amd, ci_runner}` from `os.cpus()[0].model` + `os.totalmem()`.
+  Heuristics:
+  - `Apple M*` model + `totalmem ≥ 32 GB` → `m_series_high`
+  - `Apple M*` model + `totalmem < 32 GB` → `m_series_mid`
+  - `Intel\b` in model → `x86_intel`
+  - `AMD\b` in model → `x86_amd`
+  - any other case (unrecognised, virtualised CPU model, empty `cpus()`)
+    → `ci_runner` (conservative fallback)
+- Per-bucket gate values come from per-bucket K≥100 calibration runs.
+  Until those land, every bucket maps to `null` in
+  `WALL_TIME_MS_GATE_BY_CLASS` and the function falls back to
+  `WALL_TIME_MS_GATE_FALLBACK` (= the current provisional 500ms in
+  `KPI_GATES.wall_time_ms_max`).
+- Code seam: `getWallTimeMsGateForMachine(): number` in
+  `packages/benchmark/calibration/machine-class.ts`. Called by the gate
+  evaluator only after the calibrated map is non-empty for the host's
+  bucket; before calibration, callers MUST keep using
+  `KPI_GATES.wall_time_ms_max` so behaviour is unchanged.
+
+**Synthetic +20% regression test.**
+- POSITIVE arm: take canned baseline; apply synthetic +20% perturbation to
+  one KPI at a time (`wall_time_ms`, `iteration_count`,
+  `mean_section_attempts`); confirm the corresponding gate fires under
+  `evaluateGates(perturbed, /* canned */ true)`.
+- NEGATIVE arm: take canned baseline UNPERTURBED; apply ±5%
+  multiplicative noise; confirm `evaluateGates` returns no violations.
+- Test file: `packages/benchmark/calibration/__tests__/gate-tuning-regression.test.ts`.
+  Both arms use `it.skip` until the per-machine-class calibration data
+  exists; the test SHAPE (perturbation helpers + KPI surface assertions) is
+  locked in a non-skipped sanity test against the `KPI_GATES` and
+  `PipelineKpis` symbols so type drift is caught at compile time.
+
+**Gate-blocked-run log (Curie R6 censoring mitigation).**
+- Every time `evaluateGates` returns a violation in a benchmark run, the
+  caller appends one row per (run_id, gate_name) to
+  `packages/benchmark/calibration/data/gate-blocked-log.jsonl` via
+  `appendGateBlockedEntry({ run_id, gate_name, observed, threshold,
+  machine_class })` (timestamp + schema_version are added by the appender).
+- Path constant: `GATE_BLOCKED_LOG_PATH` in
+  `packages/benchmark/calibration/machine-class.ts`. Gitignored alongside
+  the other calibration data sinks.
+- The log is the canonical source for auditing whether a tightened gate is
+  censoring an underlying distribution shift (Phase 4.5 "Censoring
+  mitigation"). Reuses the calibration-seams JSONL append pattern.
+
+**CC-3 control arm — KPI gates.** Phase 4.5 IS a closed loop: calibrated
+thresholds gate future runs whose outputs (KPI distributions) feed the next
+calibration cycle. Per CC-3:
+- Allocation: `isControlArmRun(runId)` (FNV-1a 32-bit, the same partition
+  function as 4.1 and 4.4 — a run on the control arm for reliability is on
+  the control arm for KPI gates too). ε = 0.20.
+- Mechanism: `getKpiGatesForRun<T>(runId, calibratedGates,
+  provisionalGates): T` in
+  `packages/benchmark/calibration/gate-tuning-seams.ts` (CC-3 forced-exploration
+  seam; C3 deliverable) returns the provisional gate set for control-arm runs
+  and the calibrated gate set for treatment-arm runs.
+- Comparison metric: downstream consensus accuracy / section_pass_rate on
+  the held-out partition (below) — NOT the loop's own output (KPI
+  distribution after gating).
+- Wiring into `evaluateGates` callers is part of Phase 4.5 finalisation,
+  NOT this scaffolding step. The seam exists so the wiring cannot ship
+  without using it.
+
+**CC-4 control chart per gate.** Each calibrated gate gets an XmR control
+chart over per-batch (n=20-run) means. Limits are computed from the first
+12 batches and frozen; subsequent batches plot against frozen limits.
+Re-tune ONLY when (a) a point falls outside 3σ, OR (b) Western Electric
+Rule 4 (run of 8 on one side of mean) fires. Reuses
+`packages/benchmark/calibration/xmr.ts::xmrAnalyze`. One XmR record per
+gate per machine-class bucket, persisted to
+`packages/benchmark/calibration/data/wall-time-ms.<bucket>.xmr.json` for
+the per-bucket gate, and `<gate-name>.xmr.json` for global gates.
+
+**Negative falsifier — held-out 20% partition (Popper AP-5).**
+- Partitioning: stratified random split of the K≥100 calibration runs into
+  80% calibration / 20% held-out, drawn using the frozen RNG seed below.
+  Stratified by `machine_class` so each held-out cell preserves the
+  machine-class distribution.
+- Sealing: written to
+  `packages/benchmark/calibration/data/kpigates-heldout.lock.json`
+  (committed; Popper AP-5 sealing artifact). Schema:
+  `KpiGatesHeldoutLockSchema` (v1, scoped to KPI-gate use case) in
+  `packages/benchmark/calibration/heldout-seals.ts`. Verification:
+  `verifyKpiGatesHeldoutSeal(lockPath)` from the same module.
+  Note: `kpigates-heldout.lock.json` uses v1 field names (rng_seed /
+  partition_hash) — the same as `maxattempts-heldout.lock.json` — because
+  the sealing artifact is over run_ids, not claim_ids (C3 deliverable).
+- Decision: REJECT calibration (revert to provisional gates; investigate)
+  IFF, on the held-out 20%:
+  - calibrated false-positive rate (% of unperturbed runs that fire any
+    gate) > provisional FPR by any margin exceeding the 95% bootstrap CI
+    of the difference, OR
+  - calibrated false-negative rate at +20% perturbation > provisional FNR
+    by the same criterion.
+- Re-using the held-out partition after a tuning iteration constitutes
+  leakage and voids the falsifier (Popper AP-5).
+
+**RNG seed (frozen).** `seed = 0x4_05_C3` (interpretation: phase 4.5,
+sub-stream C3). Committed in this pre-registration block before any
+calibration data is collected. Re-using a different seed post-hoc
+invalidates the run.
+
+**Decision rule (per gate).**
+- If 95% CI on the calibrated estimand (P95 or 3σ UCL) excludes the
+  current provisional value AND the held-out negative falsifier above
+  does NOT reject: promote calibrated value with a `// source:
+  benchmark/<script>, run <date>, N=<count>` comment at the use site,
+  the analysis script and JSONL data committed (CC-2), and an XmR
+  baseline record (CC-4).
+- If 95% CI INCLUDES the provisional value: hold the provisional value;
+  document the null result.
+- If the held-out falsifier rejects: revert to provisional; investigate
+  before any further calibration cycle.
+
+**Stopping rule (per gate per bucket).** Sampling stops when EITHER (a)
+K=100 runs have completed for that bucket AND no batch has fired the XmR
+"outside-3σ" rule on the in-process calibration metric, OR (b) the
+`gate-blocked-log` shows ≥ 5 violations on a SINGLE gate during
+calibration — at which point the gate is presumed already miscalibrated
+and the priority shifts to root-cause analysis before more runs.
+
+**Per-gate pre-registration subsections.**
+
+Each gate below specifies its own H0/H1, estimand type, and outlier
+definition. Eight gates are enumerated; the count matches the
+`KPI_GATES` surface in `packages/benchmark/src/pipeline-kpis.ts`.
+
+| # | Gate | Estimand type | H0 (provisional) | H1 (calibrated departs) | Outlier definition |
+|---|---|---|---|---|---|
+| 1 | `iteration_count_max` | 95th-percentile of baseline + 1σ headroom | 100 | calibrated > 100 by ≥5% (P95+1σ) | run with `iteration_count > calibrated UCL` |
+| 2 | `wall_time_ms_max` (per-bucket) | 95th-percentile of per-bucket baseline | 500ms (fallback, all buckets) | calibrated bucket value diverges from 500 by ≥5% | run on bucket B with `wall_time_ms > P95(B)` |
+| 3 | `section_fail_count_max` | 95th-percentile of baseline | 5 | calibrated < 5 (canned content enriched) | run with `section_fail_count > P95` |
+| 4 | `distribution_pass_rate_max` | suspended on canned; defer to real-ecosystem run | 0.95 (canned-suspended) | calibrate against known-good vs known-bad PRDs only | run with PASS rate > UCL on real ecosystem |
+| 5 | `error_count_max` | 95th-percentile of baseline | 5 | calibrated diverges from 5 by ≥5% | run with `error_count > P95` |
+| 6 | `safety_cap_hit_allowed` | special-cause defect | false | unchanged (any hit is a defect) | any `safety_cap_hit = true` |
+| 7 | `mean_section_attempts_max` | 95th-percentile of baseline | 2.5 | calibrated diverges from 2.5 by ≥5% (real-LLM expected ≈ 1.0–1.2) | run with mean attempts > P95 |
+| 8 | `structural_error_count_max` | special-cause defect | 0 | unchanged (any structural error is a defect) | any `structural_error_count > 0` |
+| 9 | `cortex_recall_empty_count_max` | 95th-percentile of baseline (real Cortex only) | 3 (canned-suspended) | calibrated bound from real-Cortex K≥100 | run with empty-recall count > P95 on real Cortex |
+
+(Nine rows, not eight — `cortex_recall_empty_count_max` is the ninth gate
+introduced by Wave A3; the brief's "~8 KPI gates" estimate predates that
+addition. All nine are enumerated to match the actual `KPI_GATES`
+surface.)
 
 **Tampering safeguard (Deming + CC-4).** Gate thresholds may only change
-when:
-- The control chart for the corresponding KPI shows a sustained shift
-  (run of 8 on one side of mean), OR
-- A pre-registered re-calibration cycle (e.g., quarterly).
+when the corresponding XmR chart shows a sustained shift (run of 8 on one
+side of the mean) OR a pre-registered re-calibration cycle (e.g., quarterly
+or per-major-release). Individual gate violations are NOT grounds for
+adjusting the gate. Repeats §4.5 of the prior revision; preserved here so
+the tampering rule is co-located with the per-gate table.
 
-Individual gate violations are NOT grounds for adjusting the gate.
+**Symmetric anchor-update procedure (Popper AP-1 anti-ratchet).** Anchors
+(calibrated gate values) are BIDIRECTIONAL — they may move either tighter OR
+looser when evidence justifies. A one-sided ratchet (anchors can only loosen,
+never tighten) means a real quality improvement can never tighten the gate,
+weakening the falsifier monotonically over time (Popper AP-1 asymmetric
+falsifiability violation).
 
-**Falsifiability.** Two arms:
-- Inject a synthetic +20% regression in iteration_count: gate must fire.
-- Re-run the baseline distribution: < 5% of runs should fire the gate
-  (false-positive rate = 1 - confidence level).
+- Anchor MAY move DOWN (tighter) when: a calibration window of K≥100 runs
+  against a NEW frozen baseline (post-improvement) shows the new P95 is
+  below the current anchor by more than the XmR ±3σ band on the calibration
+  metric for that gate.
+- Anchor MAY move UP (looser) when: a sustained shift on the EXISTING baseline
+  is detected per the Western Electric Rule 4 criterion (run of 8 consecutive
+  batches on one side of mean) on the XmR chart for that gate.
+- Anchors move ONLY at pre-registered calibration windows (quarterly or
+  per-major-release per the tampering safeguard above), never per-run.
+- Anti-ratchet motivation: a calibration procedure that can only loosen gates
+  is not a calibration procedure — it is a monotone noise accumulator. Both
+  directions must be permitted; neither should be the default.
 
-If either fails: the gate is miscalibrated; tune K higher or change the
-percentile.
+source: Popper AP-1 — asymmetric falsifiability concern; Wave C cross-audit
+(code-reviewer finding B6, 2026-04-27).
+
+**Falsifiability.** Two arms of the synthetic test (§"Synthetic +20%
+regression test" above) plus the held-out negative falsifier. If either
+synthetic arm fails on the calibrated thresholds OR the held-out falsifier
+rejects, the gate is miscalibrated; tune K higher, change the percentile,
+or revert to provisional.
+
+**Analysis script (CC-2).**
+- Script: `packages/benchmark/calibration/kpi-gate-tuning.ts` (NOT YET
+  WRITTEN — Wave D scope; the C3 deliverable is methodology + seams +
+  tests, not the runner).
+- Raw data: `packages/benchmark/calibration/data/kpi-gate-tuning.*.jsonl`.
+- Re-run command: `pnpm --filter @prd-gen/benchmark run calibrate:kpigates`
+  (hooked once Wave D writes the runner).
+
+**Implementation gates (Phase 4.5 finalisation, NOT this scaffolding).**
+- [ ] K ≥ 100 calibration runs completed per machine-class bucket
+- [ ] Frozen-baseline commit pinned + asserted at runner startup
+- [ ] `WALL_TIME_MS_GATE_BY_CLASS` populated for at least one bucket with
+      use-site source comment + JSONL data + XmR record (CC-2)
+- [ ] Held-out 20% partition sealed in `data/kpigates-heldout.lock.json`
+- [ ] Negative falsifier evaluated and not rejecting
+- [ ] Synthetic +20% regression test un-skipped and passing
+- [ ] CC-3 wiring: `evaluateGates` callers consume `getKpiGatesForRun`
+- [ ] CC-4 XmR record committed per calibrated gate
+
+**Wave dependencies (downstream of 4.5 finalisation).**
+- Wave D (release-readiness gate): consumes calibrated gates as the
+  ship/no-ship signal for the canned-baseline benchmark in CI. Cannot
+  flip its required-gate set from "any" to "calibrated subset" until
+  4.5 finalises.
+- Release pipeline: the 4.5 finalisation gate is a precondition for
+  flipping `is_canned_dispatcher` from `true` to `false` on
+  real-ecosystem CI runs (real runs unsuspend the
+  `distribution_pass_rate_max` and `cortex_recall_empty_count_max`
+  gates, which only meaningfully fire after their per-gate calibration).
 
 ---
 
@@ -786,10 +1269,35 @@ Before 4.1 ships:
 - [ ] DEFAULT_RELIABILITY_PRIOR single source of truth in @prd-gen/core (B-Shannon-7)
 
 Before 4.2 ships:
-- [ ] Conditional (not marginal) estimand + Kaplan-Meier (Fisher Fi-4.2)
-- [ ] N ≥ 2,070 trials OR effect-size revision to detectable range
-- [ ] Ablation arm: with/without prior_violations
-- [ ] `prior_violations_used` instrumentation
+- [x] Conditional (not marginal) estimand + Kaplan-Meier math layer
+      (Fisher Fi-4.2) — published in `kaplan-meier.ts` (Wave C1)
+- [x] Sample size revised under Schoenfeld 1981: N = 823 subjects (~412 per
+      arm) at HR = 0.7, α = 0.05, power = 0.80, event_rate ≈ 0.30
+      (PROVISIONAL — see §4.2 hedge below). The original ~2,070 figure is
+      superseded — see §4.2 power calculation (Wave C1)
+- [x] Ablation arm seam published: `getRetryArmForRun(runId)` returning
+      `with_prior_violations` / `without_prior_violations` (Wave C1)
+- [x] CC-3 closed-loop control-arm seam published: `getMaxAttemptsForRun`
+      + `MAX_ATTEMPTS_BASELINE = 3` (Wave C1)
+- [x] Held-out 20% partition seal template at
+      `data/maxattempts-heldout.lock.json` — must be drawn + sealed before
+      held-out evaluation (Wave C1)
+- [x] `prior_violations_used` instrumentation:
+      `packages/benchmark/calibration/retry-observations.ts::extractRetryObservations`
+      extracts all 6 required fields from PipelineState per attempt.
+      `appendRetryObservationLog` writes to
+      `packages/benchmark/calibration/data/retry-observation-log.jsonl` (gitignored).
+      **TODO(Wave D):** add `attempt_log` to SectionStatus for exact per-attempt
+      violation counts (current extraction approximates intermediate attempts
+      as 0 — sufficient for pilot). Wire `getRetryArmForRun(run_id)` so arm
+      is not passed manually by every caller (Wave D scope).
+- [ ] Retry-loop wiring: `getMaxAttemptsForRun` + `getRetryArmForRun`
+      consumed in `section-generation.ts` (Wave D scope)
+- [ ] N=823 trials run end-to-end on real or mocked-end-to-end pipeline,
+      stratified by section_type and ablation arm (Wave C+ scope; gated on
+      Wave D)
+- [ ] Held-out 20% set populated, sealed, and replayed under both calibrated
+      and baseline MAX_ATTEMPTS (Wave C+ scope)
 
 Before 4.4 ships:
 - [ ] 4.1 complete (correct consensus confidence)

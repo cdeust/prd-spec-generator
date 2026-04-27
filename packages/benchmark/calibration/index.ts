@@ -33,3 +33,42 @@ export {
   type XmRReport,
   type XmRSignal,
 } from "./xmr.js";
+
+// Phase 4.2 — MAX_ATTEMPTS calibration math (Wave C1).
+export {
+  kmEstimate,
+  kmMedianAttempts,
+  logRankTest,
+  schoenfeldRequiredEvents,
+  type SurvivalEvent,
+  type KmCurve,
+  type KmMedian,
+  type LogRankResult,
+  type SchoenfeldInput,
+  type SchoenfeldOutput,
+} from "./kaplan-meier.js";
+
+// Phase 4.2 — retry-ablation + closed-loop control-arm seams (Wave C1).
+export {
+  getRetryArmForRun,
+  getMaxAttemptsForRun,
+  MAX_ATTEMPTS_BASELINE,
+  type RetryArm,
+} from "./calibration-seams.js";
+
+// Phase 4.5 — KPI gate tuning seams + machine-class detection (Wave C3).
+export {
+  detectMachineClass,
+  getWallTimeMsGateForMachine,
+  MACHINE_CLASSES,
+  WALL_TIME_MS_GATE_BY_CLASS,
+  WALL_TIME_MS_GATE_FALLBACK,
+  GATE_BLOCKED_LOG_PATH,
+  type MachineClass,
+  type GateBlockedLogEntry,
+} from "./machine-class.js";
+
+export {
+  appendGateBlockedEntry,
+  getKpiGatesForRun,
+} from "./gate-tuning-seams.js";
