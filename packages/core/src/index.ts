@@ -99,3 +99,20 @@ export {
   type AdaptiveThreshold,
   type StrategyPerformanceSummary,
 } from "./persistence/evidence-repository.js";
+
+// Reliability persistence — port (interface + types only; no SQLite import)
+export {
+  RELIABILITY_SCHEMA_VERSION,
+  BETA_PRIOR_ALPHA,
+  BETA_PRIOR_BETA,
+  type ReliabilityRepository,
+  type JudgeReliabilityRecord,
+  type ReliabilityObservation,
+  type VerdictDirection,
+} from "./persistence/reliability-repository.js";
+
+// Reliability persistence — SQLite adapter (infrastructure; optional native dep)
+export {
+  SqliteReliabilityRepository,
+  tryCreateReliabilityRepository,
+} from "./persistence/sqlite-reliability-repository.js";
