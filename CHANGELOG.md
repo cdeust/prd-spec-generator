@@ -12,10 +12,96 @@ adheres to [Semantic Versioning](https://semver.org/).
   CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md.
 - GitHub issue templates (bug / feature / audit-finding) and PR template
   with audit-cycle checklist.
+- GitHub Actions release workflow (`release.yml`): tag-triggered build +
+  test + bundle-freshness gate + CHANGELOG-driven release notes.
 - `assets/banner.svg` — ANSI Shadow project banner matching the ai-architect
   ecosystem's visual contract.
 - README cross-links to companion projects (Cortex, zetetic-team-subagents,
   automatised-pipeline).
+- `.claude-plugin/marketplace.json` and rewritten `plugin.json` — marketplace
+  distribution via `claude plugin marketplace add cdeust/prd-spec-generator`.
+- `mcp-server/index.js` — reproducible ESM bundle (esbuild; `better-sqlite3`
+  stays external); `pnpm bundle` script; CI bundle-freshness gate.
+- `pnpm verify` end-to-end chain: install → build → bundle → test.
+- Cortex memory-hooks section in `packages/skill/SKILL.md`: documents
+  per-section recall query templates, what to store out, and that Cortex
+  hooks (not the host) persist session content automatically.
+- `docs/INTEGRATION-TESTING.md`: walk-through for `AIPRD_PIPELINE_BIN`
+  live-test setup, failure-mode table, and conventions for new integration
+  tests.
+- `docs/EXAMPLES.md`: canonical session transcript ("build OAuth login for
+  the admin console") showing every host-visible action envelope and the
+  EvidenceRepository rows produced; two failure scenarios.
+- `preflight` pipeline step (runs after `banner`, before `context_detection`):
+  probes Cortex (`memory_stats`) and, when `codebase_path` is supplied,
+  ai-architect (`health_check`); emits one actionable `failed` action with
+  setup advice on probe failure.
+- `preflight_status: "ok" | "skipped" | null` field on `PipelineState`.
+- `skip_preflight: boolean` parameter on `start_pipeline` MCP tool for
+  callers that accept degraded mode.
+- `hasExplicitOptOut(content, topicSignals)` helper in `@prd-gen/validation`:
+  recognises "N/A — local CLI" / "by construction" / "no network" / "out of
+  scope" markers within ±240 chars of a topic signal, exempting 13 service-
+  shaped hard-output rules for features that genuinely have no network
+  surface, no users, no PII, or no DB.
+- `packages/core/src/domain/capabilities.ts`: single `CAPABILITIES` object
+  replacing the removed `TIER_CAPABILITIES` record; values match the previous
+  "licensed" tier exactly so behaviour for all callers is unchanged.
+
+### Changed
+
+- `start_pipeline_v2` → `start_pipeline`; `get_pipeline_state_v2` →
+  `get_pipeline_state` (no v1 ever existed; suffix was historical baggage).
+- `commands/generate-prd.md` (repo root): rewritten as a thin wrapper
+  pointing at `packages/skill/SKILL.md` and the dispatcher loop — no
+  mode detection, no environment branching, no license resolution.
+- Plugin name `ai-prd-generator` → `prd-spec-generator`; MCP server name
+  `ai-prd-tools` → `prd-gen`; `.mcp.json` extension bug fixed
+  (`index.mjs` → `index.js`).
+- `docs/PHASE_4_PLAN.md` relocated from repo root.
+- CONTRIBUTING.md Code of Conduct section: points at local
+  `CODE_OF_CONDUCT.md` (custom) instead of Contributor Covenant.
+- Pipeline step `license_gate` renamed to `banner`; handler
+  `handleLicenseGate` → `handleBanner`.
+- Test count: 248 → 267 (preflight handler + regression suites).
+- Plugin version 0.2.0 → 0.3.0 (minor bump: new pipeline step + new
+  `start_pipeline` parameter, both backward-compatible).
+
+### Fixed
+
+- `no_self_referencing_deps` rule: regex used `[^|]*` which matched
+  newlines, allowing it to walk forward into later markdown table rows and
+  false-flag any FR-NNN referenced as a dependency by a subsequent row.
+  Fixed by anchoring both table and prose patterns on `[^|\n]*`; prose
+  pattern additionally bounded to 200 chars.
+- Service-shaped hard-output rules (auth, rate limiting, secure
+  communication, GDPR consent, distributed tracing, sensitive-data
+  protection, etc.) falsely failed local-CLI / library / batch-job PRDs
+  that explicitly acknowledged the topic was out of scope. Fixed via
+  `hasExplicitOptOut` (see Added).
+- Silent per-section Cortex degradation: before the `preflight` step, a
+  disabled Cortex plugin caused every recall to return `success: false`
+  tagged as `upstream_failure` with no user-visible warning; section
+  quality degraded without any diagnosis path. Fixed by the preflight probe.
+
+### Removed
+
+- License-tier system carried over from the Swift port:
+  `packages/core/src/domain/license-tier.ts` (`LicenseTierSchema`,
+  `TIER_CAPABILITIES`, `LicenseTier`, `TierCapabilities`);
+  `license_tier` field on `PipelineState`; `licenseTier` on `PRDDocument`;
+  `license_tier_override` option on `start_pipeline`; `licenseTier` param
+  on `selectStrategy`; `license_tiers` / `free_tier` / `trial_tier` /
+  `licensed_tier` blocks in both `skill-config.json` files.
+- `validate_license` and `get_license_features` MCP tools (tool count
+  19 → 17).
+- `packages/orchestration/src/handlers/license-gate.ts` (replaced by
+  `banner.ts`).
+- Free-tier-degraded-assignment branch in `strategy/selector.ts` and
+  matching test.
+- Cowork-mode branching in `commands/generate-prd.md` (detected a
+  `validate_license` tool that no longer exists).
+- `mcp-server/index.mjs` (stale orphan).
 
 ## [0.2.0] — Phase 4: strategy-wiring + audit-cycle closure
 
