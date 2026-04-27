@@ -88,88 +88,217 @@ constant adjustment.
 
 ### PRE-REGISTRATION (mandatory before implementation)
 
-**Hypothesis.** H1: replacing `DEFAULT_RELIABILITY_PRIOR = 0.7` with a
-per-(agent_kind, claim_type) Beta posterior produces a different consensus
-verdict on at least one claim where the calibrated low-reliability judge is
-discounted, AND does not produce worse consensus accuracy on a held-out
-labeled set.
+**Hypothesis (two-sided).**
+- H0: per-(judge × claim_type) calibrated sensitivity AND specificity each
+  lie within ±0.10 of the Beta(7,3) prior mean of 0.70 — i.e. the
+  judge-specific posterior is observationally equivalent to the default
+  prior at the target effect size.
+- H1: at least one of {sensitivity, specificity} for at least one
+  (judge × claim_type) cell departs from 0.70 by more than 0.10 (in
+  either direction). Target effect size: |Δ| ≥ 0.10 on the
+  posterior-mean reliability scale.
 
-**Estimand.** Per-(agent_kind, claim_type) reliability = P(agent_verdict ==
-ground_truth_verdict | parse_succeeded). Note: parse-failure verdicts
-(INCONCLUSIVE with `caveats: ["parse_error"]`) are EXCLUDED from this
-estimate (Deming: parse failures are special-cause noise tracked on a
-separate P-chart, not part of the reliability process).
+**Estimand.** Per-(judge_id, claim_type) sensitivity AND specificity
+(NOT a single aggregate reliability):
+- sensitivity = P(judge_verdict = PASS | ground_truth = PASS, parse_succeeded)
+- specificity = P(judge_verdict = FAIL | ground_truth = FAIL, parse_succeeded)
 
-**Estimator.** Beta-Binomial conjugate update:
-- Prior: Beta(7, 3) — mean 0.7, effective sample size 10. (Laplace: this
-  is moderately-informative-toward-reliability, NOT weak; the existing
-  comment is corrected.)
-- Posterior: Beta(7 + correct, 3 + incorrect)
-- Point estimate: posterior mean = (7 + correct) / (10 + N)
+Parse-failure verdicts (INCONCLUSIVE with `caveats: ["parse_error"]`) are
+EXCLUDED from both estimates and tracked on a separate P-chart (Deming:
+parse failures are special-cause noise, not part of the reliability
+process).
 
-**Sufficient statistic.** (correct, N) per (agent_kind, agent_name, claim_type)
-cell.
+**Estimator.** Beta-Binomial conjugate update applied independently to
+each arm:
+- Prior (both arms): Beta(7, 3) — mean 0.70, effective sample size 10.
+  Source for the prior elicitation: Phase-3 audit baseline reliability
+  estimate observed across 9 canned panels (range 0.62–0.78, central
+  tendency ≈ 0.70); ESS=10 chosen so the prior is dominated by N≥30
+  observations per Laplace L4. The prior is moderately informative
+  toward reliability, NOT weak — a uniform prior would be Beta(1,1).
+- sens posterior = Beta(7 + TP, 3 + FN)
+- spec posterior = Beta(7 + TN, 3 + FP)
+- Point estimate per arm: posterior **mode** =
+  (α − 1) / (α + β − 2) when α, β > 1 (Laplace L4: MAP, not mean,
+  is the correct point estimate; the mean over-shoots toward the prior
+  when N is small).
 
-**Sample size (per Fermi + Fisher + Laplace).**
-- For ±0.10 reliability precision (95% CI): N = 81 per cell (Wilson interval).
-- For ≥30 to ensure data dominates the prior (Laplace): minimum N = 30.
-- Required N per cell: 80, ceiling 130 (Fisher RCBD power calc).
-- 11 claim types × ~3 judges per panel = 33 cells × 80 = ~2,640 verdicts.
-- Wall-time at ~5ms per canned-judge call: 13 seconds total.
+**Sufficient statistic.** Per (judge_id, claim_type) cell, the 4-tuple
+(true_positives, false_positives, true_negatives, false_negatives) over
+the dual-annotator-consensus calibration set. The sens arm consumes
+(TP, FN); the spec arm consumes (TN, FP). The two arms are statistically
+independent because they index disjoint subsets of the ground-truth
+labels (PASS for sens, FAIL for spec).
 
-**Decision rule.**
-- Replace `DEFAULT_RELIABILITY_PRIOR` for an (agent, claim_type) cell IFF:
-  1. N ≥ 30 for that cell, AND
-  2. The 95% Beta credible interval excludes 0.7, AND
-  3. The proposed posterior mean does not degrade consensus accuracy on a
-     held-out labeled set (negative falsifier — Popper AP-5).
-- For cells with N < 30, fall back to the global per-agent reliability.
-- For agents with insufficient global data, fall back to Beta(7, 3) prior.
+**Power calculation (per arm, per cell).**
+- Goal: detect a 0.10 swing in posterior mean from the Beta(7,3) prior at
+  80% power, two-sided α = 0.05.
+- Frequentist proxy via Wilson score interval: at p̂ = 0.70 with
+  half-width 0.10 and α = 0.05 → N ≈ 81. At 80% power for a 0.10 shift
+  (p₀=0.70 vs p₁=0.80 or p₀=0.70 vs p₁=0.60), the two-proportion
+  z-test gives N ≈ 80–82 per arm.
+- Adopt **N = 80 per arm per (judge × claim_type) cell** as the design
+  target, with a hard ceiling at N = 130 to bound wall-time.
+- Note: an arm requires N ground-truth observations of the corresponding
+  class. A judge facing 50/50 PASS/FAIL claims needs ~160 calibration
+  claims per claim_type to fill both arms.
+- Total budget: 11 claim_types × ~3 judges/panel × 2 arms × 80 ≈ 5,280
+  arm-observations, ≈ 2,640 calibration claims (each yielding both
+  arms by consensus class).
+- Wall-time at ~5ms per canned-judge call: ≈ 13 s total.
 
-**Stopping rule.** Sampling stops when each cell reaches N=130 OR all claims
-with deterministic ground truth are exhausted. The minimum-data-threshold
-constant N=30 is a derived constant (Beta(7,3) effective sample size = 10;
-data dominates when N > 10; ±0.05 precision requires N ≥ 30).
+**Decision rule (per (judge, claim_type) cell, per arm).**
+Persist a calibrated posterior IFF all three hold:
+  1. N_arm ≥ 30 for that arm (the dominance threshold derived from
+     Beta(7,3): ESS_prior = 10, observed mass exceeds prior mass at
+     N ≥ 10; ±0.05 posterior-mean precision is met at N ≥ 30 — Laplace
+     L4), AND
+  2. The 95% equal-tailed Beta credible interval for that arm
+     excludes 0.70, AND
+  3. The held-out negative-falsifier check (see Falsifiability below)
+     does not regress.
 
-**Ground-truth procedure (Curie R2).** Eliminates the "either/or"; both
-methods must run:
-1. Run deterministic validator on a claim set. Record verdict.
-2. Independent human reviewer labels the same claim set. Record verdict.
-3. Calibration set = claims where both agree.
-4. Disagreement set size / total = noise floor.
-5. Reliability is computed only on the calibration set.
+Otherwise the cell-arm is *deferred*: the consensus call falls back to
+the next coarser scope:
+  - cell-arm with N < 30 → use the judge's global per-arm posterior (if
+    that posterior itself crosses the dominance threshold)
+  - judge with no arm crossing → fall back to Beta(7, 3) prior
 
-Sample drawn from a stratified random partition (RNG seed committed before
-any data is collected) over (claim_type × deterministic-validator-agreement),
-NOT from the first N claims of each panel (which is convenience sampling).
+**Stopping rule.** Sampling stops when EITHER:
+- every (judge, claim_type, arm) cell reaches N = 130, OR
+- the dual-annotator-consensus pool is exhausted.
 
-**Open Curie hand-off (resolved).** Verdict-direction asymmetry: maintain
-TWO Beta posteriors per (agent, claim_type) cell — sensitivity (correct on
-FAIL claims) and specificity (correct on PASS claims). Use the appropriate
-one based on observed verdict direction in `consensus()`.
+If exhaustion fires before any cell reaches N = 30, the cell remains on
+the prior; this is a documented null result, not a calibration failure.
 
-**Persistence (Laplace L6).** New schema:
+**RNG seed (frozen).** `seed = 4_010_704` (interpretation: phase 4.1,
+sub-stream 4010704). This seed is committed in this pre-registration
+block before any sampling begins; all stratified-random partitions over
+(claim_type × dual-annotator-class) MUST consume this seed. Re-using a
+different seed post-hoc invalidates the run.
+
+**Dual ground-truth procedure (Curie R2 — mandatory).** Each
+calibration label requires the following procedure:
+
+1. **Two independent annotators** label the same claim. "Independent"
+   here means operationally:
+   - Annotators do not see each other's verdicts during labeling.
+   - Annotators do not coordinate before labeling (no shared rubric
+     interpretation discussion specific to the claim under review;
+     the rubric itself is shared and frozen before annotation).
+   - Annotators do not see the judge's verdict.
+   - Annotators do not see deterministic-validator output for the
+     claim.
+   - Each annotator records both a verdict ∈ {PASS, FAIL} and a free-
+     text rationale; the rationale is stored but not shown to the
+     other annotator.
+2. **Concordance:** if the two verdicts agree, the consensus label is
+   that verdict and the claim enters the calibration pool.
+3. **Conflict resolution:** if the two verdicts disagree, a third
+   reviewer (distinct from the original two) labels the claim with
+   access to both prior rationales. The third reviewer's verdict is
+   the consensus label. The claim enters the calibration pool with a
+   `conflict_resolved = true` flag.
+4. **Drop set:** if even the third reviewer marks the claim as
+   ambiguous (verdict = INCONCLUSIVE), the claim is dropped from the
+   calibration pool entirely. The drop rate is reported as a
+   measurement-quality KPI; a drop rate > 10% triggers rubric review.
+5. **Sampling:** the stratified random partition over
+   (claim_type × consensus-class) is drawn from the resulting pool
+   using the frozen seed above. NOT from the first-N claims of each
+   panel (convenience sampling).
+
+This procedure replaces the prior plan's "deterministic validator +
+human reviewer" formulation, which double-counted any deterministic-
+validator bias as ground truth.
+
+**Schema (Laplace L6 — schema-version snapshot mandatory).**
+
+The persistence layer (downstream wave; not implemented in B1) MUST use
+the following schema. A schema-version snapshot is required so audit
+replays of historical ConsensusVerdicts can identify which calibration
+generation produced the reliability map they saw.
+
 ```sql
-agent_reliability(
-  agent_kind TEXT,
-  agent_name TEXT,
-  claim_type TEXT,
-  verdict_direction TEXT,  -- 'pass' | 'fail'
-  alpha REAL,
-  beta REAL,
-  last_updated TEXT,
-  PRIMARY KEY (agent_kind, agent_name, claim_type, verdict_direction)
+CREATE TABLE judge_reliability (
+  judge_id              TEXT    NOT NULL,
+  claim_type            TEXT    NOT NULL,
+  sensitivity_alpha     REAL    NOT NULL,
+  sensitivity_beta      REAL    NOT NULL,
+  specificity_alpha     REAL    NOT NULL,
+  specificity_beta      REAL    NOT NULL,
+  n_observations        INTEGER NOT NULL,  -- total claims feeding this row
+  schema_version        INTEGER NOT NULL,  -- bumped on any column or
+                                           -- semantic change
+  last_updated          TEXT    NOT NULL,  -- ISO-8601 UTC
+  PRIMARY KEY (judge_id, claim_type)
+);
+
+CREATE TABLE judge_reliability_schema_history (
+  schema_version        INTEGER NOT NULL PRIMARY KEY,
+  applied_at            TEXT    NOT NULL,
+  description           TEXT    NOT NULL
 );
 ```
-ConsensusVerdict snapshots the reliability map version used so audit replays
-are reproducible.
+
+Equivalent JSON-file form (one record per (judge_id, claim_type)):
+```json
+{
+  "judge_id":          "string",
+  "claim_type":        "string",
+  "sensitivity_alpha": 7.0,
+  "sensitivity_beta":  3.0,
+  "specificity_alpha": 7.0,
+  "specificity_beta":  3.0,
+  "n_observations":    0,
+  "schema_version":    1,
+  "last_updated":      "2026-04-27T00:00:00Z"
+}
+```
+
+`n_observations` is the count of consensus-labeled claims that fed this
+row's posterior (TP + FP + TN + FN). Note this is the union over both
+arms; per-arm ESS is recoverable as α + β − prior_ESS.
+
+The ConsensusVerdict structure SHALL include a `reliability_schema_version`
+field so audit replays bind the verdict to a specific reliability
+generation. Bumping `schema_version` invalidates downstream comparisons
+across the boundary unless a migration is documented in
+`judge_reliability_schema_history`.
 
 **Falsifiability (positive + negative — Popper AP-5).**
-- Positive: at least one claim flips verdict between calibrated and
-  uncalibrated runs.
-- Negative: on a held-out labeled set with K = 50 claims (independent of
-  calibration data), calibrated consensus accuracy ≥ uncalibrated accuracy.
-  If the negative falsifier fires, REVERT to default prior and investigate.
+
+- Positive falsifier (H1 evidence): at least one (judge × claim_type)
+  cell-arm has its 95% Beta credible interval excluding 0.70 AND at
+  least one downstream consensus claim flips verdict between the
+  uncalibrated baseline and the calibrated run.
+
+- **Negative falsifier (rejection trigger): held-out 80/20 split.**
+  - Before any calibration is run, the dual-annotator-consensus pool
+    is partitioned into 80% calibration / 20% held-out test, drawn
+    using the frozen RNG seed above. Stratified by claim_type and by
+    consensus class so each held-out cell preserves the population
+    PASS/FAIL ratio.
+  - The held-out 20% set is *sealed*: it does not feed any posterior
+    update, no judge sees it during calibration, no human reviewer
+    re-labels it during calibration tuning.
+  - After calibration, the calibrated reliability map is evaluated on
+    the held-out set against the Beta(7,3) prior baseline using
+    consensus accuracy as the metric.
+  - **Reject calibration** (revert to Beta(7,3) prior; investigate)
+    IFF held-out consensus accuracy under the calibrated map is lower
+    than under the prior baseline by any margin that exceeds the 95%
+    bootstrap CI of the difference.
+  - The held-out set is used at most ONCE per calibration generation;
+    re-using it after a tuning iteration constitutes leakage and
+    voids the falsifier (Popper AP-5).
+
+**Math layer (this wave, B1).** The pure-stdlib Beta-update primitives
+live in `packages/benchmark/src/calibration/reliability.ts`:
+`betaUpdate`, `posteriorMean`, `posteriorMode`, `effectiveSampleSize`,
+`dominanceThreshold`, `splitSensitivitySpecificity`, `tallyConfusion`.
+No I/O. No verification or orchestration imports. Tests under
+`packages/benchmark/src/calibration/__tests__/reliability.test.ts`.
 
 ---
 
