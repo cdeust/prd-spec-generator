@@ -29,6 +29,7 @@ import {
   planDocumentVerification,
   concludeSection,
   concludeDocument,
+  type ConcludeOptions,
 } from "@prd-gen/verification";
 import {
   SectionTypeSchema,
@@ -37,6 +38,14 @@ import {
   type EvidenceRepository,
 } from "@prd-gen/core";
 import { EffectivenessTracker } from "@prd-gen/strategy";
+import {
+  appendObservationLog,
+  JUDGE_OBSERVATION_LOG_PATH,
+} from "@prd-gen/benchmark";
+import {
+  getReliabilityRepo,
+  getConsensusReliabilityProvider,
+} from "./reliability-wiring.js";
 
 const runStore = new InMemoryRunStore();
 
@@ -347,14 +356,88 @@ export function registerPipelineTools(server: McpServer): void {
       consensus_strategy: z
         .enum(["weighted_average", "bayesian"])
         .default("weighted_average"),
+      run_id: z
+        .string()
+        .optional()
+        .describe(
+          "Pipeline run_id — required for calibrated Bayesian reliability weights " +
+          "(CC-3 control-arm seam uses this to partition treatment vs control runs). " +
+          "When absent, falls back to Beta(7,3) prior for all judges.",
+        ),
+      claim_types: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe(
+          "Map of claim_id → claim_type. When provided, enables per-(judge × claim_type) " +
+          "reliability lookup. Omit to fall back to per-agent scalar priors.",
+        ),
     },
-    async ({ scope, section_type, verdicts, consensus_strategy }) => {
+    async ({ scope, section_type, verdicts, consensus_strategy, run_id, claim_types }) => {
+      // Wire calibrated reliability for treatment-arm runs.
+      // When the repo is unavailable (better-sqlite3 not loaded) or no run_id
+      // is provided, options.reliabilityProvider is undefined and the engine
+      // falls back to the Beta(7,3) prior — identical to pre-Wave-D behaviour.
+      const reliabilityRepo = getReliabilityRepo();
+      const reliabilityProvider = getConsensusReliabilityProvider();
+
+      const claimTypesMap = claim_types !== undefined
+        ? new Map(Object.entries(claim_types) as [string, string][])
+        : undefined;
+
+      // Build the observation flusher (D2.B).
+      // Called once per (judge × claim) after consensus resolves each claim.
+      // Ground truth = consensus majority (annotator-circularity path;
+      // Wave E external oracles will break this circularity).
+      // FAILS_ON: DB write error (swallowed — best-effort observation recording).
+      const onObservation = reliabilityRepo !== null && claimTypesMap !== undefined
+        ? (obs: Parameters<NonNullable<ConcludeOptions["onObservation"]>>[0]) => {
+            try {
+              // 1. Write to the Beta-posterior SQLite store.
+              reliabilityRepo.recordObservation(
+                obs.judge,
+                obs.claimType,
+                obs.observation,
+              );
+              // 2. Emit to the JSONL audit log (best-effort; non-blocking).
+              //    Annotator-circularity path: judge_verdict derived from
+              //    consensus majority. Wave E will provide oracle verdicts.
+              // judge_verdict = true ↔ judge's verdict is PASS-class.
+              // When gt=PASS: judgeWasCorrect=true ↔ judge said PASS (judge_verdict=true).
+              // When gt=FAIL: judgeWasCorrect=true ↔ judge said FAIL (judge_verdict=false).
+              const judgeVerdictIsPass = !obs.observation.groundTruthIsFail
+                ? obs.observation.judgeWasCorrect
+                : !obs.observation.judgeWasCorrect;
+              appendObservationLog(
+                {
+                  run_id: run_id ?? "unknown",
+                  judge_id: { kind: obs.judge.kind, name: obs.judge.name },
+                  claim_id: "unknown", // claim_id is not in ClaimObservationFlushed; Wave E will add it
+                  claim_type: obs.claimType,
+                  judge_verdict: judgeVerdictIsPass,
+                  judge_confidence: 0, // confidence not surfaced here; Wave E will thread it
+                  ground_truth: obs.observation.groundTruthIsFail,
+                },
+                JUDGE_OBSERVATION_LOG_PATH,
+              );
+            } catch {
+              // Best-effort: observation persistence must not break the pipeline.
+              // FAILS_ON: DB write error or filesystem unavailable.
+            }
+          }
+        : undefined;
+
+      const concludeOpts: ConcludeOptions = {
+        strategy: consensus_strategy,
+        reliabilityProvider: reliabilityProvider ?? undefined,
+        runId: run_id,
+        claimTypes: claimTypesMap as ReadonlyMap<string, import("@prd-gen/core").Claim["claim_type"]> | undefined,
+        onObservation,
+      };
+
       const report =
         scope === "document"
-          ? concludeDocument(verdicts, { strategy: consensus_strategy })
-          : concludeSection(section_type ?? "overview", verdicts, {
-              strategy: consensus_strategy,
-            });
+          ? concludeDocument(verdicts, concludeOpts)
+          : concludeSection(section_type ?? "overview", verdicts, concludeOpts);
       return {
         content: [
           {

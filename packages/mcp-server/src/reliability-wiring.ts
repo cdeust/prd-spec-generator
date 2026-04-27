@@ -80,6 +80,26 @@ export function getConsensusReliabilityProvider(): ConsensusReliabilityProvider 
   return _reliabilityProvider as ConsensusReliabilityProvider | null;
 }
 
+/**
+ * Release the reliability DB connection on graceful shutdown.
+ *
+ * Precondition: may be called at any time, including before init.
+ * Postcondition: DB connection is closed; subsequent calls to getReliabilityRepo()
+ *   will re-open it.
+ *
+ * Idempotent — safe to call multiple times or before first use.
+ *
+ * source: Wave D2.C step 4 — teardown path.
+ * source: ReliabilityRepository.close() — "Idempotent. Release the DB connection."
+ */
+export function closeReliabilityRepo(): void {
+  if (_reliabilityRepo !== null && _reliabilityRepo !== undefined) {
+    _reliabilityRepo.close();
+  }
+  _reliabilityRepo = null;
+  _reliabilityProvider = null;
+}
+
 // ─── Health check (D2.6) ─────────────────────────────────────────────────────
 
 export interface ReliabilityHealthResult {

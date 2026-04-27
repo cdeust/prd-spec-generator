@@ -31,6 +31,7 @@ import { registerPipelineTools } from "./pipeline-tools.js";
 import {
   checkReliabilityHealth,
   getConsensusReliabilityProvider,
+  closeReliabilityRepo,
 } from "./reliability-wiring.js";
 
 // ─── Reliability wiring (D2.4 / D2.6) ───────────────────────────────────────
@@ -395,4 +396,15 @@ async function main() {
 main().catch((error) => {
   console.error("MCP server failed to start:", error);
   process.exit(1);
+});
+
+// ─── Graceful shutdown — release DB connections (Wave D2.C teardown) ─────────
+// source: Wave D2.C step 4 — "Add a teardown path: repository.close() on graceful shutdown."
+process.on("SIGTERM", () => {
+  closeReliabilityRepo();
+  process.exit(0);
+});
+process.on("SIGINT", () => {
+  closeReliabilityRepo();
+  process.exit(0);
 });
