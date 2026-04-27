@@ -10,7 +10,10 @@
  * JudgeRequest[] into a HostQueueSubagentClient, drains the responses, and
  * passes them back via `conclude`.
  *
- * No I/O. No LLM calls. Pure dispatch + aggregation.
+ * No I/O by default. The optional `onObservation` hook (D2.B) allows the
+ * composition root to record per-judge observations after each claim is
+ * resolved. This hook is the only I/O path in this module; when absent,
+ * the orchestrator remains purely functional.
  */
 
 import type {
@@ -19,6 +22,8 @@ import type {
   Claim,
   JudgeRequest,
   JudgeVerdict,
+  AgentIdentity,
+  ReliabilityObservation,
 } from "@prd-gen/core";
 import { extractClaims, extractClaimsFromDocument } from "./claim-extractor.js";
 import { selectJudges } from "./judge-selector.js";
@@ -56,6 +61,42 @@ export interface PlanOptions {
   /** Pass the section content as prd_excerpt to each judge */
   readonly include_prd_excerpt?: boolean;
 }
+
+/**
+ * Per-judge observation emitted after consensus resolves a claim (D2.B).
+ *
+ * Carries the ground truth derived from the consensus majority verdict —
+ * this is the "annotator-circularity" path. The consensus majority is
+ * used as a ground-truth proxy until Wave E external oracles are wired.
+ *
+ * Documented circularity: using consensus-majority as ground truth means
+ * systematic judge bias reinforces itself across runs. This is known and
+ * accepted until docs/PHASE_4_PLAN.md §4.1 external-grounding work ships.
+ *
+ * source: docs/PHASE_4_PLAN.md §4.1 — annotator-circularity; Wave E scope.
+ */
+export interface ClaimObservationFlushed {
+  readonly judge: AgentIdentity;
+  readonly claimType: Claim["claim_type"];
+  readonly observation: ReliabilityObservation;
+}
+
+/**
+ * Callback injected by the composition root to record per-judge observations.
+ *
+ * Called once per (judge × claim) after consensus. The composition root
+ * wires this to `repository.recordObservation` + `appendObservationLog`.
+ *
+ * Layer contract (§2.2): orchestrator does NOT import @prd-gen/benchmark or
+ * any infrastructure module. All I/O happens via this callback in the outer
+ * composition root.
+ *
+ * Precondition: called only after consensus has resolved a claim.
+ * Postcondition: the observation is persisted (or best-effort logged on error).
+ *
+ * source: docs/PHASE_4_PLAN.md §4.1; D2.B specification.
+ */
+export type ObservationFlusher = (obs: ClaimObservationFlushed) => void;
 
 // ─── Plan ───────────────────────────────────────────────────────────────────
 
@@ -106,27 +147,81 @@ function buildRequests(
   return requests;
 }
 
+/**
+ * Extended consensus options — includes calibration wiring (D2.A / D2.B).
+ *
+ * Passed to `concludeSection` and `concludeDocument` when the composition
+ * root wants calibrated reliability weights and/or observation recording.
+ *
+ * Extends `ConsensusConfig` with:
+ *   - `claimTypes`: maps claim_id → claim_type so the orchestrator can set
+ *     `ConsensusConfig.claimType` per-claim batch.
+ *   - `onObservation`: callback called once per (judge × claim) after consensus.
+ *
+ * When both fields are absent, behaviour is identical to the pre-Wave-D baseline.
+ */
+export interface ConcludeOptions extends ConsensusConfig {
+  /**
+   * Maps claim_id → claim_type. When present, the orchestrator passes
+   * the resolved claim_type into ConsensusConfig.claimType per claim so
+   * the Bayesian strategy can consult the correct Beta cell.
+   *
+   * source: docs/PHASE_4_PLAN.md §4.1 — per-(agent, claim_type) cell.
+   */
+  readonly claimTypes?: ReadonlyMap<string, Claim["claim_type"]>;
+  /**
+   * Observation flush hook (D2.B). Called once per (judge × claim) after
+   * consensus with the consensus-majority verdict as ground truth.
+   *
+   * Annotator-circularity: ground_truth is derived from the consensus
+   * majority, not an external oracle. Wave E will break this by providing
+   * real oracle verdicts. Until then, this is the only available signal.
+   *
+   * source: docs/PHASE_4_PLAN.md §4.1; D2.B.
+   */
+  readonly onObservation?: ObservationFlusher;
+}
+
 // ─── Conclude ───────────────────────────────────────────────────────────────
 
 export function concludeSection(
   sectionType: SectionType,
   verdicts: readonly JudgeVerdict[],
-  consensusConfig: ConsensusConfig = {},
+  options: ConcludeOptions = {},
 ): VerificationReport {
-  return concludeFromVerdicts(sectionType, verdicts, consensusConfig);
+  return concludeFromVerdicts(sectionType, verdicts, options);
 }
 
 export function concludeDocument(
   verdicts: readonly JudgeVerdict[],
-  consensusConfig: ConsensusConfig = {},
+  options: ConcludeOptions = {},
 ): VerificationReport {
-  return concludeFromVerdicts("document", verdicts, consensusConfig);
+  return concludeFromVerdicts("document", verdicts, options);
+}
+
+/**
+ * Determine verdict direction for an observation from a binary PASS/FAIL
+ * ground-truth label.
+ *
+ * Precondition: groundTruthIsFail is a boolean.
+ * Postcondition:
+ *   - groundTruthIsFail = true  → sensitivity_arm
+ *   - groundTruthIsFail = false → specificity_arm
+ *
+ * source: docs/PHASE_4_PLAN.md §4.1 sensitivity/specificity split.
+ */
+function groundTruthToIsFail(verdict: Verdict): boolean {
+  // Conservative mapping: any non-PASS verdict is "FAIL-class" ground truth.
+  // SPEC-COMPLETE, NEEDS-RUNTIME, INCONCLUSIVE are treated as "failed to pass"
+  // for the purpose of sensitivity calibration.
+  // source: docs/PHASE_4_PLAN.md §4.1 — "PASS-class: PASS only."
+  return verdict !== "PASS";
 }
 
 function concludeFromVerdicts(
   scope: SectionType | "document",
   verdicts: readonly JudgeVerdict[],
-  consensusConfig: ConsensusConfig,
+  options: ConcludeOptions,
 ): VerificationReport {
   const byClaim = new Map<string, JudgeVerdict[]>();
   for (const v of verdicts) {
@@ -137,7 +232,38 @@ function concludeFromVerdicts(
 
   const results: ConsensusVerdict[] = [];
   for (const [claim_id, vs] of byClaim) {
-    results.push(consensus(claim_id, vs, consensusConfig));
+    // Resolve the claim_type for this batch if the mapping was provided.
+    const claimType = options.claimTypes?.get(claim_id);
+    const batchConfig: ConsensusConfig = claimType !== undefined
+      ? { ...options, claimType }
+      : options;
+
+    const result = consensus(claim_id, vs, batchConfig);
+    results.push(result);
+
+    // D2.B: flush per-judge observations after consensus resolves the claim.
+    // Ground truth = consensus majority (annotator-circularity path).
+    // Wave E will replace this with oracle verdicts.
+    // Best-effort: flusher errors must not abort the pipeline.
+    if (options.onObservation !== undefined && claimType !== undefined) {
+      const groundTruthIsFail = groundTruthToIsFail(result.verdict);
+      for (const jv of vs) {
+        const judgeWasCorrect = groundTruthIsFail
+          ? jv.verdict !== "PASS" && jv.verdict !== "SPEC-COMPLETE"
+          : jv.verdict === "PASS" || jv.verdict === "SPEC-COMPLETE";
+        try {
+          options.onObservation({
+            judge: jv.judge,
+            claimType,
+            observation: { groundTruthIsFail, judgeWasCorrect },
+          });
+        } catch {
+          // Best-effort: observation persistence failure must not break the pipeline.
+          // Errors are intentionally swallowed here (§6.1 ref: named failure mode =
+          // "flusher throws on DB error or log write failure").
+        }
+      }
+    }
   }
 
   const distribution: Record<Verdict, number> = {
