@@ -31,8 +31,7 @@ import type {
 } from "./reliability-repository.js";
 import {
   RELIABILITY_SCHEMA_VERSION,
-  BETA_PRIOR_ALPHA,
-  BETA_PRIOR_BETA,
+  DEFAULT_RELIABILITY_PRIOR,
 } from "./reliability-repository.js";
 
 // ─── Structural types for better-sqlite3 (no @types/better-sqlite3 leakage) ──
@@ -99,6 +98,11 @@ export class SqliteReliabilityRepository implements ReliabilityRepository {
     this.db = new Database(resolvedPath);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
+    // busy_timeout is required for multi-writer WAL; 5000 ms covers typical
+    // UPSERT contention without unbounded blocking.
+    // source: SQLite docs, busy_timeout — https://www.sqlite.org/pragma.html#pragma_busy_timeout
+    // source: B-Curie-5 cross-audit finding.
+    this.db.pragma("busy_timeout = 5000");
 
     this.migrate();
     this.verifySchemaVersion();
@@ -116,7 +120,7 @@ export class SqliteReliabilityRepository implements ReliabilityRepository {
         agent_kind        TEXT NOT NULL,
         agent_name        TEXT NOT NULL,
         claim_type        TEXT NOT NULL,
-        verdict_direction TEXT NOT NULL CHECK (verdict_direction IN ('pass', 'fail')),
+        verdict_direction TEXT NOT NULL CHECK (verdict_direction IN ('sensitivity_arm', 'specificity_arm')),
         alpha             REAL NOT NULL,
         beta              REAL NOT NULL,
         n_observations    INTEGER NOT NULL DEFAULT 0,
@@ -229,7 +233,9 @@ export class SqliteReliabilityRepository implements ReliabilityRepository {
   ): void {
     this.assertOpen();
 
-    const verdictDirection: VerdictDirection = observation.groundTruthIsFail ? "fail" : "pass";
+    const verdictDirection: VerdictDirection = observation.groundTruthIsFail
+      ? "sensitivity_arm"
+      : "specificity_arm";
     const alphaDelta = observation.judgeWasCorrect ? 1 : 0;
     const betaDelta = observation.judgeWasCorrect ? 0 : 1;
 
@@ -251,8 +257,9 @@ export class SqliteReliabilityRepository implements ReliabilityRepository {
         claimType,
         verdictDirection,
         // INSERT values (first-run cell): prior + this observation
-        BETA_PRIOR_ALPHA + alphaDelta,
-        BETA_PRIOR_BETA + betaDelta,
+        // source: DEFAULT_RELIABILITY_PRIOR = Beta(7,3); docs/PHASE_4_PLAN.md §4.1
+        DEFAULT_RELIABILITY_PRIOR.alpha + alphaDelta,
+        DEFAULT_RELIABILITY_PRIOR.beta + betaDelta,
         // UPDATE deltas
         alphaDelta,
         betaDelta,

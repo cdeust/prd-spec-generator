@@ -29,43 +29,66 @@ import type { Claim } from "../domain/agent.js";
  */
 export const RELIABILITY_SCHEMA_VERSION = 1 as const;
 
-// ─── Beta prior ─────────────────────────────────────────────────────────────
+// ─── Beta prior — single source of truth (B-Shannon-7) ──────────────────────
 
 /**
  * Default prior parameters: Beta(7, 3).
  * Mean = 7/10 = 0.7, effective sample size (ESS) = 10.
  *
- * This is the fallback when no observations exist for a (judge × claim_type
- * × verdict_direction) cell. It is moderately informative toward reliability,
- * NOT a weak prior — the prior doc-comment in consensus.ts previously
- * described it as "uniform weak prior," which was incorrect.
+ * This is the canonical single source of truth for the Beta prior used by
+ * reliability calibration throughout the codebase. Per DIP (coding-standards
+ * §1.5), this lives in core (inner layer). The benchmark math layer imports
+ * from here — not the reverse.
  *
- * source: docs/PHASE_4_PLAN.md §4.1 — "Prior: Beta(7, 3) — mean 0.7,
- * effective sample size 10. (Laplace: this is moderately-informative-toward-
- * reliability, NOT weak; the existing comment is corrected.)"
+ * This is a moderately-informative prior toward reliability, NOT a weak prior.
+ * The pre-Phase-4 comment "uniform weak prior" in consensus.ts was incorrect
+ * and has been corrected here.
  *
- * These values are to be replaced by the B1 wave's `reliability.ts` exports
- * once that module lands. The import comment below documents the expected
- * interface for B1 to implement.
- *
- * B1 interface contract (to-be): export const BETA_PRIOR: { alpha: number; beta: number }
- * from packages/benchmark/calibration/reliability.ts
+ * source: docs/PHASE_4_PLAN.md §4.1 PRE-REGISTRATION — "Prior: Beta(7, 3) —
+ * mean 0.7, effective sample size 10. (Laplace: moderately-informative-toward-
+ * reliability, NOT weak.)"
+ * source: Gelman et al. (2013), "Bayesian Data Analysis", 3rd ed., Ch. 2.4
+ * (Beta-Binomial conjugacy; prior mean = α/(α+β); ESS = α+β).
  */
-export const BETA_PRIOR_ALPHA = 7;
-export const BETA_PRIOR_BETA = 3;
+export interface BetaParamsCore {
+  readonly alpha: number;
+  readonly beta: number;
+}
+
+export const DEFAULT_RELIABILITY_PRIOR: BetaParamsCore = Object.freeze({
+  alpha: 7,
+  beta: 3,
+});
+
+/**
+ * Effective sample size of the default prior = alpha + beta = 10.
+ * Used by the math layer to subtract prior ESS from total ESS when computing
+ * observation-only counts.
+ *
+ * source: Gelman et al. (2013), §2.4; docs/PHASE_4_PLAN.md §4.1.
+ */
+export const RELIABILITY_PRIOR_ESS =
+  DEFAULT_RELIABILITY_PRIOR.alpha + DEFAULT_RELIABILITY_PRIOR.beta;
 
 // ─── Domain types ────────────────────────────────────────────────────────────
 
 /**
- * Direction of the verdict being assessed:
- * - 'pass': the judge reported PASS / SPEC-COMPLETE / NEEDS-RUNTIME for a claim
- *   where ground truth is pass → specificity measurement.
- * - 'fail': the judge reported FAIL for a claim where ground truth is fail
- *   → sensitivity measurement.
+ * Direction of the verdict arm being tracked:
+ * - 'sensitivity_arm': observations where ground truth is FAIL (positive class).
+ *   Tracks P(judge says FAIL | ground truth is FAIL) = sensitivity.
+ * - 'specificity_arm': observations where ground truth is PASS.
+ *   Tracks P(judge says PASS | ground truth is PASS) = specificity.
  *
- * source: docs/PHASE_4_PLAN.md §4.1 Curie hand-off resolution.
+ * Renamed from 'pass'/'fail' (C-Shannon-CONCERN-3): the old labels were
+ * inverted with respect to standard sensitivity/specificity definitions.
+ * In the standard binary-classifier convention, 'pass'/'fail' referred to the
+ * judge's output label, not the statistical quantity being measured; this led
+ * to ambiguity when reasoning about which Beta posterior updates which quantity.
+ *
+ * source: docs/PHASE_4_PLAN.md §4.1 — verdict-direction asymmetry;
+ * Fermi/Shannon cross-audit C-Shannon-CONCERN-3.
  */
-export type VerdictDirection = "pass" | "fail";
+export type VerdictDirection = "sensitivity_arm" | "specificity_arm";
 
 /**
  * One persisted reliability record for a (judge × claim_type × verdict_direction)
@@ -74,9 +97,9 @@ export type VerdictDirection = "pass" | "fail";
  * Fields:
  *   agentKind, agentName    — uniquely identify the judge (mirrors AgentIdentity)
  *   claimType               — from ClaimSchema.claim_type
- *   verdictDirection        — sensitivity ('fail') or specificity ('pass') track
- *   alpha                   — Beta posterior α (≥ BETA_PRIOR_ALPHA)
- *   beta                    — Beta posterior β (≥ BETA_PRIOR_BETA)
+ *   verdictDirection        — 'sensitivity_arm' (gt=FAIL) or 'specificity_arm' (gt=PASS)
+ *   alpha                   — Beta posterior α (≥ DEFAULT_RELIABILITY_PRIOR.alpha)
+ *   beta                    — Beta posterior β (≥ DEFAULT_RELIABILITY_PRIOR.beta)
  *   nObservations           — count of ground-truth-matched observations (= α + β - 10)
  *                             stored explicitly for readability; redundant with α,β.
  *   lastUpdated             — ISO-8601 UTC timestamp of last write
@@ -129,7 +152,7 @@ export interface ReliabilityObservation {
  *
  * Empty-DB / first-run contract:
  *   getReliability(...) returns null for an unseen cell.
- *   Callers must interpret null as "use BETA_PRIOR_ALPHA / BETA_PRIOR_BETA."
+ *   Callers must interpret null as "use DEFAULT_RELIABILITY_PRIOR."
  *   This keeps the fallback logic in the caller (consensus.ts) — the
  *   repository does not embed policy.
  *
@@ -154,8 +177,8 @@ export interface ReliabilityRepository {
    * Record one ground-truth-matched observation for (judge × claim_type).
    *
    * The verdict_direction is derived from the observation:
-   *   groundTruthIsFail = true  → update the 'fail' (sensitivity) cell.
-   *   groundTruthIsFail = false → update the 'pass' (specificity) cell.
+   *   groundTruthIsFail = true  → update the 'sensitivity_arm' cell.
+   *   groundTruthIsFail = false → update the 'specificity_arm' cell.
    *
    * The Beta posterior is updated as:
    *   if judgeWasCorrect → alpha += 1

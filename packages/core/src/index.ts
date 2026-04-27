@@ -103,8 +103,9 @@ export {
 // Reliability persistence — port (interface + types only; no SQLite import)
 export {
   RELIABILITY_SCHEMA_VERSION,
-  BETA_PRIOR_ALPHA,
-  BETA_PRIOR_BETA,
+  DEFAULT_RELIABILITY_PRIOR,
+  RELIABILITY_PRIOR_ESS,
+  type BetaParamsCore,
   type ReliabilityRepository,
   type JudgeReliabilityRecord,
   type ReliabilityObservation,
