@@ -71,22 +71,31 @@ export class StdioMcpClient {
       { capabilities: {} },
     );
 
-    const connectWithTimeout = Promise.race([
-      this.client.connect(this.transport),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                `${this.config.serverName}: connect() timed out after ${CONNECT_TIMEOUT_MS} ms. ` +
-                "Verify the binary path is correct and the process can start.",
-              ),
+    // Hold a reference to the timeout handle so it can be cleared on both the
+    // resolved and rejected branches — prevents the Node.js event loop from
+    // being held open after a successful connect (Curie A2 / Phase 3+4
+    // cross-audit, 2026-04).
+    let timerId: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timerId = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `${this.config.serverName}: connect() timed out after ${CONNECT_TIMEOUT_MS} ms. ` +
+              "Verify the binary path is correct and the process can start.",
             ),
-          CONNECT_TIMEOUT_MS,
-        ),
-      ),
-    ]);
-    await connectWithTimeout;
+          ),
+        CONNECT_TIMEOUT_MS,
+      );
+    });
+    try {
+      await Promise.race([this.client.connect(this.transport), timeoutPromise]);
+    } finally {
+      // Clear the timer regardless of whether connect resolved or rejected.
+      // On the happy path this prevents the timeout from firing after close();
+      // on the error path it avoids a spurious second rejection.
+      clearTimeout(timerId!);
+    }
   }
 
   /**
