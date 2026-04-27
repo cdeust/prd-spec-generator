@@ -360,3 +360,82 @@ describe("verifyHeldoutPartitionSeal — M2 / Popper AP-5", () => {
     rmSync(dir, { recursive: true });
   });
 });
+
+// ─── Phase 4.2 Wave C1: getRetryArmForRun + getMaxAttemptsForRun ─────────────
+
+import {
+  getRetryArmForRun,
+  getMaxAttemptsForRun,
+  MAX_ATTEMPTS_BASELINE,
+} from "../calibration-seams.js";
+import { isControlArmRun as isControlArmRun2 } from "../observations.js";
+
+describe("getRetryArmForRun — Phase 4.2 ablation arm", () => {
+  it("is deterministic — same run_id always returns the same arm", () => {
+    const runId = "phase42-run-abc";
+    expect(getRetryArmForRun(runId)).toBe(getRetryArmForRun(runId));
+  });
+
+  it("returns one of the two valid arm tags for any run_id", () => {
+    for (let i = 0; i < 50; i++) {
+      const arm = getRetryArmForRun(`run-${i}`);
+      expect(["with_prior_violations", "without_prior_violations"]).toContain(
+        arm,
+      );
+    }
+  });
+
+  it("ε ≈ 0.50: both arms see roughly half of run IDs", () => {
+    let withCount = 0;
+    const N = 1000;
+    for (let i = 0; i < N; i++) {
+      if (getRetryArmForRun(`run-${i}`) === "with_prior_violations") {
+        withCount++;
+      }
+    }
+    // Tight bound: deterministic FNV-1a % 4 should give close to 50/50.
+    expect(withCount / N).toBeGreaterThan(0.42);
+    expect(withCount / N).toBeLessThan(0.58);
+  });
+});
+
+describe("getMaxAttemptsForRun — Phase 4.2 CC-3 control arm", () => {
+  it("MAX_ATTEMPTS_BASELINE = 3 (matches section-generation.ts heuristic)", () => {
+    expect(MAX_ATTEMPTS_BASELINE).toBe(3);
+  });
+
+  it("control arm runs return MAX_ATTEMPTS_BASELINE regardless of calibrated value", () => {
+    let controlRunId: string | null = null;
+    for (let i = 0; i < 100; i++) {
+      const id = `c1-probe-${i}`;
+      if (isControlArmRun2(id)) {
+        controlRunId = id;
+        break;
+      }
+    }
+    expect(controlRunId).not.toBeNull();
+    expect(getMaxAttemptsForRun(controlRunId!, 1)).toBe(MAX_ATTEMPTS_BASELINE);
+    expect(getMaxAttemptsForRun(controlRunId!, 5)).toBe(MAX_ATTEMPTS_BASELINE);
+  });
+
+  it("treatment arm runs return the calibrated value", () => {
+    let treatmentRunId: string | null = null;
+    for (let i = 0; i < 100; i++) {
+      const id = `c1-treat-${i}`;
+      if (!isControlArmRun2(id)) {
+        treatmentRunId = id;
+        break;
+      }
+    }
+    expect(treatmentRunId).not.toBeNull();
+    expect(getMaxAttemptsForRun(treatmentRunId!, 2)).toBe(2);
+    expect(getMaxAttemptsForRun(treatmentRunId!, 4)).toBe(4);
+  });
+
+  it("rejects non-positive or non-integer calibrated values", () => {
+    expect(() => getMaxAttemptsForRun("any", 0)).toThrow();
+    expect(() => getMaxAttemptsForRun("any", -1)).toThrow();
+    expect(() => getMaxAttemptsForRun("any", 1.5)).toThrow();
+    expect(() => getMaxAttemptsForRun("any", Number.NaN)).toThrow();
+  });
+});

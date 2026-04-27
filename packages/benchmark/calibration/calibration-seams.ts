@@ -381,3 +381,102 @@ export function getReliabilityForRun<
   }
   return repository.getReliability(judge, claimType, verdictDirection);
 }
+
+// ─── Retry-ablation arm seam — Phase 4.2 / Wave C1 ───────────────────────────
+
+/**
+ * Phase 4.2 ablation tag for the retry-loop calibration.
+ *
+ * - "with_prior_violations": engineer subagent receives the previous
+ *   attempt's `prior_violations` array on retry (current behaviour).
+ * - "without_prior_violations": engineer receives an empty `prior_violations`
+ *   array on retry (the ablation control).
+ *
+ * If pass-rate-by-attempt is statistically indistinguishable across arms
+ * (log-rank p ≥ 0.05), retries are random draws and prior_violations
+ * feedback is broken — MAX_ATTEMPTS = 1 is correct regardless of any
+ * survival-rate signal. See PHASE_4_PLAN.md §4.2.
+ *
+ * source: docs/PHASE_4_PLAN.md §4.2 ablation arm; Fisher Fi-4.2.
+ */
+export type RetryArm = "with_prior_violations" | "without_prior_violations";
+
+/**
+ * Phase 4.2 ablation-arm allocator.
+ *
+ * Deterministic 50/50 partition using the TOP TWO BITS of fnv1a32(runId):
+ * `(fnv1a32(runId) >>> 30) < 2`. Top-bit extraction is used instead of
+ * `% 4` because FNV-1a has poor low-bit diffusion for short ASCII inputs
+ * (e.g., sequential "run-N" or hex-only UUIDs) — `% 4` produces a heavily
+ * skewed distribution. The top two bits aggregate avalanche from every
+ * input byte and yield a near-uniform 50/50 split.
+ *
+ * The CC-3 reliability control arm (`isControlArmRun`) uses `% 5` on the
+ * same fnv1a32; `% 5` happens to be tolerable for sequential inputs and is
+ * already shipped + benchmarked, so it is not changed here. The two
+ * partitions remain statistically independent because they read disjoint
+ * bit ranges of the same hash.
+ *
+ * ε = 0.50 matches Schoenfeld's symmetric-allocation assumption
+ * (allocationA = 0.5) used in the §4.2 power calculation.
+ *
+ * Precondition: runId is a non-empty string.
+ * Postcondition: deterministic; marginal distribution is 50/50 for any
+ *   reasonable run-ID corpus (uniform top-bit avalanche of FNV-1a).
+ *
+ * source: PHASE_4_PLAN.md §4.2 ablation arm.
+ * source: Fowler-Noll-Vo discussion of low-bit bias —
+ *   http://www.isthe.com/chongo/tech/comp/fnv/index.html#FNV-1a ("avoid
+ *   modulo on the low bits for small power-of-two divisors").
+ */
+export function getRetryArmForRun(runId: string): RetryArm {
+  // Top two bits of the 32-bit FNV-1a hash; uniform under avalanche.
+  return (fnv1a32(runId) >>> 30) < 2
+    ? "without_prior_violations"
+    : "with_prior_violations";
+}
+
+// ─── MAX_ATTEMPTS control arm seam — Phase 4.2 CC-3 ──────────────────────────
+
+/**
+ * Baseline MAX_ATTEMPTS for the Phase 4.2 control arm.
+ *
+ * source: packages/orchestration/src/handlers/section-generation.ts:46
+ *   (`const MAX_ATTEMPTS = 3`) — the heuristic baseline to be calibrated.
+ */
+export const MAX_ATTEMPTS_BASELINE = 3;
+
+/**
+ * CC-3 control-arm seam for Phase 4.2's closed loop.
+ *
+ * MAX_ATTEMPTS calibration IS a closed loop: a calibrated MAX_ATTEMPTS feeds
+ * retry behaviour, which changes future (attempt, pass) observations, which
+ * feeds the next calibration. Per CC-3, every closed loop must include a
+ * forced-exploration control arm.
+ *
+ * Allocation reuses `isControlArmRun` (fnv1a32(runId) % 5 === 0; ε = 0.20).
+ * Same predicate is reused intentionally so a single run is either fully
+ * control-arm or fully treatment-arm; analyses across 4.1 and 4.2 can be
+ * joined on run_id without cross-arm contamination. The retry-ablation arm
+ * (`getRetryArmForRun`) uses a SEPARATE modulus (4 vs 5) so the two
+ * treatments remain statistically independent.
+ *
+ * Precondition: calibratedValue is a positive integer; runId non-empty.
+ * Postcondition:
+ *   - control arm: returns MAX_ATTEMPTS_BASELINE (= 3).
+ *   - treatment arm: returns calibratedValue.
+ *
+ * source: PHASE_4_PLAN.md §CC-3; §4.2 closed-loop control arm.
+ */
+export function getMaxAttemptsForRun(
+  runId: string,
+  calibratedValue: number,
+): number {
+  if (!Number.isInteger(calibratedValue) || calibratedValue < 1) {
+    throw new Error(
+      `getMaxAttemptsForRun: calibratedValue must be a positive integer, got ${calibratedValue}`,
+    );
+  }
+  if (isControlArmRun(runId)) return MAX_ATTEMPTS_BASELINE;
+  return calibratedValue;
+}
