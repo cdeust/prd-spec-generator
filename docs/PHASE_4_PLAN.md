@@ -547,6 +547,19 @@ under the conditional/survival framing. If first-attempt fail rate is lower
 than 0.30 in production, N rises proportionally; the runner MUST recompute
 N from the observed event rate before any decision rule fires.
 
+**event_rate=0.30 PROVISIONAL anchor hedge (Popper AP-1 / B9).**
+The value 0.30 is a provisional anchor pending CC-2 measurement from real runs.
+Pre-flight check: BEFORE running the N=823 calibration study, an initial
+K=50 calibration runs against the canned baseline MUST measure the actual
+first-attempt fail rate. If the observed event_rate differs from 0.30 by more
+than ±0.05 absolute, the Schoenfeld N must be recomputed via
+`schoenfeldRequiredEvents({ hr: 0.7, alpha: 0.05, power: 0.80,
+allocationA: 0.5, eventRate: observed })` and the study budget revised before
+any further data collection.
+
+source: provisional anchor — measure before use (Wave C integration B9,
+2026-04-27).
+
 source: Schoenfeld, D. (1981). "The Asymptotic Properties of Nonparametric
   Tests for Comparing Survival Distributions." Biometrika 68(1), 316-319.
 source: Collett, D. (2015). "Modelling Survival Data in Medical Research,"
@@ -1021,9 +1034,9 @@ calibration cycle. Per CC-3:
   the control arm for KPI gates too). ε = 0.20.
 - Mechanism: `getKpiGatesForRun<T>(runId, calibratedGates,
   provisionalGates): T` in
-  `packages/benchmark/calibration/calibration-seams.ts` returns the
-  provisional gate set for control-arm runs and the calibrated gate set
-  for treatment-arm runs.
+  `packages/benchmark/calibration/gate-tuning-seams.ts` (CC-3 forced-exploration
+  seam; C3 deliverable) returns the provisional gate set for control-arm runs
+  and the calibrated gate set for treatment-arm runs.
 - Comparison metric: downstream consensus accuracy / section_pass_rate on
   the held-out partition (below) — NOT the loop's own output (KPI
   distribution after gating).
@@ -1046,13 +1059,15 @@ the per-bucket gate, and `<gate-name>.xmr.json` for global gates.
   80% calibration / 20% held-out, drawn using the frozen RNG seed below.
   Stratified by `machine_class` so each held-out cell preserves the
   machine-class distribution.
-- Sealing: written to `data/kpigates-heldout.lock.json` (committed, schema
-  identical to `heldout-partition.lock.json`). The same
-  `verifyHeldoutPartitionSeal` function from
-  `packages/benchmark/calibration/calibration-seams.ts` enforces the seal
-  before any held-out evaluation — sha256 over sorted-newline-joined
-  run_ids must match `partition_hash`; `sealed_at` must not be in the
-  future; `rng_seed` must match the committed pre-registration constant.
+- Sealing: written to
+  `packages/benchmark/calibration/data/kpigates-heldout.lock.json`
+  (committed; Popper AP-5 sealing artifact). Schema:
+  `KpiGatesHeldoutLockSchema` (v1, scoped to KPI-gate use case) in
+  `packages/benchmark/calibration/heldout-seals.ts`. Verification:
+  `verifyKpiGatesHeldoutSeal(lockPath)` from the same module.
+  Note: `kpigates-heldout.lock.json` uses v1 field names (rng_seed /
+  partition_hash) — the same as `maxattempts-heldout.lock.json` — because
+  the sealing artifact is over run_ids, not claim_ids (C3 deliverable).
 - Decision: REJECT calibration (revert to provisional gates; investigate)
   IFF, on the held-out 20%:
   - calibrated false-positive rate (% of unperturbed runs that fire any
@@ -1116,6 +1131,29 @@ side of the mean) OR a pre-registered re-calibration cycle (e.g., quarterly
 or per-major-release). Individual gate violations are NOT grounds for
 adjusting the gate. Repeats §4.5 of the prior revision; preserved here so
 the tampering rule is co-located with the per-gate table.
+
+**Symmetric anchor-update procedure (Popper AP-1 anti-ratchet).** Anchors
+(calibrated gate values) are BIDIRECTIONAL — they may move either tighter OR
+looser when evidence justifies. A one-sided ratchet (anchors can only loosen,
+never tighten) means a real quality improvement can never tighten the gate,
+weakening the falsifier monotonically over time (Popper AP-1 asymmetric
+falsifiability violation).
+
+- Anchor MAY move DOWN (tighter) when: a calibration window of K≥100 runs
+  against a NEW frozen baseline (post-improvement) shows the new P95 is
+  below the current anchor by more than the XmR ±3σ band on the calibration
+  metric for that gate.
+- Anchor MAY move UP (looser) when: a sustained shift on the EXISTING baseline
+  is detected per the Western Electric Rule 4 criterion (run of 8 consecutive
+  batches on one side of mean) on the XmR chart for that gate.
+- Anchors move ONLY at pre-registered calibration windows (quarterly or
+  per-major-release per the tampering safeguard above), never per-run.
+- Anti-ratchet motivation: a calibration procedure that can only loosen gates
+  is not a calibration procedure — it is a monotone noise accumulator. Both
+  directions must be permitted; neither should be the default.
+
+source: Popper AP-1 — asymmetric falsifiability concern; Wave C cross-audit
+(code-reviewer finding B6, 2026-04-27).
 
 **Falsifiability.** Two arms of the synthetic test (§"Synthetic +20%
 regression test" above) plus the held-out negative falsifier. If either

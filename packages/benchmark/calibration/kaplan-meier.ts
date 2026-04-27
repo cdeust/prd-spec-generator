@@ -345,6 +345,12 @@ export function logRankTest(
  * fail rate (≈ 0.30 in production data) because only sections that fail at
  * least once contribute later-attempt observations.
  *
+ * // source: provisional anchor — measure before use.
+ * // event_rate=0.30 is PROVISIONAL pending CC-2 measurement from K=50
+ * // pre-flight runs. If observed event_rate differs from 0.30 by > ±0.05,
+ * // recompute N before starting the full N=823 study (docs/PHASE_4_PLAN.md
+ * // §4.2 event_rate hedge, B9).
+ *
  * Defaults match the Phase 4.2 pre-registration:
  *   - α = 0.05 two-sided
  *   - power = 0.80
