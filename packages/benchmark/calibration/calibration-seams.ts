@@ -24,6 +24,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
+import { z } from "zod";
 import type { JudgeId, JudgeObservation } from "./observations.js";
 
 // ─── Held-out partition seal (M2 / Popper AP-5) ──────────────────────────────
@@ -44,6 +45,45 @@ export interface HeldoutPartitionLock {
   readonly partition_hash: string; // sha256 hex over sorted-newline-joined claim_ids
   readonly partition_size: number;
   readonly sealed_at: string; // ISO-8601 UTC
+}
+
+/**
+ * Runtime validator for `HeldoutPartitionLock`. The committed template stub
+ * (data/heldout-partition.lock.json) carries `null` for every field other than
+ * `schema_version`, so we validate the SEALED shape — all fields populated and
+ * well-typed. A null-valued template fails the schema with a clear "lock file
+ * is unsealed" diagnostic instead of an opaque downstream NaN cascade.
+ *
+ * source: Popper AP-5 final-audit residual (verifyHeldoutPartitionSeal lacked
+ * runtime schema validation; null template produced misleading error messages).
+ */
+const HeldoutPartitionLockSchema = z.object({
+  schema_version: z.literal(1),
+  rng_seed: z.number().int().nonnegative(),
+  partition_hash: z.string().regex(/^[0-9a-f]{64}$/, {
+    message: "partition_hash must be a 64-char lowercase sha256 hex digest",
+  }),
+  partition_size: z.number().int().positive(),
+  sealed_at: z.string().refine((s) => !Number.isNaN(new Date(s).getTime()), {
+    message: "sealed_at must be a valid ISO-8601 timestamp",
+  }),
+});
+
+/**
+ * Detect the unsealed-template state explicitly. The committed lock file
+ * carries `null` for the fields that get populated when the partition is
+ * actually drawn and sealed; treat that as a clear-error condition rather than
+ * letting it cascade into the runtime validator's per-field complaints.
+ */
+function isUnsealedTemplate(raw: unknown): boolean {
+  if (typeof raw !== "object" || raw === null) return false;
+  const r = raw as Record<string, unknown>;
+  return (
+    r.rng_seed === null ||
+    r.partition_hash === null ||
+    r.partition_size === null ||
+    r.sealed_at === null
+  );
 }
 
 /**
@@ -77,28 +117,44 @@ export function verifyHeldoutPartitionSeal(
     );
   }
 
-  let lock: HeldoutPartitionLock;
+  let raw: unknown;
   try {
-    lock = JSON.parse(readFileSync(lockPath, "utf8")) as HeldoutPartitionLock;
+    raw = JSON.parse(readFileSync(lockPath, "utf8"));
   } catch (err) {
     throw new Error(
       `verifyHeldoutPartitionSeal: failed to parse lock file at "${lockPath}": ${String(err)}`,
     );
   }
 
-  if (lock.schema_version !== 1) {
+  // Explicit unsealed-template guard: the committed stub at
+  // data/heldout-partition.lock.json carries `null` for every field other than
+  // schema_version. Detect that state up-front so the error names the actual
+  // problem instead of cascading into per-field schema complaints.
+  if (isUnsealedTemplate(raw)) {
     throw new Error(
-      `verifyHeldoutPartitionSeal: unrecognized schema_version=${lock.schema_version} in "${lockPath}". Expected 1.`,
+      `verifyHeldoutPartitionSeal: lock file at "${lockPath}" is the unsealed template ` +
+        `(rng_seed/partition_hash/partition_size/sealed_at all null). ` +
+        `The held-out partition must be drawn and sealed before any evaluation. ` +
+        `See docs/PHASE_4_PLAN.md §4.1 negative-falsifier procedure.`,
     );
   }
 
-  // Guard: sealed_at must not be in the future (clock drift or pre-dated lock).
-  const sealedAt = new Date(lock.sealed_at).getTime();
-  if (Number.isNaN(sealedAt)) {
+  // Runtime schema validation. Replaces the prior unsafe `as` cast.
+  const parsed = HeldoutPartitionLockSchema.safeParse(raw);
+  if (!parsed.success) {
     throw new Error(
-      `verifyHeldoutPartitionSeal: sealed_at="${lock.sealed_at}" is not a valid ISO-8601 timestamp.`,
+      `verifyHeldoutPartitionSeal: lock file at "${lockPath}" failed schema validation: ` +
+        parsed.error.issues
+          .map((i) => `${i.path.join(".") || "<root>"}: ${i.message}`)
+          .join("; "),
     );
   }
+  const lock: HeldoutPartitionLock = parsed.data;
+
+  // Guard: sealed_at must not be in the future (clock drift or pre-dated lock).
+  // The schema already ensured `sealed_at` parses to a valid Date, so the
+  // NaN-check at this layer is redundant but kept defensively.
+  const sealedAt = new Date(lock.sealed_at).getTime();
   if (sealedAt > Date.now()) {
     throw new Error(
       `verifyHeldoutPartitionSeal: sealed_at="${lock.sealed_at}" is in the future. ` +

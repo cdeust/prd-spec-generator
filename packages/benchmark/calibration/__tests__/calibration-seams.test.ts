@@ -287,11 +287,75 @@ describe("verifyHeldoutPartitionSeal — M2 / Popper AP-5", () => {
   it("passes silently for an empty observed_indices array when lock reflects empty set", () => {
     const dir = makeTmpDir();
     const lockPath = join(dir, "lock.json");
-    writeFileSync(lockPath, makeLockJson([]), "utf8");
+    // partition_size must be > 0 per the schema; for an empty observed set we
+    // hash over the sorted-empty-array (which yields a fixed digest), and use
+    // partition_size: 1 as the smallest valid placeholder. The schema only
+    // requires partition_size be a positive integer; it does NOT require it
+    // to equal the array length (the hash is the load-bearing invariant).
+    const lock = JSON.parse(makeLockJson([])) as Record<string, unknown>;
+    lock.partition_size = 1;
+    writeFileSync(lockPath, JSON.stringify(lock), "utf8");
 
     expect(() =>
       verifyHeldoutPartitionSeal([], lockPath),
     ).not.toThrow();
+
+    rmSync(dir, { recursive: true });
+  });
+
+  // ─── Popper AP-5 final-audit residual: runtime schema validation ──────
+
+  it("throws a clear 'unsealed template' error when lock has null fields", () => {
+    const dir = makeTmpDir();
+    const lockPath = join(dir, "lock.json");
+    // Mirrors the committed template at data/heldout-partition.lock.json.
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        schema_version: 1,
+        rng_seed: null,
+        partition_hash: null,
+        partition_size: null,
+        sealed_at: null,
+      }),
+      "utf8",
+    );
+
+    expect(() =>
+      verifyHeldoutPartitionSeal(["C1"], lockPath),
+    ).toThrow(/unsealed template/);
+
+    rmSync(dir, { recursive: true });
+  });
+
+  it("throws a schema-validation error when partition_hash is malformed", () => {
+    const dir = makeTmpDir();
+    const lockPath = join(dir, "lock.json");
+    // partition_hash is a non-hex string — fails the regex in the Zod schema.
+    writeFileSync(
+      lockPath,
+      makeLockJson(["C1"], { partition_hash: "not-a-real-sha256" }),
+      "utf8",
+    );
+
+    expect(() =>
+      verifyHeldoutPartitionSeal(["C1"], lockPath),
+    ).toThrow(/schema validation|partition_hash/);
+
+    rmSync(dir, { recursive: true });
+  });
+
+  it("throws a schema-validation error when rng_seed is missing", () => {
+    const dir = makeTmpDir();
+    const lockPath = join(dir, "lock.json");
+    // Construct a lock that has every other field correct but no rng_seed.
+    const lock = JSON.parse(makeLockJson(["C1"])) as Record<string, unknown>;
+    delete lock.rng_seed;
+    writeFileSync(lockPath, JSON.stringify(lock), "utf8");
+
+    expect(() =>
+      verifyHeldoutPartitionSeal(["C1"], lockPath),
+    ).toThrow(/schema validation|rng_seed/);
 
     rmSync(dir, { recursive: true });
   });
