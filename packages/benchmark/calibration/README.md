@@ -42,6 +42,26 @@ Each row in a JSONL data file:
 
 ## Procedure
 
+0. **Pre-flight injection check (CC-cross-check / AP-5 negative falsifier).**
+   The analysis script (`mismatch-fire-rate.ts`) automatically runs a
+   synthetic injection round-trip BEFORE consuming any real dataset. It
+   constructs a synthetic `state.errors` containing the canonical mismatch
+   diagnostic string, calls `extractMismatchEvents`, and asserts that ≥ 1
+   event is returned. If the assertion fails (0 events), the script aborts
+   immediately with a clear error message — the MISMATCH_DIAGNOSTIC_PREFIX
+   in `instrumentation.ts` has drifted away from the injected string, making
+   any 0-fire result on the real dataset untrustworthy.
+
+   The unit test in
+   `calibration/__tests__/instrumentation-injection.test.ts` verifies this
+   round-trip independently of the CLI path and is the primary CI guard
+   (source: Curie A3 / Popper AP-5, Phase 3+4 cross-audit, 2026-04).
+
+   To run the unit test only:
+   ```bash
+   pnpm --filter @prd-gen/benchmark test -- instrumentation-injection
+   ```
+
 1. **Pre-register.** PHASE_4_PLAN.md §4.3 must already be filled in (it is, as
    of the commit that introduced this directory). The RNG seed
    `PRE_REGISTERED_SEED = 0xC0FFEE0403` is committed in

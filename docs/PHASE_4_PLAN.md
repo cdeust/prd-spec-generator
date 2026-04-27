@@ -328,6 +328,21 @@ fails the calibration run loudly rather than silently.
 bound of the Clopper-Pearson 95% CI: if it sits below 0.01 with K ≥ 460, H1
 is rejected at the pre-registered level.
 
+**AP-5 negative falsifier — injection harness (Curie A3).**
+A 0-fire result is ONLY meaningful if the instrumentation can actually detect
+mismatch events. The negative falsifier is a synthetic injection round-trip:
+1. `packages/benchmark/calibration/__tests__/instrumentation-injection.test.ts`
+   — unit test that constructs synthetic `state.errors` with known-good and
+   known-bad mismatch strings, calls `extractMismatchEvents`, and asserts
+   exact event counts. Runs in CI on every commit; a failure here means the
+   prefix in `instrumentation.ts` has drifted from the handler emitter.
+2. `packages/benchmark/calibration/mismatch-fire-rate.ts:runPreflightInjectionCheck()`
+   — called as Step 0 in the CLI analysis script before any real dataset row
+   is consumed. If the injection round-trip returns 0 events, the analysis
+   aborts with a clear human-readable error; no decision is emitted and no
+   JSONL row is consumed. This ensures the K=460 study cannot accidentally
+   report "0 fires" when the upstream emitter has rotated formats.
+
 ---
 
 ## 4.4 — Strategy-effectiveness closed feedback loop

@@ -44,7 +44,9 @@ import {
 } from "./clopper-pearson.js";
 import { xmrAnalyze, type XmRReport } from "./xmr.js";
 import {
+  extractMismatchEvents,
   MISMATCH_KINDS,
+  MISMATCH_DIAGNOSTIC_PREFIX,
   type MismatchKind,
 } from "../src/instrumentation.js";
 
@@ -75,6 +77,40 @@ export const XMR_BATCH_SIZE = 20;
 export const XMR_BASELINE_BATCHES = 12;
 // source: PHASE_4_PLAN.md §4.3 pre-registered H0 ceiling.
 export const FIRE_RATE_CEILING = 0.01;
+
+// ─── Pre-flight injection check (AP-5 negative falsifier) ─────────────────────
+
+/**
+ * Run ONE synthetic injection round-trip BEFORE consuming any real dataset.
+ *
+ * Pre-condition: called with a known-good mismatch_kind string.
+ * Post-condition: throws with a human-readable abort message if
+ *   `extractMismatchEvents` returns 0 events for the injection — which
+ *   indicates the MISMATCH_DIAGNOSTIC_PREFIX in instrumentation.ts has
+ *   drifted away from the injected string, making the instrumentation
+ *   untrustworthy.
+ *
+ * Invariant: the real dataset is NEVER consumed if this check fails.
+ *
+ * source: Curie A3 / Popper AP-5 / Phase 3+4 cross-audit (2026-04).
+ *         Pre-registration in docs/PHASE_4_PLAN.md §4.3 "Step 0 pre-flight".
+ */
+export function runPreflightInjectionCheck(): void {
+  // Use the first known kind as the synthetic payload.
+  const syntheticKind = MISMATCH_KINDS[0];
+  const syntheticError = `${MISMATCH_DIAGNOSTIC_PREFIX}${syntheticKind}`;
+  const result = extractMismatchEvents({ errors: [syntheticError] });
+  if (result.events.length === 0) {
+    throw new Error(
+      "[mismatch-fire-rate] ABORT: instrumentation pre-flight injection check FAILED. " +
+        `Injected '${syntheticError}' but extractMismatchEvents returned 0 events. ` +
+        "MISMATCH_DIAGNOSTIC_PREFIX may have drifted in instrumentation.ts. " +
+        "Real dataset NOT consumed; no decision emitted. " +
+        "Fix: ensure the prefix in instrumentation.ts matches the string emitted by " +
+        "handleSelfCheckPhaseB in packages/orchestration/src/handlers/self-check.ts.",
+    );
+  }
+}
 
 export interface CalibrationRun {
   readonly run_id: string;
@@ -292,6 +328,10 @@ async function main(): Promise<void> {
       "PRE_REGISTERED_SEED has been mutated post-registration — refuse to analyze.",
     );
   }
+  // Step 0: pre-flight injection check — aborts before touching data if the
+  // instrumentation prefix has drifted (AP-5 negative falsifier).
+  runPreflightInjectionCheck();
+
   const dataDir =
     process.argv[2] ??
     join(
