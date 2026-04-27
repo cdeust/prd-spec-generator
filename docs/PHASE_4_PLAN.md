@@ -491,6 +491,19 @@ percentile.
 
 ## Cross-cutting risks (revised)
 
+### Shannon: mismatch_kinds count-loss (deferred to Wave B+)
+
+`MismatchExtraction.distinctKinds` is a `ReadonlyArray<MismatchKind>` (deduped
+per run). Shannon flagged that this loses the per-kind fire count when a single
+run fires the same kind multiple times. The correct representation would be
+`Record<MismatchKind, number>`. This refactor is deferred: it requires changing
+the `PipelineKpis.mismatch_kinds` surface, the `CalibrationRun.mismatch_kinds`
+JSONL schema, and the per-kind CI computation in `analyze()`. It is NOT
+blocking Phase 4.3 data collection because the current dedup-per-run matches
+the pre-registered estimand (a run "fires" at most once per kind). File a
+Wave B+ task to migrate to the typed count before any per-kind rate is used
+for a Phase 4 deletion decision.
+
 ### Reflexivity (Curie A6, A8 / Popper AP-1, AP-3)
 
 Two reflexivity hazards exist:

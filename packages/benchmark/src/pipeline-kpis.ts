@@ -432,7 +432,12 @@ export function evaluateGates(
     // uninformative; safety_cap_hit_allowed already fires on cap-hit.
     { metric: "mean_section_attempts_max", actual: kpis.mean_section_attempts, enabled: !kpis.safety_cap_hit },
     { metric: "structural_error_count_max", actual: kpis.structural_error_count, enabled: true },
-    { metric: "cortex_recall_empty_count_max", actual: kpis.cortex_recall_empty_count, enabled: true },
+    // cortex_recall_empty_count_max: suspended on canned-dispatcher runs because
+    // the canned dispatcher never populates Cortex recall results, so the empty
+    // count equals the number of sections (11 on a full run). The gate is only
+    // meaningful when a real Cortex MCP is wired and recall may occasionally miss.
+    // source: provisional heuristic comment on cortex_recall_empty_count_max.
+    { metric: "cortex_recall_empty_count_max", actual: kpis.cortex_recall_empty_count, enabled: !is_canned_dispatcher },
   ];
 
   for (const g of numericGates) {
