@@ -33,3 +33,20 @@ export {
   type XmRReport,
   type XmRSignal,
 } from "./xmr.js";
+
+// Phase 4.5 — KPI gate tuning seams + machine-class detection (Wave C3).
+export {
+  detectMachineClass,
+  getWallTimeMsGateForMachine,
+  MACHINE_CLASSES,
+  WALL_TIME_MS_GATE_BY_CLASS,
+  WALL_TIME_MS_GATE_FALLBACK,
+  GATE_BLOCKED_LOG_PATH,
+  type MachineClass,
+  type GateBlockedLogEntry,
+} from "./machine-class.js";
+
+export {
+  appendGateBlockedEntry,
+  getKpiGatesForRun,
+} from "./gate-tuning-seams.js";
