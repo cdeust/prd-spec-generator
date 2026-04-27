@@ -4,9 +4,14 @@
  * Closed-form Beta-Binomial conjugate update for per-(judge × claim_type)
  * reliability with sensitivity / specificity split.
  *
- * Layer rule (coding-standards §2.2): this module imports stdlib only.
- * No I/O, no orchestration, no verification, no persistence. Callers in the
- * composition root wire these pure functions to data sources.
+ * Layer rule (coding-standards §2.2): this module imports from @prd-gen/core
+ * (inner layer) and stdlib only. No orchestration, no verification, no
+ * infrastructure. Callers in the composition root wire these pure functions
+ * to data sources.
+ *
+ * The Beta prior is defined as the single source of truth in @prd-gen/core
+ * (DIP §1.5 / B-Shannon-7): inner layers define abstractions; outer layers
+ * import from them.
  *
  * Sources:
  * - Beta-Binomial conjugacy: Gelman et al. (2013), "Bayesian Data Analysis",
@@ -18,37 +23,47 @@
  *   docs/PHASE_4_PLAN.md §4.1 stopping rule).
  * - Sensitivity / specificity split: Laplace cross-audit L4
  *   (verdict-direction asymmetry; docs/PHASE_4_PLAN.md §4.1).
+ * - dominanceThreshold ESS correction: Fermi cross-audit B-Fermi-3 (subtract
+ *   prior ESS so threshold fires at N_observations ≥ 30, not ESS ≥ 30).
  */
+
+import {
+  DEFAULT_RELIABILITY_PRIOR,
+  RELIABILITY_PRIOR_ESS,
+} from "@prd-gen/core";
 
 /**
  * Beta-distribution parameters. Both must be strictly positive (Gelman
  * et al. 2013, eqn 2.13).
+ *
+ * This is a local alias for the math layer; the canonical definition
+ * (BetaParamsCore) lives in @prd-gen/core/reliability-repository.
+ * The two types are structurally compatible (same shape).
  */
 export interface BetaParams {
   readonly alpha: number;
   readonly beta: number;
 }
 
-/**
- * Default reliability prior shared by every (judge, claim_type) cell at
- * initialization.
- *
- * source: docs/PHASE_4_PLAN.md §4.1 PRE-REGISTRATION (Beta(7,3); mean=0.7;
- * effective sample size = α+β = 10; moderately informative). Replaces the
- * pre-Phase-4 scalar DEFAULT_RELIABILITY_PRIOR_MEAN = 0.7 in
- * packages/verification/src/consensus.ts.
- */
-export const DEFAULT_RELIABILITY_PRIOR: BetaParams = Object.freeze({
-  alpha: 7,
-  beta: 3,
-});
+export { DEFAULT_RELIABILITY_PRIOR };
 
 /**
- * Minimum effective sample size at which observed data dominates the
- * Beta(7,3) prior.
+ * Prior effective sample size, re-exported for callers.
+ * Equals DEFAULT_RELIABILITY_PRIOR.alpha + DEFAULT_RELIABILITY_PRIOR.beta = 10.
+ *
+ * source: docs/PHASE_4_PLAN.md §4.1; @prd-gen/core RELIABILITY_PRIOR_ESS.
+ */
+export const PRIOR_ESS: number = RELIABILITY_PRIOR_ESS;
+
+/**
+ * Minimum N_observations (= observations only, prior ESS subtracted) at which
+ * observed data dominates the Beta(7,3) prior.
  *
  * source: docs/PHASE_4_PLAN.md §4.1 stopping-rule derivation
- * (ESS_prior = 10, ±0.05 precision requires N ≥ 30; Laplace L4).
+ * (ESS_prior = 10, ±0.05 precision requires N_obs ≥ 30; Laplace L4).
+ * source: Fermi cross-audit B-Fermi-3 — dominance must fire at N_observations
+ * ≥ 30, not at total ESS ≥ 30 (which would incorrectly count the prior).
+ * source: Fermi cross-audit, two-proportion z-test, see PHASE_4_PLAN.md §4.1
  */
 export const DOMINANCE_THRESHOLD_N = 30;
 
@@ -142,15 +157,22 @@ export function effectiveSampleSize(beta: BetaParams): number {
 }
 
 /**
- * Returns true when the posterior has accumulated enough data for the
- * likelihood to dominate the Beta(7,3) prior. Crossing this threshold
- * is the persistence gate per docs/PHASE_4_PLAN.md §4.1 decision rule
- * step (1).
+ * Returns true when the posterior has accumulated enough OBSERVED data (prior
+ * ESS subtracted) for the likelihood to dominate the Beta(7,3) prior.
+ *
+ * Before fix (B-Fermi-3): used `effectiveSampleSize(beta) >= 30`, which counts
+ * the prior's own 10 ESS, so the threshold fired at N_observations = 20, not 30.
+ * Fix: N_observations = effectiveSampleSize(beta) - PRIOR_ESS >= DOMINANCE_THRESHOLD_N.
+ *
+ * Precondition: beta is a valid BetaParams (alpha > 0, beta > 0).
+ * Postcondition: returns true iff the number of actual observations
+ *   (ESS minus prior ESS) >= DOMINANCE_THRESHOLD_N.
  *
  * source: Laplace cross-audit L4; DOMINANCE_THRESHOLD_N derivation.
+ * source: Fermi cross-audit B-Fermi-3 — off-by-prior-ESS correction.
  */
 export function dominanceThreshold(beta: BetaParams): boolean {
-  return effectiveSampleSize(beta) >= DOMINANCE_THRESHOLD_N;
+  return effectiveSampleSize(beta) - PRIOR_ESS >= DOMINANCE_THRESHOLD_N;
 }
 
 /**

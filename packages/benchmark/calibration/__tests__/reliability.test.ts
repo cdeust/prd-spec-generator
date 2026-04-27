@@ -6,7 +6,7 @@
  *  - posterior mean shifts toward observed rate as N grows
  *  - posterior mode equals MAP closed-form
  *  - effective sample size = α + β
- *  - dominance threshold flips at ESS = 30
+ *  - dominance threshold flips at N_observations = 30 (prior ESS subtracted; B-Fermi-3)
  *  - sensitivity / specificity tracked separately
  *  - contract violations refused (no silent fixes — coding-standards §6)
  */
@@ -20,6 +20,7 @@ import {
   effectiveSampleSize,
   posteriorMean,
   posteriorMode,
+  PRIOR_ESS,
   splitSensitivitySpecificity,
   tallyConfusion,
   type ClaimObservation,
@@ -134,18 +135,33 @@ describe("effectiveSampleSize and dominanceThreshold", () => {
     expect(effectiveSampleSize({ alpha: 17, beta: 13 })).toBe(30);
   });
 
-  it("dominanceThreshold is true exactly when ESS ≥ 30", () => {
-    // ESS = 10 + 19 = 29 -> below
-    const below = betaUpdate(DEFAULT_RELIABILITY_PRIOR, 12, 19);
-    expect(effectiveSampleSize(below)).toBe(29);
-    expect(dominanceThreshold(below)).toBe(false);
+  it("PRIOR_ESS is 10 (alpha=7 + beta=3)", () => {
+    expect(PRIOR_ESS).toBe(10);
+  });
 
-    // ESS = 10 + 20 = 30 -> at threshold
-    const at = betaUpdate(DEFAULT_RELIABILITY_PRIOR, 12, 20);
-    expect(effectiveSampleSize(at)).toBe(30);
-    expect(dominanceThreshold(at)).toBe(true);
+  it("dominanceThreshold is false at exactly 29 N_observations (B-Fermi-3)", () => {
+    // N_observations = 29: total ESS = 10 (prior) + 29 = 39
+    const at29 = betaUpdate(DEFAULT_RELIABILITY_PRIOR, 20, 29);
+    expect(effectiveSampleSize(at29) - PRIOR_ESS).toBe(29);
+    expect(dominanceThreshold(at29)).toBe(false);
+  });
 
-    // ESS > 30
+  it("dominanceThreshold is true at exactly 30 N_observations (B-Fermi-3)", () => {
+    // N_observations = 30: total ESS = 10 (prior) + 30 = 40
+    const at30 = betaUpdate(DEFAULT_RELIABILITY_PRIOR, 20, 30);
+    expect(effectiveSampleSize(at30) - PRIOR_ESS).toBe(30);
+    expect(dominanceThreshold(at30)).toBe(true);
+  });
+
+  it("dominanceThreshold is false at N_observations = 20 (the old wrong threshold — B-Fermi-3 regression guard)", () => {
+    // Before fix, ESS=30 (prior 10 + obs 20) would have triggered dominance.
+    // After fix, we need N_observations >= 30, so obs=20 must NOT trigger it.
+    const obs20 = betaUpdate(DEFAULT_RELIABILITY_PRIOR, 12, 20);
+    expect(effectiveSampleSize(obs20) - PRIOR_ESS).toBe(20);
+    expect(dominanceThreshold(obs20)).toBe(false);
+  });
+
+  it("dominanceThreshold is true well above threshold", () => {
     const above = betaUpdate(DEFAULT_RELIABILITY_PRIOR, 60, 100);
     expect(dominanceThreshold(above)).toBe(true);
   });
@@ -260,16 +276,31 @@ describe("splitSensitivitySpecificity — verdict-direction asymmetry", () => {
   });
 });
 
-describe("dominance threshold reached only with sufficient observations per arm", () => {
+describe("dominance threshold reached only with sufficient N_observations per arm (B-Fermi-3)", () => {
   it("a judge with 25 positive-class observations does NOT cross sens dominance", () => {
+    // N_observations = 25 < DOMINANCE_THRESHOLD_N = 30; threshold must NOT fire.
     const obs: ClaimObservation[] = Array.from({ length: 25 }, () => ({
       ground_truth: "PASS" as const,
       judge_verdict: "PASS" as const,
     }));
     const post = splitSensitivitySpecificity(obs);
-    // sens ESS = 10 + 25 = 35 -> dominance crossed
+    // sens: N_observations = 25 -> below threshold
+    expect(effectiveSampleSize(post.sens) - PRIOR_ESS).toBe(25);
+    expect(dominanceThreshold(post.sens)).toBe(false);
+    // spec: N_observations = 0 -> well below
+    expect(dominanceThreshold(post.spec)).toBe(false);
+  });
+
+  it("a judge with 30 positive-class observations DOES cross sens dominance", () => {
+    // N_observations = 30 >= DOMINANCE_THRESHOLD_N = 30; threshold MUST fire.
+    const obs: ClaimObservation[] = Array.from({ length: 30 }, () => ({
+      ground_truth: "PASS" as const,
+      judge_verdict: "PASS" as const,
+    }));
+    const post = splitSensitivitySpecificity(obs);
+    expect(effectiveSampleSize(post.sens) - PRIOR_ESS).toBe(30);
     expect(dominanceThreshold(post.sens)).toBe(true);
-    // spec ESS still 10 -> not crossed
+    // spec: N_observations = 0 -> still below
     expect(dominanceThreshold(post.spec)).toBe(false);
   });
 });
@@ -286,16 +317,16 @@ describe("invariants required by docs/PHASE_4_PLAN.md §4.1", () => {
     }
   });
 
-  it("with N ≥ 30 observations, the prior contributes ≤ ~25% of effective mass", () => {
-    // Phase 4.1 stopping-rule justification check: at the dominance
-    // threshold, observed counts (≥20 if balanced) outweigh the prior's
-    // ESS=10. We confirm the algebra: ESS_obs / ESS_total ≥ 2/3 when
-    // total observed = 20.
-    const post = betaUpdate(DEFAULT_RELIABILITY_PRIOR, 14, 20);
-    const obsMass = 20;
-    const totalMass = effectiveSampleSize(post);
-    expect(totalMass).toBe(30);
-    expect(obsMass / totalMass).toBeCloseTo(2 / 3, 6);
+  it("with N_observations ≥ 30, the prior contributes ≤ 25% of effective mass", () => {
+    // Phase 4.1 stopping-rule justification (B-Fermi-3 corrected):
+    // At N_observations=30, total ESS = 10(prior) + 30(obs) = 40.
+    // Prior fraction = 10/40 = 25%. Below or equal to the 25% threshold.
+    const post = betaUpdate(DEFAULT_RELIABILITY_PRIOR, 20, 30);
+    const obsMass = 30; // N_observations
+    const totalMass = effectiveSampleSize(post); // = 10 + 30 = 40
+    expect(totalMass).toBe(40);
+    expect(PRIOR_ESS / totalMass).toBeCloseTo(0.25, 6); // prior is 25% at threshold
+    expect(obsMass / totalMass).toBeCloseTo(0.75, 6);   // obs is 75%
   });
 
   it("flat prior Beta(1,1) reproduces Laplace's rule of succession", () => {
