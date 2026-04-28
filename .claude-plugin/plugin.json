@@ -1,6 +1,6 @@
 {
   "name": "prd-spec-generator",
-  "description": "Stateless reducer that turns a feature description into a 9-file PRD. Multi-judge verification with weighted-average + Bayesian consensus. Deterministic Hard Output Rules validation. Research-evidence-backed strategy selection that closes a feedback loop into the EvidenceRepository.",
+  "description": "Stateless reducer that turns a feature description into a 9-file PRD. Multi-judge verification with weighted-average + Bayesian consensus, calibrated against externally-grounded oracles (schema/math/code/spec). Phase 4 closed loop: per-judge Bayesian reliability calibration, Kaplan-Meier retry budgets, Clopper-Pearson KPI gates, mechanically-sealed held-out partitions, paired-bootstrap cross-arm comparisons. Deterministic Hard Output Rules validation. 17 MCP tools, 583 tests.",
   "version": "0.3.0",
   "author": {
     "name": "Clement Deust",

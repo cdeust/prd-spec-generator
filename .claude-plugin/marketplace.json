@@ -5,14 +5,14 @@
     "email": "admin@ai-architect.tools"
   },
   "metadata": {
-    "description": "prd-spec-generator — turn a feature description into a 9-file PRD via a stateless reducer with multi-judge verification, deterministic validation, and research-evidence-backed strategy selection",
+    "description": "prd-spec-generator — turn a feature description into a 9-file PRD via a stateless reducer with multi-judge verification calibrated against externally-grounded oracles, deterministic validation, mechanically-sealed falsifier protocols, and a Phase 4 closed-loop reliability + retry-budget + KPI-gate calibration stack",
     "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "prd-spec-generator",
       "source": "./",
-      "description": "10 packages · 17 MCP tools · 9 pipeline steps · multi-judge verification · 248 tests · every constant sourced",
+      "description": "10 packages · 17 MCP tools · 10 pipeline steps · multi-judge verification + Phase 4 closed-loop reliability calibration · externally-grounded oracles · sealed held-out partitions · 583 tests · every constant sourced",
       "version": "0.3.0",
       "author": {
         "name": "Clement Deust",

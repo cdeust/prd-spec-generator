@@ -18,7 +18,10 @@ packages/benchmark/calibration/data/gate-blocked-log.jsonl
 # source: retry-observations.ts:appendRetryObservationLog path specification.
 packages/benchmark/calibration/data/retry-observation-log.jsonl
 
-# Keep MCP server dist/ (needed for plugin execution)
+# Keep MCP server dist/ (needed for plugin execution) — except compiled
+# test artifacts which are produced at build time but never executed from
+# dist/ (vitest runs against the .ts sources directly).
+packages/mcp-server/dist/__tests__/
 # Other packages' dist/ are build artifacts
 packages/core/dist
 packages/validation/dist

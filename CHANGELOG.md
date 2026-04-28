@@ -8,6 +8,57 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Phase 4.1 closed-loop reliability calibration.** Bayesian Beta(7,3) prior
+  with sensitivity / specificity split per `claim_type`; SQLite-backed
+  `ReliabilityRepository`; observation-flush hook on every claim resolution;
+  CC-3 control arm via `getReliabilityForRun` (deterministic 20% partition
+  forced-explored on the prior); JSONL audit logs alongside the SQLite store.
+- **Phase 4.2 MAX_ATTEMPTS retry-budget calibration.** Kaplan-Meier survival
+  math (`kmEstimate`, `kmMedianAttempts`, `logRankTest`) with Greenwood and
+  Brookmeyer-Crowley CIs; Schoenfeld sample-size derivation; CC-3 control arm
+  via `getRetryArmForRun`. Stopping rule revised from N=823 to N≈519 after
+  measuring `event_rate=0.4762` (CP CI [0.4456, 0.5069]).
+- **Phase 4.3 plan-mismatch fire-rate measurement.** Clopper-Pearson exact
+  binomial CI; XmR control charts with frozen limits (Wheeler 1995 + Western
+  Electric 1956 rules); fault-injection harness; pre-flight synthetic
+  injection round-trip that catches drift between the diagnostic prefix and
+  the regex matcher.
+- **Phase 4.5 KPI gate tuning.** Frozen-baseline content-hash assertion;
+  per-machine-class wall_time normalization with 5-bucket `detectMachineClass`;
+  `loadCalibratedGates` + `hold_provisional` ratchet protection for thin-data
+  gates; K=100 baseline committed under `packages/benchmark/calibration/data/`.
+- **Externally-grounded oracle subsystem.** Ajv schema oracle, mathjs oracle,
+  `tsc` subprocess code oracle, `validateSection` spec oracle.
+  `OracleUnavailableError` typed throw replaces stub-mode fabrication —
+  breaks annotator-circularity at the type-system boundary.
+- **Paired-bootstrap implementation** (Efron & Tibshirani 1993 §16.4) —
+  deterministic mulberry32 RNG; 12-decimal reproducibility pin; CI-based
+  recommendation rule (`calibrated_helps` / `prior_helps` /
+  `inconclusive_underpowered`); continuous-null p-value uniformity test.
+- **Cross-arm comparison metrics.** `computeAblationComparison`,
+  `computeReliabilityComparison`, `computeKpiGateComparison`. Each accepts a
+  `SEAL_VERIFIED` typeof sentinel as a parameter; the only way to obtain it
+  is to verify the held-out partition's sha256 first. Peeking before
+  evaluation is a type error.
+- **Production-mode dispatcher.** `makeProductionDispatcher` +
+  `AgentInvoker` interface for non-canned calibration; CLI
+  `--mode production|canned` flag selects whether calibration sees real
+  verdicts or canned ones; the canned arm is preserved for offline
+  reproducibility.
+- **Claim-level `external_grounding` field.** Propagates from `Claim`
+  through the orchestrator to the oracle-resolution path. The
+  `conclude_verification` MCP tool now accepts an optional `claims` array
+  carrying `external_grounding` so oracle-resolved truth replaces LLM-only
+  consensus where schema / math / code / spec oracles are available.
+- **Three sealed held-out lock files.**
+  `packages/benchmark/calibration/data/maxattempts-heldout.lock.json` (§4.2),
+  `packages/benchmark/calibration/data/kpigates-heldout.lock.json` (§4.5),
+  `packages/benchmark/calibration/data/heldout-partition.lock.json` (§4.1,
+  50-claim externally-grounded corpus). Each commits a sha256 of the
+  partition before evaluation.
+- **Audit lineage.** Six cross-audit cycles by Popper / Curie / Fermi /
+  Shannon / code-reviewer over Waves A–F; ~50 BLOCKs closed across the wave
+  sequence.
 - Public-readiness baseline: LICENSE (MIT, sole independent author),
   CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md.
 - GitHub issue templates (bug / feature / audit-finding) and PR template
@@ -63,7 +114,23 @@ adheres to [Semantic Versioning](https://semver.org/).
   `CODE_OF_CONDUCT.md` (custom) instead of Contributor Covenant.
 - Pipeline step `license_gate` renamed to `banner`; handler
   `handleLicenseGate` → `handleBanner`.
-- Test count: 248 → 267 (preflight handler + regression suites).
+- Test count: 248 → 267 (preflight handler + regression suites);
+  267 → 583 across Phase 4 Waves A–F (+316 tests, mostly calibration
+  invariants, oracle round-trips, paired-bootstrap reproducibility,
+  seal verification, and cross-arm metric edge cases).
+- §4.2 Schoenfeld sample size revised from N=823 to N≈519 based on
+  measured `event_rate=0.4762` (CP CI [0.4456, 0.5069]) — Popper AP-2
+  closure.
+- `MAX_ATTEMPTS` exported from `@prd-gen/orchestration` as
+  `MAX_ATTEMPTS_DEFAULT` (was module-private; calibration needs to read it
+  to derive the survival baseline).
+- Build chain: `composite: true` + project reference wiring fixes the
+  `pnpm -r build` chain across all 10 packages so the calibration subtree
+  can consume orchestration types without circular references.
+- `package.json#description`, `.claude-plugin/plugin.json#description`,
+  `.claude-plugin/marketplace.json` descriptions: rewritten to reflect
+  Phase 4 closure (closed-loop calibration, externally-grounded oracles,
+  sealed falsifier protocols).
 - Plugin version 0.2.0 → 0.3.0 (minor bump: new pipeline step + new
   `start_pipeline` parameter, both backward-compatible).
 

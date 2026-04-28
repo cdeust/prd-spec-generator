@@ -2,7 +2,7 @@
   "name": "prd-spec-generator",
   "version": "0.1.0",
   "private": true,
-  "description": "Scientifically-backed PRD generation system with deterministic validation",
+  "description": "Production-grade PRD generator with closed-loop reliability calibration, multi-judge verification against externally-grounded oracles, and mechanically-sealed falsifier protocols. 17 MCP tools, 583 tests, full Phase 4 audit lineage.",
   "scripts": {
     "build": "pnpm -r --workspace-concurrency=1 build",
     "bundle": "esbuild packages/mcp-server/dist/index.js --bundle --platform=node --target=node20 --format=esm --external:better-sqlite3 --outfile=mcp-server/index.js && chmod +x mcp-server/index.js",
