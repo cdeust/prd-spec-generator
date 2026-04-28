@@ -657,13 +657,20 @@ source: implementation `schoenfeldRequiredEvents` at
    falsifier, below). A failure to outperform the baseline reverts to
    MAX_ATTEMPTS_BASELINE = 3.
 
-**Stopping rule.** Sampling stops when EITHER (a) N = 823 subjects have been
-observed AND each (section_type × ablation_arm) cell has reached its minimum
-event count per Schoenfeld, OR (b) the first-attempt fail rate observed in
-the first 200 subjects is below 0.10 — at which point the conditional
+**Stopping rule.** Sampling stops when EITHER (a) N ≈ 519 subjects
+(recomputed from measured event_rate = 0.4762; see line 624 for the derivation)
+have been observed AND each (section_type × ablation_arm) cell has reached its
+minimum event count per Schoenfeld, OR (b) the first-attempt fail rate observed
+in the first 200 subjects is below 0.10 — at which point the conditional
 estimand is unidentifiable in budget and MAX_ATTEMPTS = 3 is held by default
 (no calibration possible). Early-stopping for any other reason is a
 pre-registration violation.
+
+Note: The original N = 823 figure was based on event_rate = 0.30 (provisional
+anchor); the measured rate against the canned baseline is 0.4762, which yields
+N ≈ 519 via Schoenfeld eq. (1) (D = 247 required events;
+N = ceil(D / event_rate) = ceil(247 / 0.4762) ≈ 519 subjects). See line 624.
+source: Popper AP-2 cross-audit finding, Wave E B2 remediation.
 
 **RNG seed (frozen).** `seed = 4_020_704` (interpretation: phase 4.2,
 sub-stream 4020704). Committed in this pre-registration block. All
@@ -1339,6 +1346,16 @@ source: PHASE_4_PLAN.md §CC-3; implementation
       dispatchers or other machine classes. Unblocked by: per-machine-class
       non-canned calibration runs (separate PR).
       Source: `packages/benchmark/src/calibrated-gates-loader.ts` + §4.5 brief.
+- [x] **cortex_recall_empty_count_max gate disposition (Wave E integration,
+      CONCERN-1): HOLD-PROVISIONAL.** Calibrated value 11 (loosened from
+      provisional 3). Tagged `hold_provisional=true` in
+      `data/gate-calibration-K100.json`. Reason: calibrated against cold-cortex
+      canned baseline; production cortex is typically warmer (prior runs seed
+      the recall cache), meaning the loosening from 3→11 may mask real recall
+      failures in production. The `loadCalibratedGates()` loader skips
+      auto-promotion for `hold_provisional` gates. Unblocked by: re-calibration
+      with seeded (warm) cortex in a separate PR.
+      Source: Fermi disposition, Wave E CONCERN-1 remediation.
 - [ ] `WALL_TIME_MS_GATE_BY_CLASS` populated for at least one bucket with
       use-site source comment + JSONL data + XmR record (CC-2)
 - [x] Held-out 20% partition sealed in `data/kpigates-heldout.lock.json`
