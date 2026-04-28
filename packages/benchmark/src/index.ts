@@ -31,3 +31,9 @@ export {
   type MismatchEvent,
   type MismatchExtraction,
 } from "./instrumentation.js";
+
+export {
+  loadCalibratedGates,
+  getActiveKpiGates,
+  CALIBRATED_GATES_DEFAULT_PATH,
+} from "./calibrated-gates-loader.js";

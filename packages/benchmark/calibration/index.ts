@@ -72,3 +72,44 @@ export {
   appendGateBlockedEntry,
   getKpiGatesForRun,
 } from "./gate-tuning-seams.js";
+
+// Phase 4.5 — calibration runner + outputs (Wave D / D3).
+export {
+  runCalibration,
+  type RunnerResult,
+} from "./calibrate-gates.js";
+export {
+  PRE_REGISTERED_SEED_45,
+  PRE_REGISTERED_SEED_42,
+  DEFAULT_K,
+  DEFAULT_EVENT_RATE_K,
+  EVENT_RATE_TOLERANCE,
+  PROVISIONAL_EVENT_RATE,
+} from "./calibrate-gates-constants.js";
+export {
+  GateCalibrationK100Schema,
+  GateCalibrationEntrySchema,
+  EventRateK50Schema,
+  XmRRecordSchema,
+  GATE_CALIBRATION_K100_PATH,
+  GATE_CALIBRATION_XMR_DIR,
+  EVENT_RATE_K50_PATH,
+  readGateCalibrationK100,
+  writeGateCalibrationK100,
+  readEventRateK50,
+  writeEventRateK50,
+  type GateCalibrationK100,
+  type GateCalibrationEntry,
+  type EventRateK50,
+  type XmRRecord,
+} from "./calibration-outputs.js";
+export {
+  computeGateStats,
+  percentile,
+  type GateStats,
+} from "./gate-stats.js";
+export { measureEventRate, type EventRateMeasurement } from "./event-rate.js";
+export {
+  computePipelineKpisContentHash,
+  resolveFrozenBaselineCommit,
+} from "./frozen-baseline.js";
