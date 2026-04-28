@@ -247,3 +247,98 @@ describe("pairedBootstrapAccuracyDifference — SEAL_VERIFIED guard", () => {
     ).toThrow(/rngSeed must be a non-negative finite number/);
   });
 });
+
+// ─── CONCERN-2 — continuous-null p-value uniformity sanity test ───────────────
+
+/**
+ * mulberry32 PRNG — matches the implementation in paired-bootstrap.ts.
+ * Used here to generate random null datasets without importing private internals.
+ * source: matches packages/benchmark/calibration/paired-bootstrap.ts:mulberry32.
+ */
+function mulberry32(seed: number): () => number {
+  let s = seed >>> 0;
+  return function () {
+    s += 0x6d2b79f5;
+    let z = s;
+    z = Math.imul(z ^ (z >>> 15), z | 1);
+    z ^= z + Math.imul(z ^ (z >>> 7), z | 61);
+    return ((z ^ (z >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Sanity test: under the continuous null (each claim's calibrated_correct
+ * and prior_correct are drawn independently from the SAME Bernoulli(0.5)),
+ * p-values should be approximately uniformly distributed over [0, 1].
+ *
+ * Key insight: `makeClaims(N, 0.5, 0.5)` uses a deterministic interleave that
+ * produces meanDifference=0 exactly for every dataset (degenerate → all p=1).
+ * To get genuine null variation we must draw per-claim Bernoullis randomly, not
+ * deterministically. We use mulberry32 with varying seeds for this purpose.
+ *
+ * This is a qualitative uniformity check — not a strict KS test (which would
+ * require >1000 samples to be reliable). With 100 null datasets we assert:
+ *   - at least 5 p-values < 0.10 (test has approximately correct size)
+ *   - at least 5 p-values > 0.90 (test is not systematically conservative)
+ *   - mean p-value within [0.3, 0.7] (roughly uniform center of mass)
+ *
+ * Uses a deterministic outer seed (seed=77_777) so the test is reproducible.
+ * Each null dataset draws per-claim coins with seed = datasetSeed + i.
+ *
+ * source: Efron & Tibshirani (1993) §15.3 — bootstrap p-value calibration.
+ * source: CONCERN-2, Fermi cross-audit, Wave E remediation.
+ */
+describe("pairedBootstrapAccuracyDifference — continuous-null p-value uniformity", () => {
+  it("p-value distribution under continuous null is approximately uniform", () => {
+    // Precondition: 100 null datasets, per-claim Bernoulli(0.5) drawn randomly.
+    // Postcondition: collected p-values satisfy qualitative uniformity:
+    //   ≥5 below 0.10, ≥5 above 0.90, mean within [0.3, 0.7].
+    // Invariant: all datasets use deterministic seeds (reproducible across runs).
+    const NUM_NULL_DATASETS = 100;
+    const N = 50;
+    const pValues: number[] = [];
+
+    // Invariant: outer loop index i ∈ [0, NUM_NULL_DATASETS) determines both
+    //   the per-claim coin flip seed and the bootstrap seed, so results are
+    //   fully deterministic without shared mutable RNG state.
+    // Termination: loop runs exactly NUM_NULL_DATASETS iterations.
+    for (let i = 0; i < NUM_NULL_DATASETS; i++) {
+      // Generate a random null dataset: per-claim independent Bernoulli(0.5).
+      // Seed = 77_777 + 2*i for data generation; 77_777 + 2*i + 1 for bootstrap.
+      // This keeps data and bootstrap RNGs independent.
+      const dataRng = mulberry32(77_777 + 2 * i);
+      const heldout: HeldoutClaim[] = [];
+      for (let j = 0; j < N; j++) {
+        heldout.push({
+          claim_id: `C${j}`,
+          calibrated_correct: dataRng() < 0.5,
+          prior_correct: dataRng() < 0.5,
+        });
+      }
+
+      const result = pairedBootstrapAccuracyDifference(
+        heldout,
+        EMPTY_MAP,
+        EMPTY_MAP,
+        1000,                  // 1000 iterations: fast in CI, sufficient for a p-value.
+        77_777 + 2 * i + 1,   // bootstrap seed distinct from data seed.
+        SEAL_VERIFIED,
+      );
+      pValues.push(result.pValue);
+    }
+
+    // Qualitative uniformity checks.
+    const below010 = pValues.filter((p) => p < 0.10).length;
+    const above090 = pValues.filter((p) => p > 0.90).length;
+    const mean = pValues.reduce((acc, p) => acc + p, 0) / pValues.length;
+
+    // Expected under U[0,1]: E[below010] = 10, E[above090] = 10.
+    // Use lenient thresholds (≥5) to avoid flakiness with B=1000 bootstrap samples.
+    // source: binomial expectation; lenient bound is ≈ 3σ below E[10] for p=0.10, N=100.
+    expect(below010).toBeGreaterThanOrEqual(5);
+    expect(above090).toBeGreaterThanOrEqual(5);
+    // Mean should be near 0.5; generous bounds for 100 samples.
+    expect(mean).toBeGreaterThan(0.3);
+    expect(mean).toBeLessThan(0.7);
+  });
+});
