@@ -343,13 +343,14 @@ Empty-DB / prior contract: `getReliability(judge, claimType, direction)` returns
     IFF held-out consensus accuracy under the calibrated map is lower
     than under the prior baseline by any margin that exceeds the 95%
     bootstrap CI of the difference.
-  - **Paired bootstrap implementation site (M4)**: the bootstrap
-    accuracy-difference estimator is stubbed at
-    `packages/benchmark/calibration/paired-bootstrap.ts::pairedBootstrapAccuracyDifference`.
-    The stub throws `PAIRED_BOOTSTRAP_NOT_YET_IMPLEMENTED` — Wave C+ scope.
-    Types `HeldoutClaim` and `AccuracyMap` are defined there and are final.
-    The rejection rule (ci95[1] < 0 → revert) is documented in the function
-    contract. Do not implement before the held-out partition is sealed.
+  - **Paired bootstrap implementation site (M4 → Wave E E1).** The
+    paired-bootstrap accuracy-difference estimator is implemented at
+    `packages/benchmark/calibration/paired-bootstrap.ts::pairedBootstrapAccuracyDifference`
+    per Efron & Tibshirani (1993) Ch. 16 §16.4. Reproducibility is pinned via
+    a deterministic seeded RNG (mulberry32) — the same `(heldout, iterations,
+    rngSeed)` triple yields byte-identical CI bounds across platforms.
+    Types `HeldoutClaim` and `AccuracyMap` are final. The rejection rule
+    (ci95[1] < 0 → revert) is wired into `computeReliabilityComparison`.
   - The held-out set is used at most ONCE per calibration generation;
     re-using it after a tuning iteration constitutes leakage and
     voids the falsifier (Popper AP-5).
@@ -711,7 +712,11 @@ source: PHASE_4_PLAN.md §CC-3; implementation
     template fields.
   - After calibration, the held-out set is replayed under the calibrated
     MAX_ATTEMPTS and (separately) under MAX_ATTEMPTS_BASELINE = 3. Compare
-    section_pass_rate using paired-bootstrap CI of the difference.
+    section_pass_rate using the paired-bootstrap CI of the difference
+    implemented at
+    `packages/benchmark/calibration/paired-bootstrap.ts::pairedBootstrapAccuracyDifference`
+    (Efron & Tibshirani 1993 Ch. 16 §16.4; reproducibility pinned via
+    deterministic seeded RNG — Wave E E1).
   - **Reject calibration** (revert to MAX_ATTEMPTS = 3; investigate) IFF the
     held-out section_pass_rate under the calibrated value is lower than
     under the baseline by any margin that exceeds the 95% bootstrap CI of
@@ -1234,18 +1239,23 @@ or revert to provisional.
   measured values. Real values are committed in a separate calibration-
   data-only PR.
 
-**AP-3 falsification instrument (Wave D delivery).**
+**AP-3 falsification instrument (Wave D delivery + Wave E E1.B).**
 The cross-arm comparison metric for §4.5 is computed by
 `computeKpiGateComparison(gateBlockedLogPath, lockPath)` in
 `packages/benchmark/calibration/ablation-comparison.ts`. It groups
 `gate-blocked-log.jsonl` entries by control vs treatment arm, calls
 `verifyKpiGatesHeldoutSeal` BEFORE reading any held-out data (AP-5
-mechanical enforcement), and emits per-gate fire-rate comparisons with
-Clopper-Pearson 95% CIs. The function returns `inconclusive_underpowered`
-unless n ≥ 30 in both arms AND the CIs are non-overlapping — this acts
-as the symmetric-ratchet hysteresis guard for the §4.5 anchor (a noisy
-fluctuation alone cannot trigger an anchor move). Pre-registration: this
-function — by name — is the analysis script for the §4.5 KPI-gate
+mechanical enforcement), and emits per-arm fire-rate stats with
+Clopper-Pearson 95% CIs alongside the paired-bootstrap CI of the
+difference (Efron & Tibshirani 1993 Ch. 16 §16.4; reproducibility pinned
+via deterministic seeded RNG — Wave E E1). Because KPI runs are not
+naturally paired (independent runs in each arm), the bootstrap consumes a
+synthetic pairing (sort each arm by `run_id` and zip to the shorter
+length); this yields a slightly conservative CI. Recommendation rule:
+`treatment_better` ← `ci95[0] > 0`; `control_better` ← `ci95[1] < 0`;
+otherwise (or n < 30) `inconclusive_underpowered`. The hysteresis guard
+prevents a noisy fluctuation from triggering an anchor move. Pre-registration:
+this function — by name — is the analysis script for the §4.5 KPI-gate
 falsifier. CC-1 compliance: the report's `schema_version` is the single
 change-control signal.
 
@@ -1569,4 +1579,4 @@ is now a methodological commitment (independence resolution + run order), not
 a financial one.**
 
 Source: Fermi cross-audit A1; docs/PHASE_4_PLAN.md §4.1 PRE-REGISTRATION;
-Laplace L4 (N=292 derivation); M4 residual (paired-bootstrap implementation site).
+Laplace L4 (N=292 derivation); Wave E E1 (paired-bootstrap implementation, Efron & Tibshirani 1993 Ch. 16 §16.4).
