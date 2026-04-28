@@ -26,6 +26,20 @@ realistically-stubbed) dispatcher behaviour.
 
 ---
 
+## Ratchet protection — hold_provisional on all pilot gates (Popper AP-1)
+
+All gates in `gate-calibration-K100-production.json` carry `hold_provisional: true`
+until the K=100 batch lands. The loader (`calibrated-gates-loader.ts:109`) skips
+any gate where `hold_provisional === true`, so passing this file path to the loader
+produces no promotions regardless of `passes_threshold`.
+
+To promote, edit each gate's `hold_provisional` to `false` **AFTER** verifying ALL
+6 promotion conditions (listed in the "Promotion criteria" section below). Do NOT
+flip `hold_provisional` for any gate that does not satisfy its conditions — gates
+must be evaluated individually.
+
+---
+
 ## Pilot K=5 (this session — DEMONSTRATION ONLY, not promotable)
 
 Artefact: `data/gate-calibration-K100-production.json` with
