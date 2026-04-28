@@ -17,7 +17,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
@@ -130,22 +131,50 @@ describe("E3.D — §4.5 verifyKpiGatesHeldoutSeal accepts the sealed lock", () 
   });
 });
 
-// ─── E3.D.3 §4.1 reliability seal must THROW (partial-seal by design) ───
-describe("E3.D — §4.1 verifyReliabilityHeldoutSeal rejects the partial seal", () => {
-  it("throws because external_grounding_breakdown is null (Popper AP-5 enforcement)", () => {
+// ─── F3 §4.1 reliability seal verifies cleanly (was partial-seal pre-F3) ─
+// History: until Wave F3, the §4.1 lock carried null breakdown/partition_size
+// and verifyReliabilityHeldoutSeal threw by design (Popper AP-5 mechanical
+// enforcement, awaiting the externally-grounded claim corpus). Wave F3
+// (commit landing this test edit) curated 50 oracle-grounded claims, drew
+// the 80/20 partition with the committed seed, and fully populated the lock.
+// The verify call must now succeed. AP-5 enforcement is preserved by the
+// negative test below: a hand-crafted partial lock STILL throws.
+describe("F3 — §4.1 verifyReliabilityHeldoutSeal accepts the fully-sealed lock", () => {
+  it("does not throw on the committed Wave F3 lock", () => {
     const lockPath = join(DATA_DIR, "heldout-partition.lock.json");
-    expect(() => verifyReliabilityHeldoutSeal(lockPath)).toThrow();
+    expect(() => verifyReliabilityHeldoutSeal(lockPath)).not.toThrow();
   });
 
-  it("the throw mentions schema validation failure (clear diagnostic)", () => {
+  it("the lock has populated breakdown + partition_size + claim_set_hash", () => {
     const lockPath = join(DATA_DIR, "heldout-partition.lock.json");
-    let caught: unknown = null;
-    try {
-      verifyReliabilityHeldoutSeal(lockPath);
-    } catch (e) {
-      caught = e;
-    }
-    expect(caught).toBeInstanceOf(Error);
-    expect(String(caught)).toMatch(/schema validation|external_grounding|partition_size/i);
+    const lock = verifyReliabilityHeldoutSeal(lockPath);
+    expect(lock.partition_size).toBeGreaterThan(0);
+    expect(lock.external_grounding_total).toBe(lock.partition_size);
+    const bd = lock.external_grounding_breakdown;
+    expect(bd.schema + bd.math + bd.code + bd.spec).toBe(lock.partition_size);
+    expect(lock.claim_set_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(lock.seed).toBe("phase4-section-4.1-rng-2025");
+  });
+
+  it("a hand-crafted partial lock STILL throws (Popper AP-5 preserved)", () => {
+    // Negative: emit a temp lock with null breakdown to confirm the throw path
+    // remains exercised. This guards against silent regressions where the v2
+    // schema later relaxes its required fields.
+    const partialPath = join(
+      mkdtempSync(join(tmpdir(), "f3-partial-")),
+      "partial.lock.json",
+    );
+    const partial = {
+      schema_version: 2,
+      seed: "phase4-section-4.1-rng-2025",
+      partition_size: null,
+      sealed_at: new Date().toISOString(),
+      external_grounding_breakdown: null,
+      external_grounding_total: null,
+      external_grounding_schema_version: 1,
+      claim_set_hash: null,
+    };
+    writeFileSync(partialPath, JSON.stringify(partial), "utf8");
+    expect(() => verifyReliabilityHeldoutSeal(partialPath)).toThrow();
   });
 });

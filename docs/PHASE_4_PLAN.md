@@ -369,16 +369,21 @@ Empty-DB / prior contract: `getReliability(judge, claimType, direction)` returns
       the calibrated arm uses it as ground truth; the prior arm uses the
       annotator-derived `ground_truth` (baseline). Annotator-circularity (Curie A2)
       is broken for externally-grounded claims.
-    - **Seal disposition: option (b).** The seed is pre-registered
-      (`seed = "phase4-section-4.1-rng-2025"`); `partition_size`,
-      `claim_set_hash`, and `external_grounding_breakdown` remain `null`
-      because no actual externally-grounded claim corpus exists yet — only
-      the seam is wired. Sealing requires a dedicated calibration-data-PR
-      that creates and runs oracle-grounded benchmark claims. Until then,
-      `verifyReliabilityHeldoutSeal` THROWS on the partial seal — by design
-      (Popper AP-5 mechanical enforcement). Option (a) (running `seal-locks.mjs`
-      with live oracles) was rejected: the input claim corpus is the blocking
-      artifact, not the oracle implementations.
+    - **Seal disposition: option (a) — FULLY SEALED in Wave F3.** The
+      pre-registered seed `phase4-section-4.1-rng-2025` is committed in the
+      corpus + lock. Wave F3 curated 50 oracle-grounded claims
+      (schema=15/math=15/code=13/spec=7) at
+      `packages/benchmark/calibration/data/reliability-claim-corpus.json`,
+      drew the stratified 20% held-out partition (size=10), and populated
+      every v2 lock field at `data/heldout-partition.lock.json`. The
+      corpus → oracle drift check (F3.B `validate-corpus.mjs` /
+      `__tests__/reliability-corpus-seal.test.ts F3.E.1`) confirms every
+      claim's `expected_truth` matches `invokeOracle()`. Re-sealing is
+      reproducible via `node packages/benchmark/calibration/scripts/
+      seal-reliability-corpus.mjs`. The remaining open work is the
+      calibration-data PR that populates `judge-observation-log.jsonl`
+      with real judge verdicts on these 50 claims and re-runs
+      `computeReliabilityComparison`.
   - After calibration, the calibrated reliability map is evaluated on
     the held-out set against the Beta(7,3) prior baseline using
     consensus accuracy as the metric.
@@ -1495,6 +1500,27 @@ Before 4.1 ships:
 - [ ] busy_timeout = 5000 in SqliteReliabilityRepository (B-Curie-5)
 - [ ] judge_id structured record deployed (B-Shannon-6)
 - [ ] DEFAULT_RELIABILITY_PRIOR single source of truth in @prd-gen/core (B-Shannon-7)
+- [x] Externally-grounded claim corpus committed (Wave F3.A — N=50, breakdown
+      schema=15/math=15/code=13/spec=7 at
+      `packages/benchmark/calibration/data/reliability-claim-corpus.json`;
+      every claim's `expected_truth` matches `invokeOracle()` per F3.B
+      validate-corpus.mjs; corpus + corpus-validation test in
+      `__tests__/reliability-corpus-seal.test.ts`).
+- [x] Held-out 20% partition fully sealed (Wave F3.D —
+      `data/heldout-partition.lock.json` schema_version=2,
+      seed='phase4-section-4.1-rng-2025', partition_size=10,
+      breakdown={schema:3, math:3, code:3, spec:1},
+      claim_set_hash=7db6660ce21150a5aa007d5c01718cbe35bb6259ccbe237098724bb04d196247;
+      reproducible via `node packages/benchmark/calibration/scripts/seal-reliability-corpus.mjs`).
+- [x] Held-out negative-falsifier evaluation runnable end-to-end
+      (Wave F3.F — `computeReliabilityComparison` runs against the corpus +
+      lock and returns a non-null `ci95_paired_bootstrap`; covered by
+      `__tests__/reliability-corpus-seal.test.ts` F3.F describe block).
+- [ ] First real calibration batch against the corpus (separate
+      calibration-data PR — populates `data/judge-observation-log.jsonl`
+      with real judge verdicts on the F3 corpus and re-runs
+      `computeReliabilityComparison` to produce the calibrated/prior arm
+      decision. Out-of-scope for F3 — F3 ships the gates, not the data.)
 
 Before 4.2 ships:
 - [x] Conditional (not marginal) estimand + Kaplan-Meier math layer
