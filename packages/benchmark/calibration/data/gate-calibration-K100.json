@@ -134,7 +134,9 @@
       "would_loosen": true,
       "passes_threshold": true,
       "xmr_path": "/Users/cdeust/Developments/prd-spec-generator/.claude/worktrees/agent-af766fe892bb2b17e/packages/benchmark/calibration/data/gate-calibration-K100.xmr/cortex_recall_empty_count_max.json",
-      "machine_class": null
+      "machine_class": null,
+      "hold_provisional": true,
+      "hold_provisional_reason": "Calibrated against cold-cortex canned baseline; production cortex is typically warmed by prior runs. Loosening from 3 to 11 may mask real recall failures. Re-calibrate with seeded cortex before promoting. Source: Fermi disposition, Wave E CONCERN-1 remediation. See PHASE_4_PLAN.md §4.5."
     }
   ]
 }
