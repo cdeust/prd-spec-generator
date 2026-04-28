@@ -18,8 +18,8 @@ import { newPipelineState, step, InMemoryRunStore, ActionResultSchema, } from "@
 import { planSectionVerification, planDocumentVerification, concludeSection, concludeDocument, } from "@prd-gen/verification";
 import { SectionTypeSchema, JudgeVerdictSchema, tryCreateEvidenceRepository, } from "@prd-gen/core";
 import { EffectivenessTracker } from "@prd-gen/strategy";
-import { appendObservationLog, JUDGE_OBSERVATION_LOG_PATH, } from "@prd-gen/benchmark";
-import { getReliabilityRepo, getConsensusReliabilityProvider, } from "./reliability-wiring.js";
+import { getRetryArmForRun, getMaxAttemptsForRun, MAX_ATTEMPTS_BASELINE, } from "@prd-gen/benchmark";
+import { buildConcludeOpts } from "./build-conclude-opts.js";
 const runStore = new InMemoryRunStore();
 /**
  * Lazy EvidenceRepository + EffectivenessTracker. Both are optional —
@@ -122,7 +122,30 @@ export function registerPipelineTools(server) {
             codebase_path: codebase_path ?? null,
             skip_preflight: skip_preflight ?? false,
         });
-        const { state, action, messages } = step({ state: initial });
+        // B1 — Wire retry_policy from composition root (Curie A7).
+        // The reducer (section-generation.ts) reads state.retry_policy and never
+        // calls benchmark seams directly (§1.5 DIP / §2.2 layer rule). The
+        // composition root is the only permitted caller of the benchmark seams.
+        //
+        // Preserve an existing policy (resumed run): if initial.retry_policy is
+        // already non-null, we skip overwrite. newPipelineState always returns
+        // null for retry_policy (fresh state), so in practice this guard protects
+        // future paths where state is loaded from persistent storage before
+        // start_pipeline re-runs.
+        //
+        // Pass null as calibratedValue: no Wave D calibration run has completed
+        // yet, so getMaxAttemptsForRun returns MAX_ATTEMPTS_BASELINE.
+        //
+        // source: Curie cross-audit Wave D, A7 anomaly resolution.
+        const arm = getRetryArmForRun(run_id);
+        // Pass MAX_ATTEMPTS_BASELINE as the calibratedValue: no Wave D calibration
+        // run has completed yet. For a control-arm run, getMaxAttemptsForRun ignores
+        // calibratedValue and returns MAX_ATTEMPTS_BASELINE anyway.
+        const maxAttempts = getMaxAttemptsForRun(run_id, MAX_ATTEMPTS_BASELINE);
+        const initialWithPolicy = initial.retry_policy !== null
+            ? initial // preserve existing policy (resumed run)
+            : { ...initial, retry_policy: { maxAttempts, arm } };
+        const { state, action, messages } = step({ state: initialWithPolicy });
         // Drain BEFORE persist — same invariant as submit_action_result.
         // The first step is currently `banner` which produces no
         // strategy_executions, but the invariant "every persisted state has
@@ -266,7 +289,9 @@ export function registerPipelineTools(server) {
         };
     });
     // ─── conclude_verification ─────────────────────────────────────────────────
-    server.tool("conclude_verification", "Aggregate JudgeVerdict[] from spawned subagents into a VerificationReport (consensus + dissent).", {
+    server.tool("conclude_verification", "Aggregate JudgeVerdict[] from spawned subagents into a VerificationReport (consensus + dissent). " +
+        "IMPORTANT: omitting claim_types when a reliability repository is open suppresses observation flushing " +
+        "for this batch — the calibration data will be missing for these runs (one-sided censoring).", {
         scope: z.enum(["section", "document"]).default("section"),
         section_type: SectionTypeSchema.optional(),
         verdicts: z.array(JudgeVerdictSchema),
@@ -288,57 +313,9 @@ export function registerPipelineTools(server) {
             "{ [req.claim.claim_id]: req.claim.claim_type } for each entry in judge_requests[]. " +
             "TODO(Wave-E): auto-populate from plan state when server-side session context is available."),
     }, async ({ scope, section_type, verdicts, consensus_strategy, run_id, claim_types }) => {
-        // Wire calibrated reliability for treatment-arm runs.
-        // When the repo is unavailable (better-sqlite3 not loaded) or no run_id
-        // is provided, options.reliabilityProvider is undefined and the engine
-        // falls back to the Beta(7,3) prior — identical to pre-Wave-D behaviour.
-        const reliabilityRepo = getReliabilityRepo();
-        const reliabilityProvider = getConsensusReliabilityProvider();
-        const claimTypesMap = claim_types !== undefined
-            ? new Map(Object.entries(claim_types))
-            : undefined;
-        // Build the observation flusher (D2.B).
-        // Called once per (judge × claim) after consensus resolves each claim.
-        // Ground truth = consensus majority (annotator-circularity path;
-        // Wave E external oracles will break this circularity).
-        // FAILS_ON: DB write error (swallowed — best-effort observation recording).
-        const onObservation = reliabilityRepo !== null && claimTypesMap !== undefined
-            ? (obs) => {
-                try {
-                    // 1. Write to the Beta-posterior SQLite store.
-                    reliabilityRepo.recordObservation(obs.judge, obs.claimType, obs.observation);
-                    // 2. Emit to the JSONL audit log (best-effort; non-blocking).
-                    //    Annotator-circularity path: judge_verdict derived from
-                    //    consensus majority. Wave E will provide oracle verdicts.
-                    // judge_verdict = true ↔ judge's verdict is PASS-class.
-                    // When gt=PASS: judgeWasCorrect=true ↔ judge said PASS (judge_verdict=true).
-                    // When gt=FAIL: judgeWasCorrect=true ↔ judge said FAIL (judge_verdict=false).
-                    const judgeVerdictIsPass = !obs.observation.groundTruthIsFail
-                        ? obs.observation.judgeWasCorrect
-                        : !obs.observation.judgeWasCorrect;
-                    appendObservationLog({
-                        run_id: run_id ?? "unknown",
-                        judge_id: { kind: obs.judge.kind, name: obs.judge.name },
-                        claim_id: obs.claim_id,
-                        claim_type: obs.claimType,
-                        judge_verdict: judgeVerdictIsPass,
-                        judge_confidence: 0, // confidence not surfaced here; Wave E will thread it
-                        ground_truth: obs.observation.groundTruthIsFail,
-                    }, JUDGE_OBSERVATION_LOG_PATH);
-                }
-                catch {
-                    // Best-effort: observation persistence must not break the pipeline.
-                    // FAILS_ON: DB write error or filesystem unavailable.
-                }
-            }
-            : undefined;
-        const concludeOpts = {
-            strategy: consensus_strategy,
-            reliabilityProvider: reliabilityProvider ?? undefined,
-            runId: run_id,
-            claimTypes: claimTypesMap,
-            onObservation,
-        };
+        // Reliability wiring + observation flusher + Curie-A3 warn live in
+        // `buildConcludeOpts` to keep this handler under the §4.1 LOC cap.
+        const concludeOpts = buildConcludeOpts({ consensus_strategy, run_id, claim_types });
         const report = scope === "document"
             ? concludeDocument(verdicts, concludeOpts)
             : concludeSection(section_type ?? "overview", verdicts, concludeOpts);

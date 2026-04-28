@@ -369,16 +369,21 @@ Empty-DB / prior contract: `getReliability(judge, claimType, direction)` returns
       the calibrated arm uses it as ground truth; the prior arm uses the
       annotator-derived `ground_truth` (baseline). Annotator-circularity (Curie A2)
       is broken for externally-grounded claims.
-    - **Seal disposition: option (b).** The seed is pre-registered
-      (`seed = "phase4-section-4.1-rng-2025"`); `partition_size`,
-      `claim_set_hash`, and `external_grounding_breakdown` remain `null`
-      because no actual externally-grounded claim corpus exists yet — only
-      the seam is wired. Sealing requires a dedicated calibration-data-PR
-      that creates and runs oracle-grounded benchmark claims. Until then,
-      `verifyReliabilityHeldoutSeal` THROWS on the partial seal — by design
-      (Popper AP-5 mechanical enforcement). Option (a) (running `seal-locks.mjs`
-      with live oracles) was rejected: the input claim corpus is the blocking
-      artifact, not the oracle implementations.
+    - **Seal disposition: option (a) — FULLY SEALED in Wave F3.** The
+      pre-registered seed `phase4-section-4.1-rng-2025` is committed in the
+      corpus + lock. Wave F3 curated 50 oracle-grounded claims
+      (schema=15/math=15/code=13/spec=7) at
+      `packages/benchmark/calibration/data/reliability-claim-corpus.json`,
+      drew the stratified 20% held-out partition (size=10), and populated
+      every v2 lock field at `data/heldout-partition.lock.json`. The
+      corpus → oracle drift check (F3.B `validate-corpus.mjs` /
+      `__tests__/reliability-corpus-seal.test.ts F3.E.1`) confirms every
+      claim's `expected_truth` matches `invokeOracle()`. Re-sealing is
+      reproducible via `node packages/benchmark/calibration/scripts/
+      seal-reliability-corpus.mjs`. The remaining open work is the
+      calibration-data PR that populates `judge-observation-log.jsonl`
+      with real judge verdicts on these 50 claims and re-runs
+      `computeReliabilityComparison`.
   - After calibration, the calibrated reliability map is evaluated on
     the held-out set against the Beta(7,3) prior baseline using
     consensus accuracy as the metric.
@@ -537,6 +542,69 @@ v1 lock files are rejected by `verifyHeldoutPartitionSeal`.
 **Invariant.** `external_grounding_total === partition_size`. Every claim
 in the held-out partition has an assigned oracle category. Enforced by Zod
 refine in the schema.
+
+### Wave F closure — external_grounding operationally live (2026-04)
+
+`external_grounding` is now populated at the Claim level via
+`Claim.external_grounding` (optional field added in Wave F F1.A).
+
+**How it works.** Claims constructed by the pipeline can opt into oracle
+resolution by attaching their grounding payload:
+
+```ts
+const claim: Claim = {
+  claim_id: "MATH-001",
+  claim_type: "correctness",
+  text: "2 + 2 equals 4",
+  evidence: "...",
+  external_grounding: {
+    type: "math",
+    payload: { expression: "2+2", expected_value: 4 },
+  },
+};
+```
+
+When `concludeSection` / `concludeDocument` is called with a
+`ConcludeOptions` that includes `claims` and `onObservation` (as wired by
+`packages/mcp-server/src/build-conclude-opts.ts`), the oracle pipeline:
+1. Receives a `ClaimObservationFlushed` event for every resolved claim,
+   with `external_grounding` propagated from the source `Claim`.
+2. When `external_grounding` is present, invokes the appropriate oracle
+   via `invokeOracle` in `packages/benchmark/calibration/external-oracle.ts`.
+3. Calls `appendObservationLog` with `oracle_resolved_truth` populated,
+   breaking annotator-circularity (Curie A2) for that specific claim.
+
+**Default behaviour unchanged.** Leaving `external_grounding` undefined
+preserves the existing consensus-majority behaviour. Production claim-
+construction code paths that produce externally-verifiable claims SHOULD
+populate this field; all other claims continue to resolve via
+consensus-majority.
+
+**Oracle types.** `ExternalGroundingType = "schema" | "math" | "code" | "spec"`.
+All four types are implemented as real oracles (Wave E). The seam is
+verified end-to-end by 3 tests in
+`packages/mcp-server/src/__tests__/external-grounding-e2e.test.ts`.
+
+**Wave F closure is now COMPLETE end-to-end (Wave F remediation, 2026-04).**
+The MCP `conclude_verification` tool accepts an optional `claims` parameter
+(array of Claim-shaped objects) that propagates `external_grounding` through to
+the oracle resolution path. Callers — calibration runners, test harnesses, or any
+host that supplies the Claim objects from a `plan_section_verification` /
+`plan_document_verification` response — get oracle-based ground truth in the
+JSONL log. Callers that omit `claims` continue to use consensus-majority
+circularity (back-compat preserved).
+
+This closes the Wave D / Wave E / Wave F **triple-pattern**:
+- **Wave D A7**: type-level seam — `Claim.external_grounding` field added to core.
+- **Wave E A2.3**: orchestrator propagation — `concludeFromVerdicts` reads
+  `options.claims` map and populates `ClaimObservationFlushed.external_grounding`.
+- **Wave F A2.3**: MCP-tool-API parameter — `conclude_verification` now accepts
+  `claims[]`; the handler parses each into a `Claim`, builds the map, and passes
+  it to `buildConcludeOpts` via the new `claims` field; `buildConcludeOpts` sets
+  `ConcludeOptions.claims`. Verified by
+  `packages/mcp-server/src/__tests__/conclude-verification-claims-e2e.test.ts`
+  (3 tests: math-grounded → oracle_resolved_truth: true; mixed grounded/ungrounded;
+  claims omitted → back-compat).
 
 ---
 
@@ -1375,6 +1443,27 @@ source: PHASE_4_PLAN.md §CC-3; implementation
       auto-promotion for `hold_provisional` gates. Unblocked by: re-calibration
       with seeded (warm) cortex in a separate PR.
       Source: Fermi disposition, Wave E CONCERN-1 remediation.
+- [x] **Production-mode calibration runner machinery wired (Wave F sub-stream
+      F2, 2026-04-28).** New file `calibrate-gates-production.ts` mirrors the
+      canned runner but drives `measurePipelineAsync` via a
+      `makeProductionDispatcher({ agentInvoker })` that delegates LLM-bound
+      actions to an injected `AgentInvoker`. `--mode production|canned` flag
+      added to the CLI (default `canned`, backward compatible). Pilot K=5
+      run committed to `data/gate-calibration-K100-production.json` with
+      `data_source: "production_pilot_K=5"` to demonstrate the runner produces
+      realistic numbers (wall_time ~4400ms vs canned ~1.4ms; cortex_empty
+      ~3.8 vs canned 11). Pilot is NOT promotable (K too small + stub-only).
+      Both `wall_time_ms_max` and `cortex_recall_empty_count_max` REMAIN
+      `hold_provisional=true` until a real-host (or high-fidelity-stub) K=100
+      production batch lands. Promotion criteria + RNG seed
+      (`PRE_REGISTERED_SEED_45_PRODUCTION = 0x4_05_C3_FF`) + AgentInvoker
+      wiring + wall-clock budget documented in
+      `packages/benchmark/calibration/data/production-calibration-runbook.md`.
+- [ ] **Production-mode K=100 batch landed** (follow-up session). Once
+      committed with `agent_invoker_class: "host-real"` and the runbook's
+      §"Promotion criteria" all met, edit `gate-calibration-K100.json` to
+      set `hold_provisional=false` and update `calibrated` to the
+      production-derived value for both held gates.
 - [ ] `WALL_TIME_MS_GATE_BY_CLASS` populated for at least one bucket with
       use-site source comment + JSONL data + XmR record (CC-2)
 - [x] Held-out 20% partition sealed in `data/kpigates-heldout.lock.json`
@@ -1474,6 +1563,27 @@ Before 4.1 ships:
 - [ ] busy_timeout = 5000 in SqliteReliabilityRepository (B-Curie-5)
 - [ ] judge_id structured record deployed (B-Shannon-6)
 - [ ] DEFAULT_RELIABILITY_PRIOR single source of truth in @prd-gen/core (B-Shannon-7)
+- [x] Externally-grounded claim corpus committed (Wave F3.A — N=50, breakdown
+      schema=15/math=15/code=13/spec=7 at
+      `packages/benchmark/calibration/data/reliability-claim-corpus.json`;
+      every claim's `expected_truth` matches `invokeOracle()` per F3.B
+      validate-corpus.mjs; corpus + corpus-validation test in
+      `__tests__/reliability-corpus-seal.test.ts`).
+- [x] Held-out 20% partition fully sealed (Wave F3.D —
+      `data/heldout-partition.lock.json` schema_version=2,
+      seed='phase4-section-4.1-rng-2025', partition_size=10,
+      breakdown={schema:3, math:3, code:3, spec:1},
+      claim_set_hash=7db6660ce21150a5aa007d5c01718cbe35bb6259ccbe237098724bb04d196247;
+      reproducible via `node packages/benchmark/calibration/scripts/seal-reliability-corpus.mjs`).
+- [x] Held-out negative-falsifier evaluation runnable end-to-end
+      (Wave F3.F — `computeReliabilityComparison` runs against the corpus +
+      lock and returns a non-null `ci95_paired_bootstrap`; covered by
+      `__tests__/reliability-corpus-seal.test.ts` F3.F describe block).
+- [ ] First real calibration batch against the corpus (separate
+      calibration-data PR — populates `data/judge-observation-log.jsonl`
+      with real judge verdicts on the F3 corpus and re-runs
+      `computeReliabilityComparison` to produce the calibrated/prior arm
+      decision. Out-of-scope for F3 — F3 ships the gates, not the data.)
 
 Before 4.2 ships:
 - [x] Conditional (not marginal) estimand + Kaplan-Meier math layer

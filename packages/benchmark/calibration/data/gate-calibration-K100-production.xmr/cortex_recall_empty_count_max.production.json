@@ -1,0 +1,16 @@
+{
+  "centerline": 3,
+  "upperControlLimit": 5.659574468085107,
+  "lowerControlLimit": 0.3404255319148932,
+  "meanMovingRange": 1,
+  "basePoints": 5,
+  "signals": [],
+  "inControl": true,
+  "series": [
+    3,
+    2,
+    3,
+    4,
+    3
+  ]
+}

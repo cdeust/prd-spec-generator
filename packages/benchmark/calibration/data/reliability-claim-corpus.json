@@ -1,0 +1,918 @@
+{
+  "schema_version": 1,
+  "seed": "phase4-section-4.1-rng-2025",
+  "description": "Phase 4.1 reliability claim corpus (Wave F3). 50 claims with externally-verifiable ground truth across 4 oracle categories. Each claim's expected_truth records what invokeOracle() should return; validate-corpus.mjs asserts the corpus matches reality before any partition draw.",
+  "claims": [
+    {
+      "claim_id": "F3-001",
+      "claim_type": "story_point_arithmetic",
+      "description": "Two plus two equals four (truthful claim).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "2 + 2",
+          "expected_value": 4
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-002",
+      "claim_type": "story_point_arithmetic",
+      "description": "Three times five equals fifteen (truthful claim).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "3 * 5",
+          "expected_value": 15
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-003",
+      "claim_type": "story_point_arithmetic",
+      "description": "Ten minus seven equals three (truthful claim).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "10 - 7",
+          "expected_value": 3
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-004",
+      "claim_type": "correctness",
+      "description": "(7 + 3) × 4 − 2 evaluates to 38 (PHASE_4_PLAN §4.1 example).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "(7 + 3) * 4 - 2",
+          "expected_value": 38
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-005",
+      "claim_type": "story_point_arithmetic",
+      "description": "Twelve divided by four equals three (truthful claim).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "12 / 4",
+          "expected_value": 3
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-006",
+      "claim_type": "story_point_arithmetic",
+      "description": "Two plus two equals five (FALSE — oracle catches arithmetic error).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "2 + 2",
+          "expected_value": 5
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-007",
+      "claim_type": "story_point_arithmetic",
+      "description": "Six times seven equals forty (FALSE — should be 42).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "6 * 7",
+          "expected_value": 40
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-008",
+      "claim_type": "correctness",
+      "description": "Sum of 1..10 equals 50 (FALSE — should be 55).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "sum([1,2,3,4,5,6,7,8,9,10])",
+          "expected_value": 50
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-009",
+      "claim_type": "correctness",
+      "description": "Hundred divided by four equals 24 (FALSE — should be 25).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "100 / 4",
+          "expected_value": 24
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-010",
+      "claim_type": "correctness",
+      "description": "Sqrt(2)^2 ≈ 2 within 1e-10 tolerance (FP precision claim).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "sqrt(2)^2",
+          "expected_value": 2,
+          "tolerance": 1e-10
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-011",
+      "claim_type": "correctness",
+      "description": "Factorial of 5 is 120.",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "5!",
+          "expected_value": 120
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-012",
+      "claim_type": "correctness",
+      "description": "log10(1000) equals 3.",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "log10(1000)",
+          "expected_value": 3,
+          "tolerance": 1e-12
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-013",
+      "claim_type": "correctness",
+      "description": "sum(1..10) equals 55 (Gauss closed form).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "sum([1,2,3,4,5,6,7,8,9,10])",
+          "expected_value": 55
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-014",
+      "claim_type": "correctness",
+      "description": "0.1 + 0.2 equals 0.3 with default tolerance (FP precision OK at 1e-9).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "0.1 + 0.2",
+          "expected_value": 0.3
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-015",
+      "claim_type": "correctness",
+      "description": "Adversarial: claim expression with unknown identifier (mathjs rejects).",
+      "external_grounding": {
+        "type": "math",
+        "payload": {
+          "expression": "fooBarBaz(1)",
+          "expected_value": 0
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-016",
+      "claim_type": "data_model",
+      "description": "Person {name:Alice, age:30} is valid against the person schema.",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "person",
+            "type": "object",
+            "required": [
+              "name",
+              "age"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "age": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "instance": {
+            "name": "Alice",
+            "age": 30
+          },
+          "expected_valid": true
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-017",
+      "claim_type": "data_model",
+      "description": "Empty array is valid against int_array schema.",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "int_array",
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "instance": [],
+          "expected_valid": true
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-018",
+      "claim_type": "data_model",
+      "description": "Array of two integers is valid against int_array.",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "int_array",
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "instance": [
+            1,
+            2
+          ],
+          "expected_valid": true
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-019",
+      "claim_type": "data_model",
+      "description": "Order {order_id:'X1', qty:3} is valid against order schema.",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "order",
+            "type": "object",
+            "required": [
+              "order_id",
+              "qty"
+            ],
+            "properties": {
+              "order_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "qty": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "instance": {
+            "order_id": "X1",
+            "qty": 3
+          },
+          "expected_valid": true
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-020",
+      "claim_type": "data_model",
+      "description": "{id:'abc'} is INVALID against hex_id schema (pattern ^[0-9a-f]{8}$) (PHASE_4_PLAN example).",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "hex_id_obj",
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}$"
+              }
+            }
+          },
+          "instance": {
+            "id": "abc"
+          },
+          "expected_valid": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-021",
+      "claim_type": "data_model",
+      "description": "[1,'two',3] FAILS int_array schema (PHASE_4_PLAN example).",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "int_array",
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "instance": [
+            1,
+            "two",
+            3
+          ],
+          "expected_valid": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-022",
+      "claim_type": "data_model",
+      "description": "Order with qty=0 FAILS minimum=1 constraint.",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "order",
+            "type": "object",
+            "required": [
+              "order_id",
+              "qty"
+            ],
+            "properties": {
+              "order_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "qty": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "instance": {
+            "order_id": "X",
+            "qty": 0
+          },
+          "expected_valid": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-023",
+      "claim_type": "data_model",
+      "description": "Enum LOOKED_UP not in {LOW,MEDIUM,HIGH} → invalid.",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "priority_enum",
+            "type": "object",
+            "required": [
+              "priority"
+            ],
+            "properties": {
+              "priority": {
+                "type": "string",
+                "enum": [
+                  "LOW",
+                  "MEDIUM",
+                  "HIGH"
+                ]
+              }
+            }
+          },
+          "instance": {
+            "priority": "LOOKED_UP"
+          },
+          "expected_valid": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-024",
+      "claim_type": "data_model",
+      "description": "Caller falsely claims valid Person is INVALID (oracle catches).",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "person",
+            "type": "object",
+            "required": [
+              "name",
+              "age"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "age": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "instance": {
+            "name": "Bob",
+            "age": 25
+          },
+          "expected_valid": false
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-025",
+      "claim_type": "data_model",
+      "description": "Caller falsely claims invalid array is VALID (oracle catches).",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "int_array",
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "instance": [
+            1,
+            "x"
+          ],
+          "expected_valid": true
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-026",
+      "claim_type": "data_model",
+      "description": "Caller falsely claims missing-field instance is VALID.",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "person",
+            "type": "object",
+            "required": [
+              "name",
+              "age"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "age": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "instance": {
+            "name": "Carol"
+          },
+          "expected_valid": true
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-027",
+      "claim_type": "data_model",
+      "description": "Caller falsely claims qty=0 order is VALID against order schema.",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "order",
+            "type": "object",
+            "required": [
+              "order_id",
+              "qty"
+            ],
+            "properties": {
+              "order_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "qty": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "instance": {
+            "order_id": "Z",
+            "qty": 0
+          },
+          "expected_valid": true
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-028",
+      "claim_type": "data_model",
+      "description": "Person with extra property fails additionalProperties=false.",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "person",
+            "type": "object",
+            "required": [
+              "name",
+              "age"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "age": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "instance": {
+            "name": "Dave",
+            "age": 40,
+            "extra": 1
+          },
+          "expected_valid": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-029",
+      "claim_type": "data_model",
+      "description": "Person with age=30.5 invalid (integer type required) — adversarial.",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "person",
+            "type": "object",
+            "required": [
+              "name",
+              "age"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "age": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "instance": {
+            "name": "Eve",
+            "age": 30.5
+          },
+          "expected_valid": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-030",
+      "claim_type": "data_model",
+      "description": "Empty object against required Person → invalid.",
+      "external_grounding": {
+        "type": "schema",
+        "payload": {
+          "schema": {
+            "title": "person",
+            "type": "object",
+            "required": [
+              "name",
+              "age"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "age": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "instance": {},
+          "expected_valid": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-031",
+      "claim_type": "correctness",
+      "description": "Trivial number assignment compiles under --strict.",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "const x: number = 42; export { x };",
+          "expected_compiles": true
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-032",
+      "claim_type": "correctness",
+      "description": "String + interface compile under --strict.",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "interface User { id: number; name: string }\nconst u: User = { id: 1, name: 'a' }; export { u };",
+          "expected_compiles": true
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-033",
+      "claim_type": "correctness",
+      "description": "Function with two-arg signature compiles.",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "function f(a: number, b: number): number { return a + b }\nexport { f };",
+          "expected_compiles": true
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-034",
+      "claim_type": "correctness",
+      "description": "Generic identity function compiles.",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "function id<T>(x: T): T { return x }\nexport { id };",
+          "expected_compiles": true
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-035",
+      "claim_type": "correctness",
+      "description": "Readonly array literal type compiles.",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "const arr: readonly number[] = [1, 2, 3]; export { arr };",
+          "expected_compiles": true
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-036",
+      "claim_type": "correctness",
+      "description": "const x: number = 'hello' fails strict TS (PHASE_4_PLAN example).",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "const x: number = 'hello'; export { x };",
+          "expected_compiles": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-037",
+      "claim_type": "correctness",
+      "description": "Function returning a+b where b: string fails strict (PHASE_4_PLAN example).",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "function f(a: number, b: string): number { return a + b }\nexport { f };",
+          "expected_compiles": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-038",
+      "claim_type": "correctness",
+      "description": "Missing required property in object literal fails strict.",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "interface U { id: number; name: string }\nconst u: U = { id: 1 }; export { u };",
+          "expected_compiles": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-039",
+      "claim_type": "correctness",
+      "description": "Calling string method on number fails strict.",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "const n: number = 5; const s: string = n.toUpperCase(); export { s };",
+          "expected_compiles": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-040",
+      "claim_type": "correctness",
+      "description": "Caller falsely claims invalid snippet compiles (oracle catches).",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "const x: number = 'oops'; export { x };",
+          "expected_compiles": true
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-041",
+      "claim_type": "correctness",
+      "description": "Caller falsely claims valid snippet does NOT compile.",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "const ok: string = 'fine'; export { ok };",
+          "expected_compiles": false
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-042",
+      "claim_type": "correctness",
+      "description": "Implicit-any param fails ONLY under --strict (adversarial).",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "function plus(a, b) { return a + b }\nexport { plus };",
+          "expected_compiles": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-043",
+      "claim_type": "correctness",
+      "description": "Conditional type T extends number compiles under --strict.",
+      "external_grounding": {
+        "type": "code",
+        "payload": {
+          "snippet": "type IsNum<T> = T extends number ? 1 : 0;\nconst v: IsNum<5> = 1; export { v };",
+          "expected_compiles": true
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-044",
+      "claim_type": "fr_traceability",
+      "description": "Clean overview section passes (zero rules applicable).",
+      "external_grounding": {
+        "type": "spec",
+        "payload": {
+          "markdown": "## Overview\n\nThis feature adds single sign-on support to the platform.\n",
+          "section_type": "overview",
+          "expected_passes": true
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-045",
+      "claim_type": "architecture",
+      "description": "Another clean overview body passes.",
+      "external_grounding": {
+        "type": "spec",
+        "payload": {
+          "markdown": "## Overview\n\nThe API gateway terminates TLS and forwards requests to the back-end.\n",
+          "section_type": "overview",
+          "expected_passes": true
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-046",
+      "claim_type": "fr_traceability",
+      "description": "Caller falsely claims a clean overview FAILS (oracle catches).",
+      "external_grounding": {
+        "type": "spec",
+        "payload": {
+          "markdown": "## Overview\n\nThis feature adds single sign-on support to the platform.\n",
+          "section_type": "overview",
+          "expected_passes": false
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-047",
+      "claim_type": "fr_traceability",
+      "description": "Requirements with duplicate FR-001 fails; claim asserts fail → truth=true.",
+      "external_grounding": {
+        "type": "spec",
+        "payload": {
+          "markdown": "## Functional Requirements\n\n| ID | Title | Description | AC | Priority | SP |\n|---|---|---|---|---|---|\n| FR-001 | Login | User can log in | AC-001 | High | 3 |\n| FR-001 | Duplicate ID | Trips duplicate_requirement_ids rule | AC-002 | High | 2 |\n",
+          "section_type": "requirements",
+          "expected_passes": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-048",
+      "claim_type": "fr_traceability",
+      "description": "Second dup-FR-100 requirements section fails; claim asserts fail → truth=true.",
+      "external_grounding": {
+        "type": "spec",
+        "payload": {
+          "markdown": "## Functional Requirements\n\n| ID | Title | Description | AC | Priority | SP |\n|---|---|---|---|---|---|\n| FR-100 | Sign in | First duplicate | AC-100 | Med | 2 |\n| FR-100 | Sign out | Second duplicate of FR-100 | AC-101 | Med | 2 |\n",
+          "section_type": "requirements",
+          "expected_passes": false
+        }
+      },
+      "expected_truth": true
+    },
+    {
+      "claim_id": "F3-049",
+      "claim_type": "fr_traceability",
+      "description": "Caller falsely claims dup-FR requirements section PASSES (oracle catches).",
+      "external_grounding": {
+        "type": "spec",
+        "payload": {
+          "markdown": "## Functional Requirements\n\n| ID | Title | Description | AC | Priority | SP |\n|---|---|---|---|---|---|\n| FR-001 | Login | User can log in | AC-001 | High | 3 |\n| FR-001 | Duplicate ID | Trips duplicate_requirement_ids rule | AC-002 | High | 2 |\n",
+          "section_type": "requirements",
+          "expected_passes": true
+        }
+      },
+      "expected_truth": false
+    },
+    {
+      "claim_id": "F3-050",
+      "claim_type": "fr_traceability",
+      "description": "jira_tickets section is rule-free; clean body passes.",
+      "external_grounding": {
+        "type": "spec",
+        "payload": {
+          "markdown": "## JIRA Tickets\n\n- FOO-1: implement login\n",
+          "section_type": "jira_tickets",
+          "expected_passes": true
+        }
+      },
+      "expected_truth": true
+    }
+  ]
+}

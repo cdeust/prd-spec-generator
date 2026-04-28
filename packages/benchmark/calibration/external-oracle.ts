@@ -29,19 +29,17 @@
 // ─── Grounding type ───────────────────────────────────────────────────────────
 
 /**
- * The four categories of externally-verifiable ground truth for held-out
- * claims. Each category has a designated oracle tool that provides ground
- * truth independently of any LLM.
+ * Re-exported from @prd-gen/core for backward compatibility.
  *
- * - "schema" — JSON-schema correctness. Oracle: Ajv validator.
- * - "math"   — Arithmetic / set-theoretic / combinatorial truth. Oracle: mathjs.
- * - "code"   — TypeScript snippet compilability. Oracle: tsc --noEmit --strict.
- * - "spec"   — Markdown document conformance to a fixed grammar. Oracle:
- *              Hard Output Rules validator in packages/validation.
+ * Wave F: ExternalGroundingType was promoted to core/domain/agent.ts because
+ * it is load-bearing for the Claim contract. Keeping a local definition here
+ * would duplicate the type and risk divergence. All new call sites should
+ * import from @prd-gen/core; this re-export preserves existing imports.
  *
- * source: PHASE_4_PLAN.md §4.1 category taxonomy.
+ * source: docs/PHASE_4_PLAN.md §4.1 "Externally-grounded held-out subset".
  */
-export type ExternalGroundingType = "schema" | "math" | "code" | "spec";
+import type { ExternalGroundingType } from "@prd-gen/core";
+export type { ExternalGroundingType };
 
 // ─── Legacy oracle contract (backward-compatible) ─────────────────────────────
 

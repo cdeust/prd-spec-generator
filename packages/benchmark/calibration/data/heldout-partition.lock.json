@@ -1,21 +1,17 @@
 {
   "$schema": "reliability-heldout-lock-schema-v2",
   "schema_version": 2,
-  "_comment": "Phase 4.1 reliability held-out partition — Wave E.1 PARTIAL SEAL. Wave E2 (external-oracle wiring) has not yet logged externally-grounded claims, so external_grounding_breakdown remains null. The seed is pre-registered as the §4.1 RNG seed string 'phase4-section-4.1-rng-2025'. claim_set_hash + partition_size + breakdown will be filled in after the first oracle-grounded benchmark run. Until then, verifyReliabilityHeldoutSeal will throw — by design (Popper AP-5).",
-  "_fields": {
-    "seed": "string — pre-registered RNG seed committed before data collection",
-    "partition_size": "integer — count of claim_ids in the held-out set",
-    "sealed_at": "ISO-8601 UTC timestamp at which the partition was sealed",
-    "external_grounding_breakdown": "object — claim count per ExternalGroundingType {schema, math, code, spec}; sum must equal partition_size",
-    "external_grounding_total": "integer — sum of external_grounding_breakdown values; must equal partition_size",
-    "external_grounding_schema_version": 1,
-    "claim_set_hash": "string — sha256 hex digest over sorted-newline-joined claim_ids"
-  },
+  "_comment": "Phase 4.1 reliability held-out partition — Wave F3 FULLY SEALED. Drawn from data/reliability-claim-corpus.json (50 claims, schema=15/math=15/code=13/spec=7) using pre-registered seed 'phase4-section-4.1-rng-2025'. Stratified 20% draw via mulberry32(fnv1a32(seed)). Held-out partition_size=10 (sidecar partition_hash=cfd81fa1e68395b1…). Reproduce via: node packages/benchmark/calibration/scripts/seal-reliability-corpus.mjs.",
   "seed": "phase4-section-4.1-rng-2025",
-  "partition_size": null,
-  "sealed_at": "2026-04-28T05:44:29.273Z",
-  "external_grounding_breakdown": null,
-  "external_grounding_total": null,
+  "partition_size": 10,
+  "sealed_at": "2026-04-28T07:02:13.944Z",
+  "external_grounding_breakdown": {
+    "schema": 3,
+    "math": 3,
+    "code": 3,
+    "spec": 1
+  },
+  "external_grounding_total": 10,
   "external_grounding_schema_version": 1,
-  "claim_set_hash": null
+  "claim_set_hash": "7db6660ce21150a5aa007d5c01718cbe35bb6259ccbe237098724bb04d196247"
 }

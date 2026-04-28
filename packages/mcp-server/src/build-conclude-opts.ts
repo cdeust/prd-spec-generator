@@ -43,10 +43,28 @@ export interface BuildConcludeOptsInput {
   readonly consensus_strategy: ConcludeOptions["strategy"];
   readonly run_id?: string;
   readonly claim_types?: Record<string, string>;
+  /**
+   * OPTIONAL. Pass the Claim objects from the corresponding
+   * plan_section_verification / plan_document_verification response if you want
+   * oracle-based ground truth (breaks Curie A2 annotator-circularity for
+   * grounded claims). Claims that carry `external_grounding` will have their
+   * truth resolved by the appropriate oracle; claims without it fall back to
+   * consensus-majority (back-compat preserved).
+   *
+   * Precondition: each Claim in the map is keyed by its claim_id.
+   * Postcondition: the returned ConcludeOptions.claims is populated, enabling
+   *   the orchestrator's concludeFromVerdicts to propagate external_grounding
+   *   into ClaimObservationFlushed events and thence into the oracle pipeline.
+   *
+   * source: Curie A2.3, PHASE_4_PLAN.md §4.1 Wave F closure; Wave D A7 /
+   *   Wave E A2.3 triple-pattern (type-level seam → orchestrator propagation →
+   *   MCP-tool-API parameter). This field closes the MCP-tool-API leg.
+   */
+  readonly claims?: ReadonlyMap<string, Claim>;
 }
 
 export function buildConcludeOpts(input: BuildConcludeOptsInput): ConcludeOptions {
-  const { consensus_strategy, run_id, claim_types } = input;
+  const { consensus_strategy, run_id, claim_types, claims } = input;
   const reliabilityRepo = getReliabilityRepo();
   const reliabilityProvider = getConsensusReliabilityProvider();
 
@@ -167,6 +185,7 @@ export function buildConcludeOpts(input: BuildConcludeOptsInput): ConcludeOption
     claimTypes: claimTypesMap as
       | ReadonlyMap<string, Claim["claim_type"]>
       | undefined,
+    claims,
     onObservation,
   };
 }

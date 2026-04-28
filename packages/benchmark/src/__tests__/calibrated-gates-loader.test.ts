@@ -18,7 +18,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   loadCalibratedGates,
   getActiveKpiGates,
@@ -164,5 +164,42 @@ describe("loadCalibratedGates — D3.5", () => {
     );
     const active = getActiveKpiGates(path);
     expect(active.iteration_count_max).toBe(80);
+  });
+
+  // ─── Popper AP-1 closure — production-pilot file protection ─────────────────
+  //
+  // Verifies that `gate-calibration-K100-production.json` (K=5 pilot data)
+  // is fully guarded by hold_provisional: true on every gate, so that no
+  // future caller passing this path to the loader can accidentally promote a
+  // K=5 pilot gate into the active KPI set.
+  //
+  // source: Popper AP-1, Wave F remediation.
+
+  it("Popper AP-1: production-pilot file — loadCalibratedGates returns null (all gates hold_provisional)", () => {
+    // Precondition: gate-calibration-K100-production.json has hold_provisional: true
+    //   on every gate, including the two passes_threshold=true ones.
+    // Postcondition: loadCalibratedGates returns null — no gate is promoted.
+    // Invariant: the loader's hold_provisional guard (calibrated-gates-loader.ts:109)
+    //   skips all gates; the result is treated as "no promoted gates" → null.
+    const productionPilotPath = resolve(
+      __dirname,
+      "../../calibration/data/gate-calibration-K100-production.json",
+    );
+    const result = loadCalibratedGates(productionPilotPath);
+    // null means no gates were promoted — KPI_GATES remains in effect.
+    expect(result).toBeNull();
+  });
+
+  it("Popper AP-1: getActiveKpiGates with production-pilot path returns KPI_GATES unchanged", () => {
+    // Precondition: same as above — all gates hold_provisional: true.
+    // Postcondition: getActiveKpiGates falls back to KPI_GATES (no overlay applied).
+    // Invariant: KPI thresholds are not tightened/loosened by K=5 pilot data.
+    const productionPilotPath = resolve(
+      __dirname,
+      "../../calibration/data/gate-calibration-K100-production.json",
+    );
+    const active = getActiveKpiGates(productionPilotPath);
+    // Must be the exact KPI_GATES object (reference equality from the fallback path).
+    expect(active).toBe(KPI_GATES);
   });
 });

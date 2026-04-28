@@ -5,6 +5,7 @@
     "rootDir": "./src"
   },
   "references": [
+    { "path": "../benchmark" },
     { "path": "../core" },
     { "path": "../ecosystem-adapters" },
     { "path": "../orchestration" },
