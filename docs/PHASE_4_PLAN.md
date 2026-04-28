@@ -585,6 +585,27 @@ All four types are implemented as real oracles (Wave E). The seam is
 verified end-to-end by 3 tests in
 `packages/mcp-server/src/__tests__/external-grounding-e2e.test.ts`.
 
+**Wave F closure is now COMPLETE end-to-end (Wave F remediation, 2026-04).**
+The MCP `conclude_verification` tool accepts an optional `claims` parameter
+(array of Claim-shaped objects) that propagates `external_grounding` through to
+the oracle resolution path. Callers — calibration runners, test harnesses, or any
+host that supplies the Claim objects from a `plan_section_verification` /
+`plan_document_verification` response — get oracle-based ground truth in the
+JSONL log. Callers that omit `claims` continue to use consensus-majority
+circularity (back-compat preserved).
+
+This closes the Wave D / Wave E / Wave F **triple-pattern**:
+- **Wave D A7**: type-level seam — `Claim.external_grounding` field added to core.
+- **Wave E A2.3**: orchestrator propagation — `concludeFromVerdicts` reads
+  `options.claims` map and populates `ClaimObservationFlushed.external_grounding`.
+- **Wave F A2.3**: MCP-tool-API parameter — `conclude_verification` now accepts
+  `claims[]`; the handler parses each into a `Claim`, builds the map, and passes
+  it to `buildConcludeOpts` via the new `claims` field; `buildConcludeOpts` sets
+  `ConcludeOptions.claims`. Verified by
+  `packages/mcp-server/src/__tests__/conclude-verification-claims-e2e.test.ts`
+  (3 tests: math-grounded → oracle_resolved_truth: true; mixed grounded/ungrounded;
+  claims omitted → back-compat).
+
 ---
 
 ## 4.2 — MAX_ATTEMPTS calibration
