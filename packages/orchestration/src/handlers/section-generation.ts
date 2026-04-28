@@ -44,11 +44,14 @@ import { SECTIONS_BY_CONTEXT, SECTION_RECALL_TEMPLATES } from "../section-plan.j
  * Exported so the benchmark layer can import the single authoritative value
  * instead of maintaining a mirror constant (Wave D1.A).
  *
- * source: provisional heuristic — to be calibrated in Phase 4.2 (Schoenfeld
- * N=823 study). Current value (1 initial + 2 retries = 3) was chosen based on
- * engineering judgment; the calibrated replacement is injected at runtime via
+ * source: docs/PHASE_4_PLAN.md §4.2 retry budget; provisional anchor pending
+ * the Schoenfeld N=823 ablation study (Wave D + future calibration runs).
+ * Current value (1 initial + 2 retries = 3) was chosen based on engineering
+ * judgment; the calibrated replacement is injected at runtime via
  * state.retry_policy.maxAttempts (see D1.C).
  */
+// source: docs/PHASE_4_PLAN.md §4.2 retry budget; provisional anchor pending
+// the Schoenfeld N=823 ablation study (Wave D + future calibration runs).
 export const MAX_ATTEMPTS = 3;
 
 import { SECTION_GENERATE_INV_PREFIX as GENERATE_PREFIX } from "./protocol-ids.js";

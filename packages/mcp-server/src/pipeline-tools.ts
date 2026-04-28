@@ -41,6 +41,9 @@ import { EffectivenessTracker } from "@prd-gen/strategy";
 import {
   appendObservationLog,
   JUDGE_OBSERVATION_LOG_PATH,
+  getRetryArmForRun,
+  getMaxAttemptsForRun,
+  MAX_ATTEMPTS_BASELINE,
 } from "@prd-gen/benchmark";
 import {
   getReliabilityRepo,
@@ -165,7 +168,33 @@ export function registerPipelineTools(server: McpServer): void {
         codebase_path: codebase_path ?? null,
         skip_preflight: skip_preflight ?? false,
       });
-      const { state, action, messages } = step({ state: initial });
+
+      // B1 — Wire retry_policy from composition root (Curie A7).
+      // The reducer (section-generation.ts) reads state.retry_policy and never
+      // calls benchmark seams directly (§1.5 DIP / §2.2 layer rule). The
+      // composition root is the only permitted caller of the benchmark seams.
+      //
+      // Preserve an existing policy (resumed run): if initial.retry_policy is
+      // already non-null, we skip overwrite. newPipelineState always returns
+      // null for retry_policy (fresh state), so in practice this guard protects
+      // future paths where state is loaded from persistent storage before
+      // start_pipeline re-runs.
+      //
+      // Pass null as calibratedValue: no Wave D calibration run has completed
+      // yet, so getMaxAttemptsForRun returns MAX_ATTEMPTS_BASELINE.
+      //
+      // source: Curie cross-audit Wave D, A7 anomaly resolution.
+      const arm = getRetryArmForRun(run_id);
+      // Pass MAX_ATTEMPTS_BASELINE as the calibratedValue: no Wave D calibration
+      // run has completed yet. For a control-arm run, getMaxAttemptsForRun ignores
+      // calibratedValue and returns MAX_ATTEMPTS_BASELINE anyway.
+      const maxAttempts = getMaxAttemptsForRun(run_id, MAX_ATTEMPTS_BASELINE);
+      const initialWithPolicy =
+        initial.retry_policy !== null
+          ? initial // preserve existing policy (resumed run)
+          : { ...initial, retry_policy: { maxAttempts, arm } };
+
+      const { state, action, messages } = step({ state: initialWithPolicy });
       // Drain BEFORE persist — same invariant as submit_action_result.
       // The first step is currently `banner` which produces no
       // strategy_executions, but the invariant "every persisted state has
@@ -348,7 +377,9 @@ export function registerPipelineTools(server: McpServer): void {
 
   server.tool(
     "conclude_verification",
-    "Aggregate JudgeVerdict[] from spawned subagents into a VerificationReport (consensus + dissent).",
+    "Aggregate JudgeVerdict[] from spawned subagents into a VerificationReport (consensus + dissent). " +
+    "IMPORTANT: omitting claim_types when a reliability repository is open suppresses observation flushing " +
+    "for this batch — the calibration data will be missing for these runs (one-sided censoring).",
     {
       scope: z.enum(["section", "document"]).default("section"),
       section_type: SectionTypeSchema.optional(),
@@ -383,6 +414,20 @@ export function registerPipelineTools(server: McpServer): void {
       const reliabilityRepo = getReliabilityRepo();
       const reliabilityProvider = getConsensusReliabilityProvider();
 
+      // B5 — Loud diagnostic when claim_types omitted (Curie A3).
+      // FAILS_ON: claim_types undefined AND reliabilityRepo open — observations
+      //   are silently dropped (claimTypesMap=undefined disables onObservation).
+      //   This produces one-sided censoring: runs without claim_types appear to
+      //   have no ground-truth signal in the calibration repository even though
+      //   the run completed. Warn loudly so operators can fix the caller.
+      if (claim_types === undefined && reliabilityRepo !== null) {
+        console.warn(
+          "[reliability] WARNING: conclude_verification called without claim_types" +
+          " — observations will NOT be flushed to the calibration repository for" +
+          " this batch. This may produce one-sided censoring across runs.",
+        );
+      }
+
       const claimTypesMap = claim_types !== undefined
         ? new Map(Object.entries(claim_types) as [string, string][])
         : undefined;
@@ -392,6 +437,14 @@ export function registerPipelineTools(server: McpServer): void {
       // Ground truth = consensus majority (annotator-circularity path;
       // Wave E external oracles will break this circularity).
       // FAILS_ON: DB write error (swallowed — best-effort observation recording).
+      //
+      // CC-3 control-arm semantics:
+      // - getReliabilityForRun returns null on control-arm runs (read-side break).
+      // - onObservation fires on ALL runs, INCLUDING control-arm runs (write-side
+      //   contributes prior-weighted ground-truth observations to the calibration
+      //   pool). This asymmetry is by design: the control arm produces unbiased
+      //   training signal that the treatment arm cannot.
+      // source: Curie cross-audit Wave D, A1 anomaly resolution.
       const onObservation = reliabilityRepo !== null && claimTypesMap !== undefined
         ? (obs: Parameters<NonNullable<ConcludeOptions["onObservation"]>>[0]) => {
             try {
