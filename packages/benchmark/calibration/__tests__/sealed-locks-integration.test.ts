@@ -18,7 +18,8 @@
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import {
   verifyMaxAttemptsHeldoutSeal,
@@ -70,7 +71,8 @@ function sha256SortedJoin(ids: readonly string[]): string {
   return createHash("sha256").update(sorted.join("\n")).digest("hex");
 }
 
-const DATA_DIR = "calibration/data";
+const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = join(TEST_DIR, "..", "data"); // packages/benchmark/calibration/data
 
 // ─── E3.D.1 §4.2 max-attempts seal verifies cleanly ─────────────────────
 describe("E3.D — §4.2 verifyMaxAttemptsHeldoutSeal accepts the sealed lock", () => {

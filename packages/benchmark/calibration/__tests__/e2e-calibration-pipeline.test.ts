@@ -20,7 +20,8 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { writeFileSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -66,7 +67,8 @@ function partition8020(allIds: readonly string[], seed: number): string[] {
 const PRE_REGISTERED_SEED_45 = 0x4_05_c3;
 const PRE_REGISTERED_SEED_42 = 4_020_704;
 const K = 100;
-const DATA_DIR = "calibration/data";
+const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = join(TEST_DIR, "..", "data"); // packages/benchmark/calibration/data
 
 let tmpDir: string;
 
