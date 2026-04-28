@@ -12,13 +12,14 @@
 import { describe, it, expect } from "vitest";
 import {
   pairedBootstrapAccuracyDifference,
+  SEAL_VERIFIED,
   type HeldoutClaim,
   type AccuracyMap,
 } from "../paired-bootstrap.js";
 
 describe("pairedBootstrapAccuracyDifference — stub contract (M4)", () => {
   it("throws with PAIRED_BOOTSTRAP_NOT_YET_IMPLEMENTED message", () => {
-    // Precondition: any valid-shaped arguments.
+    // Precondition: any valid-shaped arguments; sealVerified = SEAL_VERIFIED.
     // Postcondition: throws with the expected sentinel message so callers
     //   cannot silently fall through to wrong results before Wave C+.
     const heldout: HeldoutClaim[] = [
@@ -28,7 +29,7 @@ describe("pairedBootstrapAccuracyDifference — stub contract (M4)", () => {
     const prior: AccuracyMap = new Map([["genius:feynman:correctness:sensitivity_arm", 0.7]]);
 
     expect(() =>
-      pairedBootstrapAccuracyDifference(heldout, calibrated, prior, 1000, 42),
+      pairedBootstrapAccuracyDifference(heldout, calibrated, prior, 1000, 42, SEAL_VERIFIED),
     ).toThrow(/PAIRED_BOOTSTRAP_NOT_YET_IMPLEMENTED/);
   });
 
@@ -40,7 +41,21 @@ describe("pairedBootstrapAccuracyDifference — stub contract (M4)", () => {
     const prior: AccuracyMap = new Map();
 
     expect(() =>
-      pairedBootstrapAccuracyDifference(heldout, calibrated, prior, 1000, 0),
+      pairedBootstrapAccuracyDifference(heldout, calibrated, prior, 1000, 0, SEAL_VERIFIED),
     ).toThrow(/Wave C\+ scope/);
+  });
+
+  it("throws precondition error when sealVerified is not passed as SEAL_VERIFIED (B3)", () => {
+    // Postcondition: the precondition guard fires before the stub body.
+    // This test is type-unsafe intentionally — simulates a JS caller
+    // bypassing the typed parameter.
+    const heldout: HeldoutClaim[] = [];
+    const calibrated: AccuracyMap = new Map();
+    const prior: AccuracyMap = new Map();
+
+    expect(() =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pairedBootstrapAccuracyDifference(heldout, calibrated, prior, 1000, 0, false as any),
+    ).toThrow(/precondition violated/i);
   });
 });
