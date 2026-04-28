@@ -112,7 +112,16 @@ export interface KpiGateComparisonReport {
 
 // ─── JSONL schemas ────────────────────────────────────────────────────────────
 
-/** source: heldout-seals.ts:JudgeObservationLogEntry. */
+/**
+ * source: heldout-seals.ts:JudgeObservationLogEntry.
+ *
+ * Wave E extension: `oracle_resolved_truth` (optional) carries the ground-truth
+ * verdict produced by invokeOracle() at log-write time for externally-grounded
+ * claims. When present, computeReliabilityComparison uses it instead of the
+ * annotator-supplied `ground_truth`, breaking the Curie A2 annotator-circularity.
+ *
+ * source: PHASE_4_PLAN.md §4.1 "Externally-grounded held-out subset".
+ */
 const ObservationLogEntrySchema = z.object({
   run_id: z.string(),
   judge_id: z.object({ kind: z.string(), name: z.string() }),
@@ -122,6 +131,12 @@ const ObservationLogEntrySchema = z.object({
   judge_verdict: z.boolean(),
   timestamp: z.string(),
   schema_version: z.literal(1),
+  /**
+   * Oracle-resolved ground truth (Wave E). Present when the claim has external
+   * grounding and invokeOracle() was called at annotation time. Absent for
+   * legacy entries without external grounding (falls back to ground_truth).
+   */
+  oracle_resolved_truth: z.boolean().optional(),
 });
 type ObservationLogEntry = z.infer<typeof ObservationLogEntrySchema>;
 
@@ -261,16 +276,19 @@ export function computeAblationComparison(
  *
  * Seal (B3): verifyReliabilityHeldoutSeal called BEFORE reading.
  * Bootstrap (E1.B): paired bootstrap on per-claim majority outcomes,
- * iterations=10_000, rngSeed = fnv1a32(lock.seed).
- *
- * Note: until oracle verdicts land (Wave E E2/E3), calibrated and prior
- * collapse to the same per-claim majority verdict — the bootstrap then emits
- * CI=[0,0] and pValue=1, an honest signal of zero discriminating power.
+ * iterations=10_000, rngSeed = stringSeedToNumber(lock.seed).
+ * Oracle wiring (E2): when an observation entry carries `oracle_resolved_truth`,
+ * that value is used as ground truth instead of the annotator-supplied
+ * `ground_truth`, breaking the Curie A2 annotator-circularity for that claim.
+ * For entries WITHOUT `oracle_resolved_truth`, the function falls back to
+ * consensus-majority and emits a console.warn flagging the circularity.
  *
  * Precondition: observationLogPath valid; lockPath points to v2 reliability lock.
  * Postcondition: returns ReliabilityComparisonReport.
+ *   - calibrated arm uses oracle_resolved_truth where available.
+ *   - prior arm uses consensus-majority for all entries (baseline comparison).
  *
- * source: PHASE_4_PLAN.md §4.1; Wave D B2/B3; Wave E E1.B.
+ * source: PHASE_4_PLAN.md §4.1; Wave D B2/B3; Wave E E1.B + E2.
  */
 export function computeReliabilityComparison(
   observationLogPath: string,
@@ -279,32 +297,67 @@ export function computeReliabilityComparison(
   const lock: ReliabilityHeldoutLock = verifyReliabilityHeldoutSeal(lockPath);
   const entries = readJsonl(observationLogPath, ObservationLogEntrySchema);
 
-  // Per-observation outcomes for arm-level stats (no oracle yet).
-  const outcomes: boolean[] = [];
-  for (const e of entries) outcomes.push(e.judge_verdict !== e.ground_truth);
-  const calibratedStats = armStats(outcomes);
-  const priorStats = armStats(outcomes);
+  // Separate entries by oracle grounding presence.
+  // FAILS_ON: entries with oracle_resolved_truth=undefined → circularity warning logged.
+  let circularityWarnFired = false;
+  for (const e of entries) {
+    if (e.oracle_resolved_truth === undefined && !circularityWarnFired) {
+      console.warn(
+        `[computeReliabilityComparison] claim "${e.claim_id}" has no oracle_resolved_truth; ` +
+          `falling back to consensus-majority ground_truth — annotator-circularity (Curie A2) ` +
+          `applies for this claim. To resolve: call invokeOracle() at log-write time and store ` +
+          `the result in oracle_resolved_truth. See PHASE_4_PLAN.md §4.1.`,
+      );
+      circularityWarnFired = true; // Emit once per call to avoid log flooding.
+    }
+  }
+
+  // calibrated arm: uses oracle_resolved_truth when available; falls back to ground_truth.
+  // prior arm: always uses ground_truth (annotator-derived, baseline comparison).
+  // Invariant: both arrays have the same length === entries.length.
+  const calibratedOutcomes: boolean[] = [];
+  const priorOutcomes: boolean[] = [];
+  for (const e of entries) {
+    const effectiveTruth =
+      e.oracle_resolved_truth !== undefined ? e.oracle_resolved_truth : e.ground_truth;
+    const calibratedCorrect = e.judge_verdict !== effectiveTruth;
+    const priorCorrect = e.judge_verdict !== e.ground_truth;
+    calibratedOutcomes.push(calibratedCorrect);
+    priorOutcomes.push(priorCorrect);
+  }
+
+  const calibratedStats = armStats(calibratedOutcomes);
+  const priorStats = armStats(priorOutcomes);
   const delta = calibratedStats.pass_rate - priorStats.pass_rate;
 
-  // Per-claim majority for the paired bootstrap.
-  const claimMap = new Map<string, { correct: number; total: number }>();
+  // Per-claim pairing for the bootstrap.
+  // Invariant: claimMap accumulates per-claim correct counts for BOTH arms.
+  const claimMap = new Map<
+    string,
+    { calibratedCorrect: number; priorCorrect: number; total: number }
+  >();
   for (const e of entries) {
-    const correct = e.judge_verdict !== e.ground_truth;
+    const effectiveTruth =
+      e.oracle_resolved_truth !== undefined ? e.oracle_resolved_truth : e.ground_truth;
+    const calibratedCorrect = e.judge_verdict !== effectiveTruth;
+    const priorCorrect = e.judge_verdict !== e.ground_truth;
     let b = claimMap.get(e.claim_id);
     if (!b) {
-      b = { correct: 0, total: 0 };
+      b = { calibratedCorrect: 0, priorCorrect: 0, total: 0 };
       claimMap.set(e.claim_id, b);
     }
     b.total++;
-    if (correct) b.correct++;
+    if (calibratedCorrect) b.calibratedCorrect++;
+    if (priorCorrect) b.priorCorrect++;
   }
   const claims: HeldoutClaim[] = [];
   for (const [claim_id, b] of claimMap) {
-    const majorityCorrect = b.correct * 2 > b.total;
+    const calibratedMajority = b.calibratedCorrect * 2 > b.total;
+    const priorMajority = b.priorCorrect * 2 > b.total;
     claims.push({
       claim_id,
-      calibrated_correct: majorityCorrect,
-      prior_correct: majorityCorrect,
+      calibrated_correct: calibratedMajority,
+      prior_correct: priorMajority,
     });
   }
 

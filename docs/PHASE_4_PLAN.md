@@ -86,6 +86,30 @@ constant adjustment.
 
 ## 4.1 — Per-judge reliability calibration
 
+### Wave E oracle status (2026-04-28) — IMPLEMENTED
+
+Wave E (sub-stream E2, integrated in phase4/wave-e-integration) provides
+Ajv/mathjs/tsc/validation-based oracle implementations for the four
+externally-grounded claim categories. The oracles are wired into the
+held-out subset's ground-truth resolution path via `oracle_resolved_truth`
+on `ObservationLogEntrySchema` in `ablation-comparison.ts`. Annotator-
+circularity (Curie A2) is broken for claims with external grounding.
+
+| Oracle | Implementation | Grounding |
+|---|---|---|
+| schemaOracle | Ajv v8 JSON Schema validation | Fully external (deterministic) |
+| mathOracle | mathjs `evaluate()` — no eval() | Fully external (deterministic) |
+| codeOracle | tsc --noEmit --strict subprocess | Fully external (TypeScript compiler) |
+| specOracle | @prd-gen/validation validateSection() | Weakly external (internally-maintained rules) |
+
+The specOracle caveat (weakly internal) is documented in every `oracle_evidence`
+string. The stub sentinel-throw tests are replaced by real contract tests
+(schema/math/code/spec oracle tests — Wave E E2 migration).
+
+Seal status: PARTIAL (option b chosen — see §4.1 "Held-out partition locking"
+for full disposition). The blocking artifact is the claim corpus, not the
+oracle implementations.
+
 ### PRE-REGISTRATION (mandatory before implementation)
 
 **Hypothesis (two-sided).**
@@ -336,13 +360,25 @@ Empty-DB / prior contract: `getReliability(judge, claimType, direction)` returns
     if the sha256 of the sorted claim_ids does not match `partition_hash`,
     or if `sealed_at` is in the future. No evaluation may proceed without
     this check passing.
-  - **Wave E / E3.C status (2026-04-28): PARTIAL SEAL.** The seed is
-    pre-registered (`seed = "phase4-section-4.1-rng-2025"`); `partition_size`,
-    `claim_set_hash`, and `external_grounding_breakdown` remain `null`
-    pending Wave E2 (external-oracle wiring). The first benchmark run that
-    logs externally-grounded claims will populate the breakdown counts and
-    finalise the seal. Until then, `verifyReliabilityHeldoutSeal` THROWS
-    on the partial seal — by design (Popper AP-5 mechanical enforcement).
+  - **Wave E integration (2026-04-28): PARTIAL SEAL — option (b) chosen.**
+    - **Oracle wiring: COMPLETE.** E2's four oracle implementations (schema/Ajv,
+      math/mathjs, code/tsc, spec/validation) are ported to
+      `packages/benchmark/calibration/{schema,math,code,spec}-oracle.ts` and wired
+      into `computeReliabilityComparison` via `oracle_resolved_truth` on
+      `ObservationLogEntrySchema`. When an entry carries `oracle_resolved_truth`,
+      the calibrated arm uses it as ground truth; the prior arm uses the
+      annotator-derived `ground_truth` (baseline). Annotator-circularity (Curie A2)
+      is broken for externally-grounded claims.
+    - **Seal disposition: option (b).** The seed is pre-registered
+      (`seed = "phase4-section-4.1-rng-2025"`); `partition_size`,
+      `claim_set_hash`, and `external_grounding_breakdown` remain `null`
+      because no actual externally-grounded claim corpus exists yet — only
+      the seam is wired. Sealing requires a dedicated calibration-data-PR
+      that creates and runs oracle-grounded benchmark claims. Until then,
+      `verifyReliabilityHeldoutSeal` THROWS on the partial seal — by design
+      (Popper AP-5 mechanical enforcement). Option (a) (running `seal-locks.mjs`
+      with live oracles) was rejected: the input claim corpus is the blocking
+      artifact, not the oracle implementations.
   - After calibration, the calibrated reliability map is evaluated on
     the held-out set against the Beta(7,3) prior baseline using
     consensus accuracy as the metric.
@@ -1293,6 +1329,16 @@ source: PHASE_4_PLAN.md §CC-3; implementation
 - [x] First K≥100 calibration batch committed to `data/gate-calibration-K100.json`
       with non-empty `gates` array (Wave E / E3.A, 2026-04-28; K_achieved=100,
       frozen_baseline_commit=76cfc636, runner pre-registered seed 0x4_05_C3)
+- [x] **wall_time_ms_max gate disposition (Wave E integration, option b):
+      HOLD-PROVISIONAL.** Calibrated value 1.534ms (from 500ms provisional,
+      326× tightening) is tagged `hold_provisional=true` in
+      `data/gate-calibration-K100.json`. `loadCalibratedGates()` skips
+      auto-promotion for `hold_provisional` gates. Reason: calibration was
+      run on canned-dispatcher (m_series_mid machine class, ~1ms per run).
+      Promoting to 1.534ms would fire on every production claim on non-canned
+      dispatchers or other machine classes. Unblocked by: per-machine-class
+      non-canned calibration runs (separate PR).
+      Source: `packages/benchmark/src/calibrated-gates-loader.ts` + §4.5 brief.
 - [ ] `WALL_TIME_MS_GATE_BY_CLASS` populated for at least one bucket with
       use-site source comment + JSONL data + XmR record (CC-2)
 - [x] Held-out 20% partition sealed in `data/kpigates-heldout.lock.json`

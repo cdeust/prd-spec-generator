@@ -48,6 +48,14 @@ const CalibratedGateEntrySchema = z.object({
   gate_name: z.string().min(1),
   calibrated: z.number(),
   passes_threshold: z.boolean(),
+  /**
+   * Wave E override: when true, skip promotion even if passes_threshold=true.
+   * Used for wall_time_ms_max which was calibrated on canned-dispatcher runs
+   * only and would fire gates on all production claims.
+   *
+   * source: PHASE_4_PLAN.md §4.5 wall_time_ms_max disposition (Wave E, option b).
+   */
+  hold_provisional: z.boolean().optional(),
 });
 
 const CalibratedGatesFileSchema = z.object({
@@ -96,6 +104,9 @@ export function loadCalibratedGates(
   const overlay: Record<string, number | boolean> = { ...KPI_GATES };
   for (const g of file.gates) {
     if (!g.passes_threshold) continue;
+    // Wave E: hold_provisional blocks auto-promotion regardless of passes_threshold.
+    // FAILS_ON: hold_provisional=true with passes_threshold=true — gate is skipped.
+    if (g.hold_provisional === true) continue;
     if (!(g.gate_name in KPI_GATES)) continue;
     const provisional = (
       KPI_GATES as Readonly<Record<string, number | boolean>>

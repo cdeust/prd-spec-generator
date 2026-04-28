@@ -34,7 +34,9 @@
       "would_loosen": false,
       "passes_threshold": true,
       "xmr_path": "/Users/cdeust/Developments/prd-spec-generator/.claude/worktrees/agent-af766fe892bb2b17e/packages/benchmark/calibration/data/gate-calibration-K100.xmr/wall_time_ms_max.m_series_mid.json",
-      "machine_class": "m_series_mid"
+      "machine_class": "m_series_mid",
+      "hold_provisional": true,
+      "hold_provisional_reason": "Calibrated from canned-dispatcher runs (~1ms) on m_series_mid only. Promoting 500\u21921.534ms (326\u00d7 tightening) would cause gate fires on every production claim on non-canned dispatchers or other machine classes. Requires per-machine-class non-canned calibration runs before promotion. See PHASE_4_PLAN.md \u00a74.5 wall_time_ms_max disposition (Wave E, option b)."
     },
     {
       "gate_name": "section_fail_count_max",

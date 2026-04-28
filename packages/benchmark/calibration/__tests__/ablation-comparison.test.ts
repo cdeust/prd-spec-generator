@@ -287,3 +287,111 @@ describe("computeKpiGateComparison (B2.3)", () => {
     expect(report.recommendation).toBe("inconclusive_underpowered");
   });
 });
+
+// ─── computeReliabilityComparison — oracle-grounded path (Wave E E2) ──────────
+
+/**
+ * Helper: observation entry with optional oracle_resolved_truth.
+ * Postcondition: JSON string with all required schema_version=1 fields plus
+ *   optional oracle_resolved_truth when provided.
+ */
+function makeObsEntryWithOracle(overrides: {
+  run_id: string;
+  claim_id: string;
+  judge_verdict: boolean;
+  ground_truth: boolean;
+  oracle_resolved_truth?: boolean;
+}): string {
+  const entry: Record<string, unknown> = {
+    run_id: overrides.run_id,
+    judge_id: { kind: "genius", name: "feynman" },
+    claim_id: overrides.claim_id,
+    claim_type: "schema",
+    ground_truth: overrides.ground_truth,
+    judge_verdict: overrides.judge_verdict,
+    timestamp: new Date().toISOString(),
+    schema_version: 1,
+  };
+  if (overrides.oracle_resolved_truth !== undefined) {
+    entry.oracle_resolved_truth = overrides.oracle_resolved_truth;
+  }
+  return JSON.stringify(entry);
+}
+
+describe("computeReliabilityComparison — oracle-grounded path (Wave E E2)", () => {
+  it("uses oracle_resolved_truth instead of ground_truth when present", () => {
+    const dir = tmpDir();
+    dirs.push(dir);
+
+    // Claim A: oracle says truth=true; annotator says truth=false; judge says true.
+    //   calibrated: judge(true) !== oracle(true) → correct=false
+    //   prior:      judge(true) !== annotator(false) → correct=true
+    // Claim B: oracle says truth=false; annotator says truth=false; judge says true.
+    //   calibrated: judge(true) !== oracle(false) → correct=true
+    //   prior:      judge(true) !== annotator(false) → correct=true
+    const lines = [
+      makeObsEntryWithOracle({
+        run_id: "run-oracle-a",
+        claim_id: "claim-oracle-a",
+        judge_verdict: true,
+        ground_truth: false,
+        oracle_resolved_truth: true,  // oracle disagrees with annotator
+      }),
+      makeObsEntryWithOracle({
+        run_id: "run-oracle-b",
+        claim_id: "claim-oracle-b",
+        judge_verdict: true,
+        ground_truth: false,
+        oracle_resolved_truth: false, // oracle agrees with annotator
+      }),
+    ];
+
+    const lockPath = writeSealedReliabilityLock(dir);
+    const logPath = join(dir, "obs.jsonl");
+    writeFileSync(logPath, lines.join("\n") + "\n");
+
+    const report = computeReliabilityComparison(logPath, lockPath);
+
+    // calibrated arm: claim-a incorrect, claim-b correct → pass_rate = 0.5
+    // prior arm: both correct (judge=true, gt=false → !=) → pass_rate = 1.0
+    expect(report.calibrated.n).toBe(2);
+    expect(report.prior_only.n).toBe(2);
+    expect(report.calibrated.pass_rate).toBe(0.5);
+    expect(report.prior_only.pass_rate).toBe(1.0);
+  });
+
+  it("falls back to ground_truth (with circularity warn) when oracle_resolved_truth absent", () => {
+    const dir = tmpDir();
+    dirs.push(dir);
+
+    // Non-oracle entry: calibrated and prior collapse to same result.
+    const lines = [
+      makeObsEntryWithOracle({
+        run_id: "run-nonorc",
+        claim_id: "claim-nonorc",
+        judge_verdict: true,
+        ground_truth: false,
+        // No oracle_resolved_truth — should trigger warn and fall back.
+      }),
+    ];
+
+    const warnMessages: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (msg: string) => { warnMessages.push(msg); };
+
+    try {
+      const lockPath = writeSealedReliabilityLock(dir);
+      const logPath = join(dir, "obs.jsonl");
+      writeFileSync(logPath, lines.join("\n") + "\n");
+
+      const report = computeReliabilityComparison(logPath, lockPath);
+
+      // calibrated == prior since both use ground_truth
+      expect(report.calibrated.pass_rate).toBe(report.prior_only.pass_rate);
+      // Warn must mention circularity
+      expect(warnMessages.some((m) => m.includes("annotator-circularity"))).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+});

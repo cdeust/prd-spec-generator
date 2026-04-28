@@ -122,6 +122,15 @@ export const GateCalibrationEntrySchema = z.object({
   /** Optional XmR record path under GATE_CALIBRATION_XMR_DIR. */
   xmr_path: z.string().nullable(),
   machine_class: z.string().nullable(),
+  /**
+   * Wave E override: when true, block automatic promotion of this gate even
+   * if passes_threshold=true. Used for wall_time_ms_max (canned-dispatcher
+   * calibration only; requires per-machine-class non-canned runs).
+   *
+   * source: PHASE_4_PLAN.md §4.5 wall_time_ms_max disposition (Wave E, option b).
+   */
+  hold_provisional: z.boolean().optional(),
+  hold_provisional_reason: z.string().optional(),
 });
 
 export type GateCalibrationEntry = z.infer<typeof GateCalibrationEntrySchema>;
