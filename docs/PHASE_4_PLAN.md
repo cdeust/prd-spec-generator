@@ -336,6 +336,13 @@ Empty-DB / prior contract: `getReliability(judge, claimType, direction)` returns
     if the sha256 of the sorted claim_ids does not match `partition_hash`,
     or if `sealed_at` is in the future. No evaluation may proceed without
     this check passing.
+  - **Wave E / E3.C status (2026-04-28): PARTIAL SEAL.** The seed is
+    pre-registered (`seed = "phase4-section-4.1-rng-2025"`); `partition_size`,
+    `claim_set_hash`, and `external_grounding_breakdown` remain `null`
+    pending Wave E2 (external-oracle wiring). The first benchmark run that
+    logs externally-grounded claims will populate the breakdown counts and
+    finalise the seal. Until then, `verifyReliabilityHeldoutSeal` THROWS
+    on the partial seal — by design (Popper AP-5 mechanical enforcement).
   - After calibration, the calibrated reliability map is evaluated on
     the held-out set against the Beta(7,3) prior baseline using
     consensus accuracy as the metric.
@@ -572,6 +579,20 @@ than ±0.05 absolute, the Schoenfeld N must be recomputed via
 `schoenfeldRequiredEvents({ hr: 0.7, alpha: 0.05, power: 0.80,
 allocationA: 0.5, eventRate: observed })` and the study budget revised before
 any further data collection.
+
+**MEASURED (Wave E / E3.B, 2026-04-28).** K=50 against the canned baseline
+yielded **measured_event_rate = 0.4762** (1050 attempts, 500 events;
+Clopper-Pearson 95% CI [0.4456, 0.5069]). |0.4762 − 0.30| = 0.176 >> 0.05
+tolerance → **diverges_beyond_tolerance = true**. Per the hedge above, the
+Schoenfeld N MUST be recomputed before any §4.2 study begins. With
+event_rate=0.4762, the same D=247 implies N = ceil(247/0.4762) ≈ **519
+subjects** (~260 per arm) — substantially fewer than the original 823. The
+canned-baseline event_rate is much higher than expected because the canned
+dispatcher's stochastic section-failure model is more aggressive than a real
+production failure model would be; the production event_rate (against real
+ecosystems) MUST be re-measured before the canned-only N is treated as
+the production target. See `packages/benchmark/calibration/data/event-rate-K50.json`
+for the raw measurement.
 
 source: provisional anchor — measure before use (Wave C integration B9,
 2026-04-27).
@@ -1269,11 +1290,14 @@ source: PHASE_4_PLAN.md §CC-3; implementation
       `calibrate-gates.ts` ships; first real K≥100 batch is a separate PR
 - [x] Frozen-baseline content-hash check asserted at runner startup
       (Wave D / D3.1; `frozen-baseline.ts::computePipelineKpisContentHash`)
-- [ ] First K≥100 calibration batch committed to `data/gate-calibration-K100.json`
-      with non-empty `gates` array (separate calibration-data PR)
+- [x] First K≥100 calibration batch committed to `data/gate-calibration-K100.json`
+      with non-empty `gates` array (Wave E / E3.A, 2026-04-28; K_achieved=100,
+      frozen_baseline_commit=76cfc636, runner pre-registered seed 0x4_05_C3)
 - [ ] `WALL_TIME_MS_GATE_BY_CLASS` populated for at least one bucket with
       use-site source comment + JSONL data + XmR record (CC-2)
-- [ ] Held-out 20% partition sealed in `data/kpigates-heldout.lock.json`
+- [x] Held-out 20% partition sealed in `data/kpigates-heldout.lock.json`
+      (Wave E / E3.C, 2026-04-28; rng_seed=0x4_05_C3, partition_size=20,
+      partition_hash=bc68df17288d6ba8014406e583b9ff9d57ddecd4998c33fa45f5c71c2146f82c)
 - [ ] Negative falsifier evaluated and not rejecting
 - [ ] Synthetic +20% regression test continues to pass against calibrated
       values (already passes against provisional in this scaffolding)
@@ -1383,6 +1407,10 @@ Before 4.2 ships:
 - [x] Held-out 20% partition seal template at
       `data/maxattempts-heldout.lock.json` — must be drawn + sealed before
       held-out evaluation (Wave C1)
+- [x] Held-out 20% partition SEALED in `data/maxattempts-heldout.lock.json`
+      (Wave E / E3.C, 2026-04-28; rng_seed=4_020_704, partition_size=20,
+      partition_hash=4fa909b8a165d926272ffd4f4cb43e12eb7a1f0d62f2a77a4e3fcc85f342b634;
+      verified by sealed-locks-integration.test.ts)
 - [x] `prior_violations_used` instrumentation:
       `packages/benchmark/calibration/retry-observations.ts::extractRetryObservations`
       extracts all 6 required fields from PipelineState per attempt.
