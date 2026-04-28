@@ -374,7 +374,7 @@ async function assembleGateCalibration(
   dispatch: ProductionDispatcher,
   nowIso: string,
   headCommit: string,
-): Promise<{ gateCalibration: ProductionGateCalibration; xmrFiles: string[] }> {
+): Promise<{ gateCalibration: ProductionGateCalibration; xmrFiles: ReadonlyArray<XmrFile> }> {
   const currentHash = computePipelineKpisContentHash();
   const kpis = await driveProductionRuns({
     k: options.k,

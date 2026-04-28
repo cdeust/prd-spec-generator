@@ -134,7 +134,6 @@ export { OracleUnavailableError } from "./oracle-errors.js";
 // parallel artefact (gate-calibration-K100-production.json).
 export {
   runProductionCalibration,
-  runProductionFromCli,
   PRE_REGISTERED_SEED_45_PRODUCTION,
   DEFAULT_K_PRODUCTION,
   PRODUCTION_OUTPUT_BASENAME,
@@ -142,5 +141,11 @@ export {
   type ProductionRunnerResult,
   type ProductionGateCalibration,
 } from "./calibrate-gates-production.js";
+
+// Wave F final remediation — CLI entry extracted to its own module to keep
+// calibrate-gates-production.ts under the §4.1 500-LOC cap. The re-export
+// here preserves the public surface for any consumer that imports it from
+// the calibration barrel.
+export { runProductionFromCli } from "./calibrate-gates-production-cli.js";
 
 export { selectModeFromArgv } from "./calibrate-gates.js";

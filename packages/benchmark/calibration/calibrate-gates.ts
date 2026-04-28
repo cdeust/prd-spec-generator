@@ -454,7 +454,7 @@ async function main(argv: ReadonlyArray<string>): Promise<void> {
   const mode = parseFlag(argv, "mode") ?? "canned";
   if (mode === "production") {
     const { runProductionFromCli } = await import(
-      "./calibrate-gates-production.js"
+      "./calibrate-gates-production-cli.js"
     );
     await runProductionFromCli({ argv });
     return;
