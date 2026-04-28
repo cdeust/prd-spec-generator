@@ -46,3 +46,10 @@ export {
   JUDGE_OBSERVATION_LOG_PATH,
   type JudgeObservationLogEntry,
 } from "../calibration/heldout-seals.js";
+
+// Phase 4.5 / Wave D3 — calibrated gates loader.
+export {
+  loadCalibratedGates,
+  getActiveKpiGates,
+  CALIBRATED_GATES_DEFAULT_PATH,
+} from "./calibrated-gates-loader.js";

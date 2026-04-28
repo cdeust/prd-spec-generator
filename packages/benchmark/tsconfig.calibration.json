@@ -11,6 +11,10 @@
     { "path": "../core" },
     { "path": "../orchestration" }
   ],
-  "include": ["calibration/**/*", "src/instrumentation.ts"],
+  "include": [
+    "calibration/**/*",
+    "src/instrumentation.ts",
+    "src/pipeline-kpis.ts"
+  ],
   "exclude": ["calibration/**/__tests__/**", "calibration/**/*.test.ts"]
 }
