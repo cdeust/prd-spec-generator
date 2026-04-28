@@ -497,6 +497,25 @@ Examples:
 - "A technical_specification section with an unfenced code block fails the
   spec validator."
 
+**Oracle-unavailable contract (Wave E B3, Popper AP-4).** When an oracle
+is unavailable in the calibration environment (e.g., `tsc` not installed
+on a CI runner without the TypeScript toolchain), the oracle returns
+`OracleUnavailableError` (defined in
+`packages/benchmark/calibration/oracle-errors.ts`) and the claim is
+excluded from the calibrated arm of the comparison rather than being
+scored as false. This preserves the falsifier's interpretability: an
+absent oracle does not corrupt the calibrated arm's truth labels with
+fabricated verdicts. The catch site in
+`packages/mcp-server/src/build-conclude-opts.ts:onObservation` writes
+the observation log without `oracle_resolved_truth` (field absent, not
+`false`), and a one-shot per-process per-oracle `console.warn` flags
+the unavailability so operators can install the missing tool. The
+held-out evaluation in `computeReliabilityComparison` then falls
+through to the consensus-majority circularity path for those specific
+claims — the same path used when `external_grounding` is absent
+entirely. Pre-registration: this contract is the canonical resolution
+of the AP-4 stub-fabrication concern raised in the Wave E cross-audit.
+
 **Code seam.**
 `packages/benchmark/src/calibration/external-oracle.ts` defines:
 - `ExternalGroundingType = "schema" | "math" | "code" | "spec"`
