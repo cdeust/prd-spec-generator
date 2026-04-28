@@ -118,3 +118,13 @@ export {
   computePipelineKpisContentHash,
   resolveFrozenBaselineCommit,
 } from "./frozen-baseline.js";
+
+// Phase 4.1 — External oracle dispatch + error types (Wave E / B1 / B3).
+export {
+  invokeOracle,
+  ORACLE_REGISTRY,
+  type ExternalGroundingType,
+  type OracleResult,
+  type OracleInput,
+} from "./external-oracle.js";
+export { OracleUnavailableError } from "./oracle-errors.js";

@@ -452,6 +452,20 @@ export interface JudgeObservationLogEntry {
   readonly run_id: string;
   readonly timestamp: string; // ISO-8601
   readonly schema_version: 1;
+  /**
+   * Oracle-resolved ground truth (Wave E B1). Present when the claim had an
+   * external_grounding payload and invokeOracle() succeeded. Absent for entries
+   * without external grounding (circularity fallback). Used by
+   * computeReliabilityComparison to break the annotator-circularity loop.
+   * source: Curie A2.3, PHASE_4_PLAN.md §4.1.
+   */
+  readonly oracle_resolved_truth?: boolean;
+  /**
+   * Human-readable oracle evidence for forensic replay (Wave E B1).
+   * Non-empty iff oracle_resolved_truth is present.
+   * source: Curie A2.3, PHASE_4_PLAN.md §4.1.
+   */
+  readonly oracle_evidence?: string;
 }
 
 /**
@@ -463,7 +477,11 @@ export interface JudgeObservationLogEntry {
  * source: C-Shannon-CONCERN-1 cross-audit finding.
  */
 export function appendObservationLog(
-  obs: JudgeObservation & { readonly ground_truth: boolean },
+  obs: JudgeObservation & {
+    readonly ground_truth: boolean;
+    readonly oracle_resolved_truth?: boolean;
+    readonly oracle_evidence?: string;
+  },
   logPath: string = JUDGE_OBSERVATION_LOG_PATH,
 ): void {
   const dir = dirname(logPath);
@@ -479,6 +497,13 @@ export function appendObservationLog(
     run_id: obs.run_id,
     timestamp: new Date().toISOString(),
     schema_version: 1,
+    // B1: write oracle fields only when present (Wave E).
+    ...(obs.oracle_resolved_truth !== undefined
+      ? { oracle_resolved_truth: obs.oracle_resolved_truth }
+      : {}),
+    ...(obs.oracle_evidence !== undefined
+      ? { oracle_evidence: obs.oracle_evidence }
+      : {}),
   };
   appendFileSync(logPath, JSON.stringify(entry) + "\n", "utf8");
 }

@@ -1,16 +1,9 @@
 {
   "$schema": "heldout-partition-lock-schema-v1",
   "schema_version": 1,
-  "_comment": "Phase 4.2 — MAX_ATTEMPTS calibration held-out 20% partition. Must be committed and sealed BEFORE any calibration analysis is run. The negative falsifier (Popper AP-5) requires that the calibrated MAX_ATTEMPTS outperform MAX_ATTEMPTS_BASELINE=3 on this held-out set, otherwise the calibration is rejected. Sealed via packages/benchmark/calibration/calibration-seams.ts::verifyHeldoutPartitionSeal. See docs/PHASE_4_PLAN.md §4.2 negative-falsifier procedure.",
-  "_fields": {
-    "rng_seed": "integer — frozen RNG seed for the 80/20 partition",
-    "partition_hash": "string — sha256 hex over sorted-newline-joined run_ids in the held-out set",
-    "partition_size": "integer — count of run_ids in the held-out set",
-    "sealed_at": "ISO-8601 UTC timestamp",
-    "schema_version": 1
-  },
-  "rng_seed": null,
-  "partition_hash": null,
-  "partition_size": null,
-  "sealed_at": null
+  "_comment": "Phase 4.2 MAX_ATTEMPTS held-out partition (E3.C SEALED). rng_seed=PRE_REGISTERED_SEED_42=4_020_704. partition_size=20 (20% of K=100). partition_hash = sha256(sorted(heldout-run_ids).join('\\n')). Held-out run_ids drawn from the K=100 canned-baseline runs (prefix 'phase45-calib-{i}-{hex}'); §4.2 study identifies arms via the run_id → arm seam getRetryArmForRun, not via prefix. Sealed against the K=100 calibration committed in gate-calibration-K100.json (commit 76cfc636).",
+  "rng_seed": 4020704,
+  "partition_hash": "4fa909b8a165d926272ffd4f4cb43e12eb7a1f0d62f2a77a4e3fcc85f342b634",
+  "partition_size": 20,
+  "sealed_at": "2026-04-28T05:44:29.273Z"
 }

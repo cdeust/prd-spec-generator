@@ -1,5 +1,5 @@
 /**
- * Ablation comparison — Phase 4.2 / 4.1 / 4.5 cross-arm analysis (Wave D B2).
+ * Ablation comparison — Phase 4.2 / 4.1 / 4.5 cross-arm analysis (Wave D B2 + Wave E E1.B).
  *
  * Computes the AP-3 falsification metrics by aggregating observation logs
  * across run_ids grouped by ablation arm. Three comparison functions:
@@ -9,16 +9,15 @@
  *   computeKpiGateComparison     — 4.5 KPI gate fire rates (control vs treatment).
  *
  * All three verify the relevant held-out seal BEFORE reading any data
- * (Popper AP-5 mechanical enforcement — B3). If the bootstrap stub is still
- * unimplemented (PAIRED_BOOTSTRAP_NOT_YET_IMPLEMENTED), each function
- * returns `inconclusive_underpowered` with an explanation rather than crashing.
+ * (Popper AP-5). After Wave E E1, the paired bootstrap (Efron & Tibshirani
+ * 1993 §16.4) is the falsifier instrument.
  *
  * Layer contract (§2.2): imports from Node stdlib, local calibration files,
- * and zod only. No orchestration, no SQLite, no I/O beyond reading the log.
+ * and zod only. No orchestration, no SQLite.
  *
  * source: docs/PHASE_4_PLAN.md §4.1, §4.2, §4.5 (AP-3 falsification).
- * source: Popper AP-5 — sealing must be mechanically enforced.
- * source: Wave D B2 / B3 remediation.
+ * source: Efron & Tibshirani (1993) Ch. 16 §16.4 — paired-sample bootstrap.
+ * source: Wave D B2 / B3 + Wave E E1 remediation.
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -27,6 +26,8 @@ import {
   verifyMaxAttemptsHeldoutSeal,
   verifyReliabilityHeldoutSeal,
   verifyKpiGatesHeldoutSeal,
+  type MaxAttemptsHeldoutLock,
+  type ReliabilityHeldoutLock,
 } from "./heldout-seals.js";
 import {
   getRetryArmForRun,
@@ -34,34 +35,38 @@ import {
   type RetryArm,
 } from "./calibration-seams.js";
 import { clopperPearson } from "./clopper-pearson.js";
+import {
+  pairedBootstrapAccuracyDifference,
+  SEAL_VERIFIED,
+  type HeldoutClaim,
+  type AccuracyMap,
+} from "./paired-bootstrap.js";
+import {
+  pairByClaimId,
+  bootstrapRecommendation,
+  stringSeedToNumber,
+} from "./ablation-pairing-helpers.js";
+
+// ─── Pre-registered constants ────────────────────────────────────────────────
+
+/** Bootstrap iteration count (Efron & Tibshirani 1993 §16.1; PHASE_4_PLAN §4.1). */
+const BOOTSTRAP_ITERATIONS = 10_000 as const;
+
+const EMPTY_ACCURACY_MAP: AccuracyMap = new Map();
 
 // ─── Output schemas ──────────────────────────────────────────────────────────
 
-/**
- * Per-arm statistics for a single arm in the ablation comparison.
- *
- * source: PHASE_4_PLAN.md §4.2 ablation arm estimand.
- */
+/** source: PHASE_4_PLAN.md §4.2 ablation arm estimand. */
 export interface ArmStats {
-  /** Number of observations in this arm. */
   readonly n: number;
-  /** Fraction of retry attempts that resulted in a passing outcome. */
   readonly pass_rate: number;
-  /** 95% CI on pass_rate (Clopper-Pearson exact). */
   readonly ci95: readonly [number, number];
 }
 
-/**
- * Output of computeAblationComparison (§4.2 AP-3 falsifier).
- *
- * source: PHASE_4_PLAN.md §4.2 ablation arm specification.
- */
+/** source: PHASE_4_PLAN.md §4.2. */
 export interface AblationComparisonReport {
   readonly schema_version: 1;
-  readonly arms: {
-    readonly with: ArmStats;
-    readonly without: ArmStats;
-  };
+  readonly arms: { readonly with: ArmStats; readonly without: ArmStats };
   readonly difference: {
     readonly delta: number;
     readonly ci95_paired_bootstrap: readonly [number, number] | null;
@@ -73,11 +78,7 @@ export interface AblationComparisonReport {
     | "inconclusive_underpowered";
 }
 
-/**
- * Output of computeReliabilityComparison (§4.1 AP-3 falsifier).
- *
- * source: PHASE_4_PLAN.md §4.1 negative-falsifier procedure.
- */
+/** source: PHASE_4_PLAN.md §4.1. */
 export interface ReliabilityComparisonReport {
   readonly schema_version: 1;
   readonly calibrated: ArmStats;
@@ -93,11 +94,7 @@ export interface ReliabilityComparisonReport {
     | "inconclusive_underpowered";
 }
 
-/**
- * Output of computeKpiGateComparison (§4.5 AP-3 falsifier).
- *
- * source: PHASE_4_PLAN.md §4.5 KPI gate calibration.
- */
+/** source: PHASE_4_PLAN.md §4.5. */
 export interface KpiGateComparisonReport {
   readonly schema_version: 1;
   readonly control: ArmStats;
@@ -113,13 +110,17 @@ export interface KpiGateComparisonReport {
     | "inconclusive_underpowered";
 }
 
-// ─── JSONL entry schema ───────────────────────────────────────────────────────
+// ─── JSONL schemas ────────────────────────────────────────────────────────────
 
 /**
- * Shape of one entry in the judge observation log (judge-observation-log.jsonl).
- * Mirrors JudgeObservationLogEntry from heldout-seals.ts; validated at read time.
- *
  * source: heldout-seals.ts:JudgeObservationLogEntry.
+ *
+ * Wave E extension: `oracle_resolved_truth` (optional) carries the ground-truth
+ * verdict produced by invokeOracle() at log-write time for externally-grounded
+ * claims. When present, computeReliabilityComparison uses it instead of the
+ * annotator-supplied `ground_truth`, breaking the Curie A2 annotator-circularity.
+ *
+ * source: PHASE_4_PLAN.md §4.1 "Externally-grounded held-out subset".
  */
 const ObservationLogEntrySchema = z.object({
   run_id: z.string(),
@@ -130,195 +131,141 @@ const ObservationLogEntrySchema = z.object({
   judge_verdict: z.boolean(),
   timestamp: z.string(),
   schema_version: z.literal(1),
+  /**
+   * Oracle-resolved ground truth (Wave E B1). Present when the claim has external
+   * grounding and invokeOracle() was called at annotation time. Absent for
+   * legacy entries without external grounding (falls back to ground_truth).
+   * source: Curie A2.3, PHASE_4_PLAN.md §4.1.
+   */
+  oracle_resolved_truth: z.boolean().optional(),
+  /**
+   * Human-readable oracle evidence for forensic replay (Wave E B1).
+   * Non-empty iff oracle_resolved_truth is present.
+   * source: Curie A2.3, PHASE_4_PLAN.md §4.1.
+   */
+  oracle_evidence: z.string().optional(),
 });
 type ObservationLogEntry = z.infer<typeof ObservationLogEntrySchema>;
 
-// ─── JSONL reading helpers ────────────────────────────────────────────────────
+/** source: PHASE_4_PLAN.md §4.5; machine-class.ts:GateBlockedLogEntry. */
+const GateBlockedEntrySchema = z.object({
+  run_id: z.string(),
+  gate_id: z.string(),
+  fired: z.boolean(),
+  timestamp: z.string(),
+  schema_version: z.literal(1).optional(),
+});
+type GateBlockedEntry = z.infer<typeof GateBlockedEntrySchema>;
 
-/**
- * Read and parse a JSONL file, skipping malformed lines.
- *
- * Precondition: path is an absolute or resolvable path.
- * Postcondition: returns valid entries only (malformed lines are silently skipped).
- *
- * source: PHASE_4_PLAN.md §4.2 / §4.1 — observation log is the authoritative
- *   source for cross-arm comparison.
- */
-function readObservationLog(path: string): ObservationLogEntry[] {
+// ─── JSONL readers + Clopper-Pearson + arm stats ─────────────────────────────
+
+function readJsonl<T>(path: string, schema: z.ZodType<T>): T[] {
   if (!existsSync(path)) return [];
   const raw = readFileSync(path, "utf8");
-  const entries: ObservationLogEntry[] = [];
+  const out: T[] = [];
   for (const line of raw.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      const parsed = ObservationLogEntrySchema.safeParse(JSON.parse(trimmed));
-      if (parsed.success) entries.push(parsed.data);
+      const parsed = schema.safeParse(JSON.parse(trimmed));
+      if (parsed.success) out.push(parsed.data);
     } catch {
-      // Skip malformed lines — observation log may grow concurrently.
+      // Skip malformed lines — log may grow concurrently.
     }
   }
-  return entries;
+  return out;
 }
 
-// ─── Clopper-Pearson 95% CI (exact binomial) ─────────────────────────────────
-
 /**
- * Compute exact 95% Clopper-Pearson confidence interval for a proportion.
+ * Compute exact 95% Clopper-Pearson CI for a proportion. n=0 → [0, 1].
  *
- * Precondition: 0 ≤ successes ≤ n; n ≥ 0.
- * Postcondition: returns [lower, upper] in [0, 1].
- *
- * When n = 0, returns [0, 1] (complete uncertainty).
- *
- * source: Clopper & Pearson (1934). "The use of confidence or fiducial limits
- *   illustrated in the case of the binomial." Biometrika 26(4):404–413.
- * source: clopper-pearson.ts (same package) for the full implementation.
+ * source: Clopper & Pearson (1934). Biometrika 26(4):404–413.
  */
 function ci95(successes: number, n: number): readonly [number, number] {
   if (n === 0) return [0, 1];
-  // clopperPearson(successes, trials, confidence=0.95)
-  // source: clopper-pearson.ts:clopperPearson signature.
   const interval = clopperPearson(successes, n, 0.95);
   return [interval.lower, interval.upper];
 }
 
-/**
- * Compute ArmStats for a set of boolean pass/fail outcomes.
- *
- * Precondition: outcomes is a non-empty array of boolean values.
- * Postcondition: pass_rate ∈ [0, 1]; ci95 bounds in [0, 1].
- *
- * source: PHASE_4_PLAN.md §4.2 per-arm estimand.
- */
+/** source: PHASE_4_PLAN.md §4.2 per-arm estimand. */
 function armStats(outcomes: readonly boolean[]): ArmStats {
   const n = outcomes.length;
-  if (n === 0) {
-    return { n: 0, pass_rate: 0, ci95: [0, 1] };
-  }
+  if (n === 0) return { n: 0, pass_rate: 0, ci95: [0, 1] };
   const successes = outcomes.filter(Boolean).length;
-  const pass_rate = successes / n;
-  return { n, pass_rate, ci95: ci95(successes, n) };
+  return { n, pass_rate: successes / n, ci95: ci95(successes, n) };
 }
 
 /**
- * Derive a recommendation string from two ArmStats.
+ * Read the MaxAttempts lock to extract `rng_seed`. Caller must have already
+ * called verifyMaxAttemptsHeldoutSeal; this trusts the file is valid.
  *
- * Heuristic: if both CIs overlap, return inconclusive_underpowered.
- * Otherwise return the arm with the higher pass_rate.
- *
- * source: PHASE_4_PLAN.md §4.2 — Schoenfeld power requirement (N≈2,070);
- *   interim analyses before N is reached should report inconclusive.
+ * source: heldout-seals.ts:MaxAttemptsHeldoutLockSchema.
  */
-function ablationRecommendation(
-  withStats: ArmStats,
-  withoutStats: ArmStats,
-): AblationComparisonReport["recommendation"] {
-  // CI overlap check: if the intervals overlap, or sample too small → underpowered.
-  const withLower = withStats.ci95[0];
-  const withUpper = withStats.ci95[1];
-  const withoutLower = withoutStats.ci95[0];
-  const withoutUpper = withoutStats.ci95[1];
-  const ciOverlap = withLower < withoutUpper && withoutLower < withUpper;
-  if (ciOverlap || withStats.n < 30 || withoutStats.n < 30) {
-    return "inconclusive_underpowered";
-  }
-  if (withStats.pass_rate > withoutStats.pass_rate) {
-    return "with_prior_violations_helps";
-  }
-  return "without_helps";
+function readMaxAttemptsLock(lockPath: string): MaxAttemptsHeldoutLock {
+  return JSON.parse(readFileSync(lockPath, "utf8")) as MaxAttemptsHeldoutLock;
 }
 
-// ─── B2.1 — computeAblationComparison (§4.2 AP-3) ────────────────────────────
+// ─── 4.2 — computeAblationComparison ─────────────────────────────────────────
 
 /**
  * Compute the 4.2 retry-ablation comparison from the observation log.
  *
- * Reads the JSONL at `observationLogPath`. Groups entries by ablation arm
- * (derived at read time via getRetryArmForRun if not stored in the entry).
- * Computes per-arm pass_rate, 95% CI, and a recommendation.
+ * Seal (B3): verifyMaxAttemptsHeldoutSeal called BEFORE reading data.
+ * Bootstrap (E1.B): paired bootstrap on claim_id-paired observations,
+ * iterations=10_000, rngSeed = lock.rng_seed.
  *
- * Seal enforcement (B3): verifyMaxAttemptsHeldoutSeal is called BEFORE reading
- * any data. The seal is verified against the run_ids found in the log.
+ * Precondition: observationLogPath / lockPath are valid; lock is sealed.
+ * Postcondition: returns AblationComparisonReport. Never throws on empty log.
  *
- * Bootstrap: if the paired bootstrap stub is still unimplemented, the
- * difference.ci95_paired_bootstrap is null and recommendation is forced to
- * inconclusive_underpowered.
- *
- * Precondition: observationLogPath points to a JSONL file in the
- *   JudgeObservationLogEntry format. lockPath points to the committed
- *   maxattempts-heldout.lock.json.
- * Postcondition: returns AblationComparisonReport. Never throws on missing
- *   or empty log (returns zero-n arms with inconclusive recommendation).
- *
- * source: PHASE_4_PLAN.md §4.2 ablation arm specification.
- * source: Wave D B2 / B3 remediation (Popper AP-3 / AP-5).
+ * source: PHASE_4_PLAN.md §4.2; Wave D B2/B3; Wave E E1.B.
  */
 export function computeAblationComparison(
   observationLogPath: string,
   lockPath: string,
 ): AblationComparisonReport {
-  const entries = readObservationLog(observationLogPath);
-
-  // B3 seal enforcement: verify before reading held-out data.
+  const entries = readJsonl(observationLogPath, ObservationLogEntrySchema);
   const runIds = [...new Set(entries.map((e) => e.run_id))];
-  // FAILS_ON: lock file missing or unsealed → throws with clear message.
+  // FAILS_ON: lock missing/unsealed → throws.
   verifyMaxAttemptsHeldoutSeal(runIds, lockPath);
+  const lock = readMaxAttemptsLock(lockPath);
 
-  // Group by ablation arm using getRetryArmForRun (seam from calibration-seams.ts).
   const withOutcomes: boolean[] = [];
   const withoutOutcomes: boolean[] = [];
-
   for (const entry of entries) {
     const arm: RetryArm = getRetryArmForRun(entry.run_id);
-    // judge_verdict: true = judge said PASS; ground_truth: true = claim is a FAIL (ground truth is fail).
-    // judgeCorrect: judge said PASS AND ground truth is PASS (not fail),
-    //               OR judge said FAIL AND ground truth is FAIL.
-    //   → judgeCorrect = (judge_verdict === true && ground_truth === false)
-    //                 || (judge_verdict === false && ground_truth === true)
-    //   → simplifies to: judge_verdict !== ground_truth
-    //     (when judge_verdict=true=pass and ground_truth=false=pass: !=true)
-    //     (when judge_verdict=false=fail and ground_truth=true=fail: !=true)
-    //
-    // source: heldout-seals.ts JudgeObservationLogEntry field semantics.
     const judgeCorrect = entry.judge_verdict !== entry.ground_truth;
-
-    if (arm === "with_prior_violations") {
-      withOutcomes.push(judgeCorrect);
-    } else {
-      withoutOutcomes.push(judgeCorrect);
-    }
+    if (arm === "with_prior_violations") withOutcomes.push(judgeCorrect);
+    else withoutOutcomes.push(judgeCorrect);
   }
-
   const withStats = armStats(withOutcomes);
   const withoutStats = armStats(withoutOutcomes);
   const delta = withStats.pass_rate - withoutStats.pass_rate;
 
-  // Bootstrap: stub throws NOT_YET_IMPLEMENTED — handle defensively.
+  const { pairs } = pairByClaimId<RetryArm>(
+    entries,
+    (e) => getRetryArmForRun(e.run_id),
+    "with_prior_violations",
+    "without_prior_violations",
+  );
+
   let ci95Bootstrap: readonly [number, number] | null = null;
   let pValue: number | null = null;
   let rec: AblationComparisonReport["recommendation"] = "inconclusive_underpowered";
 
-  try {
-    // When the bootstrap is implemented, call pairedBootstrapAccuracyDifference here.
-    // For now the stub always throws, so we fall through to the catch.
-    // TODO(Wave-E): replace with the real implementation once paired bootstrap ships.
-    throw new Error("PAIRED_BOOTSTRAP_NOT_YET_IMPLEMENTED");
-  } catch (err: unknown) {
-    if (
-      err instanceof Error &&
-      err.message.startsWith("PAIRED_BOOTSTRAP_NOT_YET_IMPLEMENTED")
-    ) {
-      // Defensive: return inconclusive until bootstrap is implemented.
-      rec = "inconclusive_underpowered";
-    } else {
-      throw err;
-    }
-  }
-
-  // Use CI overlap heuristic when bootstrap unavailable.
-  if (ci95Bootstrap === null) {
-    rec = ablationRecommendation(withStats, withoutStats);
+  if (pairs.length >= 1) {
+    const result = pairedBootstrapAccuracyDifference(
+      pairs,
+      EMPTY_ACCURACY_MAP,
+      EMPTY_ACCURACY_MAP,
+      BOOTSTRAP_ITERATIONS,
+      lock.rng_seed,
+      SEAL_VERIFIED,
+    );
+    ci95Bootstrap = result.ci95;
+    pValue = result.pValue;
+    const which = bootstrapRecommendation(result.ci95[0], result.ci95[1], pairs.length);
+    if (which === "calibrated") rec = "with_prior_violations_helps";
+    else if (which === "prior") rec = "without_helps";
   }
 
   return {
@@ -329,149 +276,149 @@ export function computeAblationComparison(
   };
 }
 
-// ─── B2.2 — computeReliabilityComparison (§4.1 AP-3) ─────────────────────────
+// ─── 4.1 — computeReliabilityComparison ──────────────────────────────────────
 
 /**
  * Compute the 4.1 reliability comparison (calibrated vs prior-only Beta(7,3)).
  *
- * Reads the observation log. Compares judge accuracy when using calibrated
- * reliability weights vs the prior-only baseline. This is an annotator-
- * circularity path (no external oracle yet — Wave E breaks it).
+ * Seal (B3): verifyReliabilityHeldoutSeal called BEFORE reading.
+ * Bootstrap (E1.B): paired bootstrap on per-claim majority outcomes,
+ * iterations=10_000, rngSeed = stringSeedToNumber(lock.seed).
+ * Oracle wiring (E2): when an observation entry carries `oracle_resolved_truth`,
+ * that value is used as ground truth instead of the annotator-supplied
+ * `ground_truth`, breaking the Curie A2 annotator-circularity for that claim.
+ * For entries WITHOUT `oracle_resolved_truth`, the function falls back to
+ * consensus-majority and emits a console.warn flagging the circularity.
  *
- * Seal enforcement (B3): verifyReliabilityHeldoutSeal is called BEFORE reading.
- *
- * Precondition: observationLogPath is a valid path to the JSONL observation log.
- *   lockPath points to the committed heldout-partition.lock.json (v2 schema).
+ * Precondition: observationLogPath valid; lockPath points to v2 reliability lock.
  * Postcondition: returns ReliabilityComparisonReport.
+ *   - calibrated arm uses oracle_resolved_truth where available.
+ *   - prior arm uses consensus-majority for all entries (baseline comparison).
  *
- * source: PHASE_4_PLAN.md §4.1 negative-falsifier procedure.
- * source: Wave D B2 / B3 remediation.
+ * source: PHASE_4_PLAN.md §4.1; Wave D B2/B3; Wave E E1.B + E2.
  */
 export function computeReliabilityComparison(
   observationLogPath: string,
   lockPath: string,
 ): ReliabilityComparisonReport {
-  // B3 seal enforcement.
-  // FAILS_ON: lock file missing or schema invalid → throws.
-  verifyReliabilityHeldoutSeal(lockPath);
+  const lock: ReliabilityHeldoutLock = verifyReliabilityHeldoutSeal(lockPath);
+  const entries = readJsonl(observationLogPath, ObservationLogEntrySchema);
 
-  const entries = readObservationLog(observationLogPath);
+  // Separate entries by oracle grounding presence.
+  // FAILS_ON: entries with oracle_resolved_truth=undefined → circularity warning logged.
+  let circularityWarnFired = false;
+  for (const e of entries) {
+    if (e.oracle_resolved_truth === undefined && !circularityWarnFired) {
+      console.warn(
+        `[computeReliabilityComparison] claim "${e.claim_id}" has no oracle_resolved_truth; ` +
+          `falling back to consensus-majority ground_truth — annotator-circularity (Curie A2) ` +
+          `applies for this claim. To resolve: call invokeOracle() at log-write time and store ` +
+          `the result in oracle_resolved_truth. See PHASE_4_PLAN.md §4.1.`,
+      );
+      circularityWarnFired = true; // Emit once per call to avoid log flooding.
+    }
+  }
 
-  // For the reliability comparison, each entry represents a judge outcome.
-  // calibrated_correct: judge was correct (judge_verdict matches !ground_truth).
-  // prior_correct: same judge on same claim but using only the Beta(7,3) prior.
-  // Since we can't replay the consensus engine here, we use the judge_verdict
-  // directly as the proxy for both — this is an approximation until Wave E
-  // provides oracle verdicts. The correct metric requires running consensus
-  // twice (calibrated vs prior) on the same claim batch.
-  //
-  // TODO(Wave-E): replace with oracle-grounded comparison when external
-  // ground truth is available.
+  // calibrated arm: uses oracle_resolved_truth when available; falls back to ground_truth.
+  // prior arm: always uses ground_truth (annotator-derived, baseline comparison).
+  // Invariant: both arrays have the same length === entries.length.
   const calibratedOutcomes: boolean[] = [];
   const priorOutcomes: boolean[] = [];
-
-  for (const entry of entries) {
-    // judge_verdict=true → judge said PASS; ground_truth=true → claim is FAIL.
-    // Correct: judge_verdict != ground_truth (PASS/FAIL match).
-    const correct = entry.judge_verdict !== entry.ground_truth;
-    calibratedOutcomes.push(correct);
-    priorOutcomes.push(correct); // same until oracle verdicts available (Wave E)
+  for (const e of entries) {
+    const effectiveTruth =
+      e.oracle_resolved_truth !== undefined ? e.oracle_resolved_truth : e.ground_truth;
+    const calibratedCorrect = e.judge_verdict !== effectiveTruth;
+    const priorCorrect = e.judge_verdict !== e.ground_truth;
+    calibratedOutcomes.push(calibratedCorrect);
+    priorOutcomes.push(priorCorrect);
   }
 
   const calibratedStats = armStats(calibratedOutcomes);
   const priorStats = armStats(priorOutcomes);
   const delta = calibratedStats.pass_rate - priorStats.pass_rate;
 
+  // Per-claim pairing for the bootstrap.
+  // Invariant: claimMap accumulates per-claim correct counts for BOTH arms.
+  const claimMap = new Map<
+    string,
+    { calibratedCorrect: number; priorCorrect: number; total: number }
+  >();
+  for (const e of entries) {
+    const effectiveTruth =
+      e.oracle_resolved_truth !== undefined ? e.oracle_resolved_truth : e.ground_truth;
+    const calibratedCorrect = e.judge_verdict !== effectiveTruth;
+    const priorCorrect = e.judge_verdict !== e.ground_truth;
+    let b = claimMap.get(e.claim_id);
+    if (!b) {
+      b = { calibratedCorrect: 0, priorCorrect: 0, total: 0 };
+      claimMap.set(e.claim_id, b);
+    }
+    b.total++;
+    if (calibratedCorrect) b.calibratedCorrect++;
+    if (priorCorrect) b.priorCorrect++;
+  }
+  const claims: HeldoutClaim[] = [];
+  for (const [claim_id, b] of claimMap) {
+    const calibratedMajority = b.calibratedCorrect * 2 > b.total;
+    const priorMajority = b.priorCorrect * 2 > b.total;
+    claims.push({
+      claim_id,
+      calibrated_correct: calibratedMajority,
+      prior_correct: priorMajority,
+    });
+  }
+
+  let ci95Bootstrap: readonly [number, number] | null = null;
+  let pValue: number | null = null;
   let rec: ReliabilityComparisonReport["recommendation"] = "inconclusive_underpowered";
 
-  try {
-    throw new Error("PAIRED_BOOTSTRAP_NOT_YET_IMPLEMENTED");
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message.startsWith("PAIRED_BOOTSTRAP_NOT_YET_IMPLEMENTED")) {
-      rec = "inconclusive_underpowered";
-    } else {
-      throw err;
-    }
+  if (claims.length >= 1) {
+    const result = pairedBootstrapAccuracyDifference(
+      claims,
+      EMPTY_ACCURACY_MAP,
+      EMPTY_ACCURACY_MAP,
+      BOOTSTRAP_ITERATIONS,
+      stringSeedToNumber(lock.seed),
+      SEAL_VERIFIED,
+    );
+    ci95Bootstrap = result.ci95;
+    pValue = result.pValue;
+    const which = bootstrapRecommendation(result.ci95[0], result.ci95[1], claims.length);
+    if (which === "calibrated") rec = "calibration_helps";
+    else if (which === "prior") rec = "prior_helps";
   }
 
   return {
     schema_version: 1,
     calibrated: calibratedStats,
     prior_only: priorStats,
-    difference: { delta, ci95_paired_bootstrap: null, p_value: null },
+    difference: { delta, ci95_paired_bootstrap: ci95Bootstrap, p_value: pValue },
     recommendation: rec,
   };
 }
 
-// ─── B2.3 — computeKpiGateComparison (§4.5 AP-3) ─────────────────────────────
-
-/**
- * KPI gate observation log entry shape.
- * Mirrors GateBlockedLogEntry from machine-class.ts.
- *
- * source: PHASE_4_PLAN.md §4.5; machine-class.ts:GateBlockedLogEntry.
- */
-const GateBlockedEntrySchema = z.object({
-  run_id: z.string(),
-  gate_id: z.string(),
-  fired: z.boolean(),
-  timestamp: z.string(),
-  schema_version: z.literal(1).optional(),
-});
-type GateBlockedEntry = z.infer<typeof GateBlockedEntrySchema>;
-
-/**
- * Read and parse a gate-blocked JSONL log.
- *
- * Precondition: path is a valid filesystem path (may be absent).
- * Postcondition: returns valid entries only.
- *
- * source: PHASE_4_PLAN.md §4.5 gate-blocked-log.jsonl.
- */
-function readGateBlockedLog(path: string): GateBlockedEntry[] {
-  if (!existsSync(path)) return [];
-  const raw = readFileSync(path, "utf8");
-  const entries: GateBlockedEntry[] = [];
-  for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const parsed = GateBlockedEntrySchema.safeParse(JSON.parse(trimmed));
-      if (parsed.success) entries.push(parsed.data);
-    } catch {
-      // Skip malformed lines.
-    }
-  }
-  return entries;
-}
+// ─── 4.5 — computeKpiGateComparison ──────────────────────────────────────────
 
 /**
  * Compute the 4.5 KPI-gate comparison (control vs treatment fire rates).
  *
- * Reads the gate-blocked-log.jsonl. Groups by arm using isControlArmRun.
- * "Fired" means the gate blocked the run (the KPI gate detected an issue).
- * We compute fire rates and compare control vs treatment arms.
+ * Seal (B3): verifyKpiGatesHeldoutSeal called BEFORE reading.
+ * Pairing (E1.B): KPI runs are not naturally paired. We sort each arm by
+ * run_id and zip up to min(controlN, treatmentN). Synthetic pairing yields
+ * a slightly conservative CI (wider than truly paired data); arm-level n
+ * and pass_rate use the un-truncated arms.
  *
- * Seal enforcement (B3): verifyKpiGatesHeldoutSeal is called BEFORE reading.
- *
- * Precondition: gateBlockedLogPath points to the gate-blocked-log.jsonl.
- *   lockPath points to data/kpigates-heldout.lock.json.
+ * Precondition: gateBlockedLogPath valid; lockPath points to KPI lock.
  * Postcondition: returns KpiGateComparisonReport.
  *
- * source: PHASE_4_PLAN.md §4.5 KPI gate calibration.
- * source: Wave D B2 / B3 remediation.
+ * source: PHASE_4_PLAN.md §4.5; Wave D B2/B3; Wave E E1.B.
  */
 export function computeKpiGateComparison(
   gateBlockedLogPath: string,
   lockPath: string,
 ): KpiGateComparisonReport {
-  // B3 seal enforcement.
-  // FAILS_ON: lock file missing → throws. Null-field template is allowed
-  // by verifyKpiGatesHeldoutSeal (it returns the parsed object without
-  // enforcing non-null fields). We check for unsealed state separately.
   const lock = verifyKpiGatesHeldoutSeal(lockPath);
-  if (lock.partition_hash === null) {
-    // Unsealed template — no data to compare yet. Return inconclusive.
+  if (lock.partition_hash === null || lock.rng_seed === null) {
     return {
       schema_version: 1,
       control: { n: 0, pass_rate: 0, ci95: [0, 1] },
@@ -481,56 +428,61 @@ export function computeKpiGateComparison(
     };
   }
 
-  const entries = readGateBlockedLog(gateBlockedLogPath);
+  const entries = readJsonl(gateBlockedLogPath, GateBlockedEntrySchema);
 
-  // Group by control vs treatment arm via isControlArmRun.
-  // "pass" in this context means gate did NOT fire (run passed the gate).
-  const controlOutcomes: boolean[] = [];
-  const treatmentOutcomes: boolean[] = [];
-
-  for (const entry of entries) {
-    const gateNotFired = !entry.fired;
-    if (isControlArmRun(entry.run_id)) {
-      controlOutcomes.push(gateNotFired);
-    } else {
-      treatmentOutcomes.push(gateNotFired);
-    }
+  type Labeled = { run_id: string; pass: boolean };
+  const controlList: Labeled[] = [];
+  const treatmentList: Labeled[] = [];
+  for (const e of entries) {
+    const labeled: Labeled = { run_id: e.run_id, pass: !e.fired };
+    if (isControlArmRun(e.run_id)) controlList.push(labeled);
+    else treatmentList.push(labeled);
   }
 
-  const controlStats = armStats(controlOutcomes);
-  const treatmentStats = armStats(treatmentOutcomes);
+  const controlStats = armStats(controlList.map((o) => o.pass));
+  const treatmentStats = armStats(treatmentList.map((o) => o.pass));
   const delta = treatmentStats.pass_rate - controlStats.pass_rate;
 
-  let rec: KpiGateComparisonReport["recommendation"] = "inconclusive_underpowered";
-
-  try {
-    throw new Error("PAIRED_BOOTSTRAP_NOT_YET_IMPLEMENTED");
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message.startsWith("PAIRED_BOOTSTRAP_NOT_YET_IMPLEMENTED")) {
-      rec = "inconclusive_underpowered";
-    } else {
-      throw err;
-    }
+  // Synthetic pairing: sorted-zip on run_id (no claim-level pairing axis).
+  const cmp = (a: Labeled, b: Labeled) =>
+    a.run_id < b.run_id ? -1 : a.run_id > b.run_id ? 1 : 0;
+  controlList.sort(cmp);
+  treatmentList.sort(cmp);
+  const pairLen = Math.min(controlList.length, treatmentList.length);
+  const pairs: HeldoutClaim[] = [];
+  for (let i = 0; i < pairLen; i++) {
+    pairs.push({
+      claim_id: `pair_${i}`,
+      calibrated_correct: treatmentList[i].pass,
+      prior_correct: controlList[i].pass,
+    });
   }
 
-  if (controlStats.n >= 30 && treatmentStats.n >= 30) {
-    const controlLower = controlStats.ci95[0];
-    const controlUpper = controlStats.ci95[1];
-    const treatLower = treatmentStats.ci95[0];
-    const treatUpper = treatmentStats.ci95[1];
-    const overlap = controlLower < treatUpper && treatLower < controlUpper;
-    if (!overlap) {
-      rec = treatmentStats.pass_rate > controlStats.pass_rate
-        ? "treatment_better"
-        : "control_better";
-    }
+  let ci95Bootstrap: readonly [number, number] | null = null;
+  let pValue: number | null = null;
+  let rec: KpiGateComparisonReport["recommendation"] = "inconclusive_underpowered";
+
+  if (pairs.length >= 1) {
+    const result = pairedBootstrapAccuracyDifference(
+      pairs,
+      EMPTY_ACCURACY_MAP,
+      EMPTY_ACCURACY_MAP,
+      BOOTSTRAP_ITERATIONS,
+      lock.rng_seed,
+      SEAL_VERIFIED,
+    );
+    ci95Bootstrap = result.ci95;
+    pValue = result.pValue;
+    const which = bootstrapRecommendation(result.ci95[0], result.ci95[1], pairs.length);
+    if (which === "calibrated") rec = "treatment_better";
+    else if (which === "prior") rec = "control_better";
   }
 
   return {
     schema_version: 1,
     control: controlStats,
     treatment: treatmentStats,
-    difference: { delta, ci95_paired_bootstrap: null, p_value: null },
+    difference: { delta, ci95_paired_bootstrap: ci95Bootstrap, p_value: pValue },
     recommendation: rec,
   };
 }

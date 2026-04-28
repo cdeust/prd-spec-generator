@@ -86,6 +86,30 @@ constant adjustment.
 
 ## 4.1 — Per-judge reliability calibration
 
+### Wave E oracle status (2026-04-28) — IMPLEMENTED
+
+Wave E (sub-stream E2, integrated in phase4/wave-e-integration) provides
+Ajv/mathjs/tsc/validation-based oracle implementations for the four
+externally-grounded claim categories. The oracles are wired into the
+held-out subset's ground-truth resolution path via `oracle_resolved_truth`
+on `ObservationLogEntrySchema` in `ablation-comparison.ts`. Annotator-
+circularity (Curie A2) is broken for claims with external grounding.
+
+| Oracle | Implementation | Grounding |
+|---|---|---|
+| schemaOracle | Ajv v8 JSON Schema validation | Fully external (deterministic) |
+| mathOracle | mathjs `evaluate()` — no eval() | Fully external (deterministic) |
+| codeOracle | tsc --noEmit --strict subprocess | Fully external (TypeScript compiler) |
+| specOracle | @prd-gen/validation validateSection() | Weakly external (internally-maintained rules) |
+
+The specOracle caveat (weakly internal) is documented in every `oracle_evidence`
+string. The stub sentinel-throw tests are replaced by real contract tests
+(schema/math/code/spec oracle tests — Wave E E2 migration).
+
+Seal status: PARTIAL (option b chosen — see §4.1 "Held-out partition locking"
+for full disposition). The blocking artifact is the claim corpus, not the
+oracle implementations.
+
 ### PRE-REGISTRATION (mandatory before implementation)
 
 **Hypothesis (two-sided).**
@@ -336,6 +360,25 @@ Empty-DB / prior contract: `getReliability(judge, claimType, direction)` returns
     if the sha256 of the sorted claim_ids does not match `partition_hash`,
     or if `sealed_at` is in the future. No evaluation may proceed without
     this check passing.
+  - **Wave E integration (2026-04-28): PARTIAL SEAL — option (b) chosen.**
+    - **Oracle wiring: COMPLETE.** E2's four oracle implementations (schema/Ajv,
+      math/mathjs, code/tsc, spec/validation) are ported to
+      `packages/benchmark/calibration/{schema,math,code,spec}-oracle.ts` and wired
+      into `computeReliabilityComparison` via `oracle_resolved_truth` on
+      `ObservationLogEntrySchema`. When an entry carries `oracle_resolved_truth`,
+      the calibrated arm uses it as ground truth; the prior arm uses the
+      annotator-derived `ground_truth` (baseline). Annotator-circularity (Curie A2)
+      is broken for externally-grounded claims.
+    - **Seal disposition: option (b).** The seed is pre-registered
+      (`seed = "phase4-section-4.1-rng-2025"`); `partition_size`,
+      `claim_set_hash`, and `external_grounding_breakdown` remain `null`
+      because no actual externally-grounded claim corpus exists yet — only
+      the seam is wired. Sealing requires a dedicated calibration-data-PR
+      that creates and runs oracle-grounded benchmark claims. Until then,
+      `verifyReliabilityHeldoutSeal` THROWS on the partial seal — by design
+      (Popper AP-5 mechanical enforcement). Option (a) (running `seal-locks.mjs`
+      with live oracles) was rejected: the input claim corpus is the blocking
+      artifact, not the oracle implementations.
   - After calibration, the calibrated reliability map is evaluated on
     the held-out set against the Beta(7,3) prior baseline using
     consensus accuracy as the metric.
@@ -343,13 +386,14 @@ Empty-DB / prior contract: `getReliability(judge, claimType, direction)` returns
     IFF held-out consensus accuracy under the calibrated map is lower
     than under the prior baseline by any margin that exceeds the 95%
     bootstrap CI of the difference.
-  - **Paired bootstrap implementation site (M4)**: the bootstrap
-    accuracy-difference estimator is stubbed at
-    `packages/benchmark/calibration/paired-bootstrap.ts::pairedBootstrapAccuracyDifference`.
-    The stub throws `PAIRED_BOOTSTRAP_NOT_YET_IMPLEMENTED` — Wave C+ scope.
-    Types `HeldoutClaim` and `AccuracyMap` are defined there and are final.
-    The rejection rule (ci95[1] < 0 → revert) is documented in the function
-    contract. Do not implement before the held-out partition is sealed.
+  - **Paired bootstrap implementation site (M4 → Wave E E1).** The
+    paired-bootstrap accuracy-difference estimator is implemented at
+    `packages/benchmark/calibration/paired-bootstrap.ts::pairedBootstrapAccuracyDifference`
+    per Efron & Tibshirani (1993) Ch. 16 §16.4. Reproducibility is pinned via
+    a deterministic seeded RNG (mulberry32) — the same `(heldout, iterations,
+    rngSeed)` triple yields byte-identical CI bounds across platforms.
+    Types `HeldoutClaim` and `AccuracyMap` are final. The rejection rule
+    (ci95[1] < 0 → revert) is wired into `computeReliabilityComparison`.
   - The held-out set is used at most ONCE per calibration generation;
     re-using it after a tuning iteration constitutes leakage and
     voids the falsifier (Popper AP-5).
@@ -452,6 +496,25 @@ Examples:
   overview HOR validator."
 - "A technical_specification section with an unfenced code block fails the
   spec validator."
+
+**Oracle-unavailable contract (Wave E B3, Popper AP-4).** When an oracle
+is unavailable in the calibration environment (e.g., `tsc` not installed
+on a CI runner without the TypeScript toolchain), the oracle returns
+`OracleUnavailableError` (defined in
+`packages/benchmark/calibration/oracle-errors.ts`) and the claim is
+excluded from the calibrated arm of the comparison rather than being
+scored as false. This preserves the falsifier's interpretability: an
+absent oracle does not corrupt the calibrated arm's truth labels with
+fabricated verdicts. The catch site in
+`packages/mcp-server/src/build-conclude-opts.ts:onObservation` writes
+the observation log without `oracle_resolved_truth` (field absent, not
+`false`), and a one-shot per-process per-oracle `console.warn` flags
+the unavailability so operators can install the missing tool. The
+held-out evaluation in `computeReliabilityComparison` then falls
+through to the consensus-majority circularity path for those specific
+claims — the same path used when `external_grounding` is absent
+entirely. Pre-registration: this contract is the canonical resolution
+of the AP-4 stub-fabrication concern raised in the Wave E cross-audit.
 
 **Code seam.**
 `packages/benchmark/src/calibration/external-oracle.ts` defines:
@@ -572,6 +635,20 @@ than ±0.05 absolute, the Schoenfeld N must be recomputed via
 allocationA: 0.5, eventRate: observed })` and the study budget revised before
 any further data collection.
 
+**MEASURED (Wave E / E3.B, 2026-04-28).** K=50 against the canned baseline
+yielded **measured_event_rate = 0.4762** (1050 attempts, 500 events;
+Clopper-Pearson 95% CI [0.4456, 0.5069]). |0.4762 − 0.30| = 0.176 >> 0.05
+tolerance → **diverges_beyond_tolerance = true**. Per the hedge above, the
+Schoenfeld N MUST be recomputed before any §4.2 study begins. With
+event_rate=0.4762, the same D=247 implies N = ceil(247/0.4762) ≈ **519
+subjects** (~260 per arm) — substantially fewer than the original 823. The
+canned-baseline event_rate is much higher than expected because the canned
+dispatcher's stochastic section-failure model is more aggressive than a real
+production failure model would be; the production event_rate (against real
+ecosystems) MUST be re-measured before the canned-only N is treated as
+the production target. See `packages/benchmark/calibration/data/event-rate-K50.json`
+for the raw measurement.
+
 source: provisional anchor — measure before use (Wave C integration B9,
 2026-04-27).
 
@@ -599,13 +676,20 @@ source: implementation `schoenfeldRequiredEvents` at
    falsifier, below). A failure to outperform the baseline reverts to
    MAX_ATTEMPTS_BASELINE = 3.
 
-**Stopping rule.** Sampling stops when EITHER (a) N = 823 subjects have been
-observed AND each (section_type × ablation_arm) cell has reached its minimum
-event count per Schoenfeld, OR (b) the first-attempt fail rate observed in
-the first 200 subjects is below 0.10 — at which point the conditional
+**Stopping rule.** Sampling stops when EITHER (a) N ≈ 519 subjects
+(recomputed from measured event_rate = 0.4762; see line 624 for the derivation)
+have been observed AND each (section_type × ablation_arm) cell has reached its
+minimum event count per Schoenfeld, OR (b) the first-attempt fail rate observed
+in the first 200 subjects is below 0.10 — at which point the conditional
 estimand is unidentifiable in budget and MAX_ATTEMPTS = 3 is held by default
 (no calibration possible). Early-stopping for any other reason is a
 pre-registration violation.
+
+Note: The original N = 823 figure was based on event_rate = 0.30 (provisional
+anchor); the measured rate against the canned baseline is 0.4762, which yields
+N ≈ 519 via Schoenfeld eq. (1) (D = 247 required events;
+N = ceil(D / event_rate) = ceil(247 / 0.4762) ≈ 519 subjects). See line 624.
+source: Popper AP-2 cross-audit finding, Wave E B2 remediation.
 
 **RNG seed (frozen).** `seed = 4_020_704` (interpretation: phase 4.2,
 sub-stream 4020704). Committed in this pre-registration block. All
@@ -711,7 +795,11 @@ source: PHASE_4_PLAN.md §CC-3; implementation
     template fields.
   - After calibration, the held-out set is replayed under the calibrated
     MAX_ATTEMPTS and (separately) under MAX_ATTEMPTS_BASELINE = 3. Compare
-    section_pass_rate using paired-bootstrap CI of the difference.
+    section_pass_rate using the paired-bootstrap CI of the difference
+    implemented at
+    `packages/benchmark/calibration/paired-bootstrap.ts::pairedBootstrapAccuracyDifference`
+    (Efron & Tibshirani 1993 Ch. 16 §16.4; reproducibility pinned via
+    deterministic seeded RNG — Wave E E1).
   - **Reject calibration** (revert to MAX_ATTEMPTS = 3; investigate) IFF the
     held-out section_pass_rate under the calibrated value is lower than
     under the baseline by any margin that exceeds the 95% bootstrap CI of
@@ -1234,18 +1322,23 @@ or revert to provisional.
   measured values. Real values are committed in a separate calibration-
   data-only PR.
 
-**AP-3 falsification instrument (Wave D delivery).**
+**AP-3 falsification instrument (Wave D delivery + Wave E E1.B).**
 The cross-arm comparison metric for §4.5 is computed by
 `computeKpiGateComparison(gateBlockedLogPath, lockPath)` in
 `packages/benchmark/calibration/ablation-comparison.ts`. It groups
 `gate-blocked-log.jsonl` entries by control vs treatment arm, calls
 `verifyKpiGatesHeldoutSeal` BEFORE reading any held-out data (AP-5
-mechanical enforcement), and emits per-gate fire-rate comparisons with
-Clopper-Pearson 95% CIs. The function returns `inconclusive_underpowered`
-unless n ≥ 30 in both arms AND the CIs are non-overlapping — this acts
-as the symmetric-ratchet hysteresis guard for the §4.5 anchor (a noisy
-fluctuation alone cannot trigger an anchor move). Pre-registration: this
-function — by name — is the analysis script for the §4.5 KPI-gate
+mechanical enforcement), and emits per-arm fire-rate stats with
+Clopper-Pearson 95% CIs alongside the paired-bootstrap CI of the
+difference (Efron & Tibshirani 1993 Ch. 16 §16.4; reproducibility pinned
+via deterministic seeded RNG — Wave E E1). Because KPI runs are not
+naturally paired (independent runs in each arm), the bootstrap consumes a
+synthetic pairing (sort each arm by `run_id` and zip to the shorter
+length); this yields a slightly conservative CI. Recommendation rule:
+`treatment_better` ← `ci95[0] > 0`; `control_better` ← `ci95[1] < 0`;
+otherwise (or n < 30) `inconclusive_underpowered`. The hysteresis guard
+prevents a noisy fluctuation from triggering an anchor move. Pre-registration:
+this function — by name — is the analysis script for the §4.5 KPI-gate
 falsifier. CC-1 compliance: the report's `schema_version` is the single
 change-control signal.
 
@@ -1259,11 +1352,34 @@ source: PHASE_4_PLAN.md §CC-3; implementation
       `calibrate-gates.ts` ships; first real K≥100 batch is a separate PR
 - [x] Frozen-baseline content-hash check asserted at runner startup
       (Wave D / D3.1; `frozen-baseline.ts::computePipelineKpisContentHash`)
-- [ ] First K≥100 calibration batch committed to `data/gate-calibration-K100.json`
-      with non-empty `gates` array (separate calibration-data PR)
+- [x] First K≥100 calibration batch committed to `data/gate-calibration-K100.json`
+      with non-empty `gates` array (Wave E / E3.A, 2026-04-28; K_achieved=100,
+      frozen_baseline_commit=76cfc636, runner pre-registered seed 0x4_05_C3)
+- [x] **wall_time_ms_max gate disposition (Wave E integration, option b):
+      HOLD-PROVISIONAL.** Calibrated value 1.534ms (from 500ms provisional,
+      326× tightening) is tagged `hold_provisional=true` in
+      `data/gate-calibration-K100.json`. `loadCalibratedGates()` skips
+      auto-promotion for `hold_provisional` gates. Reason: calibration was
+      run on canned-dispatcher (m_series_mid machine class, ~1ms per run).
+      Promoting to 1.534ms would fire on every production claim on non-canned
+      dispatchers or other machine classes. Unblocked by: per-machine-class
+      non-canned calibration runs (separate PR).
+      Source: `packages/benchmark/src/calibrated-gates-loader.ts` + §4.5 brief.
+- [x] **cortex_recall_empty_count_max gate disposition (Wave E integration,
+      CONCERN-1): HOLD-PROVISIONAL.** Calibrated value 11 (loosened from
+      provisional 3). Tagged `hold_provisional=true` in
+      `data/gate-calibration-K100.json`. Reason: calibrated against cold-cortex
+      canned baseline; production cortex is typically warmer (prior runs seed
+      the recall cache), meaning the loosening from 3→11 may mask real recall
+      failures in production. The `loadCalibratedGates()` loader skips
+      auto-promotion for `hold_provisional` gates. Unblocked by: re-calibration
+      with seeded (warm) cortex in a separate PR.
+      Source: Fermi disposition, Wave E CONCERN-1 remediation.
 - [ ] `WALL_TIME_MS_GATE_BY_CLASS` populated for at least one bucket with
       use-site source comment + JSONL data + XmR record (CC-2)
-- [ ] Held-out 20% partition sealed in `data/kpigates-heldout.lock.json`
+- [x] Held-out 20% partition sealed in `data/kpigates-heldout.lock.json`
+      (Wave E / E3.C, 2026-04-28; rng_seed=0x4_05_C3, partition_size=20,
+      partition_hash=bc68df17288d6ba8014406e583b9ff9d57ddecd4998c33fa45f5c71c2146f82c)
 - [ ] Negative falsifier evaluated and not rejecting
 - [ ] Synthetic +20% regression test continues to pass against calibrated
       values (already passes against provisional in this scaffolding)
@@ -1373,6 +1489,10 @@ Before 4.2 ships:
 - [x] Held-out 20% partition seal template at
       `data/maxattempts-heldout.lock.json` — must be drawn + sealed before
       held-out evaluation (Wave C1)
+- [x] Held-out 20% partition SEALED in `data/maxattempts-heldout.lock.json`
+      (Wave E / E3.C, 2026-04-28; rng_seed=4_020_704, partition_size=20,
+      partition_hash=4fa909b8a165d926272ffd4f4cb43e12eb7a1f0d62f2a77a4e3fcc85f342b634;
+      verified by sealed-locks-integration.test.ts)
 - [x] `prior_violations_used` instrumentation:
       `packages/benchmark/calibration/retry-observations.ts::extractRetryObservations`
       extracts all 6 required fields from PipelineState per attempt.
@@ -1569,4 +1689,4 @@ is now a methodological commitment (independence resolution + run order), not
 a financial one.**
 
 Source: Fermi cross-audit A1; docs/PHASE_4_PLAN.md §4.1 PRE-REGISTRATION;
-Laplace L4 (N=292 derivation); M4 residual (paired-bootstrap implementation site).
+Laplace L4 (N=292 derivation); Wave E E1 (paired-bootstrap implementation, Efron & Tibshirani 1993 Ch. 16 §16.4).
