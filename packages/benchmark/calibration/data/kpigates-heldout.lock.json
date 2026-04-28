@@ -1,16 +1,9 @@
 {
   "$schema": "kpigates-heldout-lock-schema-v1",
   "schema_version": 1,
-  "_comment": "Sealing artifact for Phase 4.5's 20% held-out partition over the K≥100 calibration runs against the frozen canned baseline. Negative falsifier (Popper AP-5): calibrated thresholds must outperform the provisional thresholds on this held-out set (lower false-positive rate at +20% perturbation, no worse false-negative rate). Reuses the verifyHeldoutPartitionSeal mechanism from packages/benchmark/calibration/calibration-seams.ts. Fill fields below ONCE before any calibration run begins; never modify after sealing.",
-  "_fields": {
-    "rng_seed": "integer — frozen RNG seed used to draw the partition (commit before data collection)",
-    "partition_hash": "string — sha256 hex digest over sorted-newline-joined run_ids in the held-out set",
-    "partition_size": "integer — count of run_ids in the held-out set (≥ 20% of K)",
-    "sealed_at": "ISO-8601 UTC timestamp at which the partition was sealed",
-    "schema_version": 1
-  },
-  "rng_seed": null,
-  "partition_hash": null,
-  "partition_size": null,
-  "sealed_at": null
+  "_comment": "Phase 4.5 KPI-gates held-out partition (E3.C SEALED). rng_seed=PRE_REGISTERED_SEED_45=0x4_05_C3=263619. partition_size=20 (20% of K=100). partition_hash = sha256(sorted(heldout-run_ids).join('\\n')). Held-out run_ids drawn from the runner's gate-calibration prefix 'phase45-calib-{i}-{hex}'. Sealed against the K=100 calibration committed in gate-calibration-K100.json (commit 76cfc636).",
+  "rng_seed": 263619,
+  "partition_hash": "bc68df17288d6ba8014406e583b9ff9d57ddecd4998c33fa45f5c71c2146f82c",
+  "partition_size": 20,
+  "sealed_at": "2026-04-28T05:44:29.273Z"
 }
