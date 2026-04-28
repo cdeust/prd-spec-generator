@@ -73,13 +73,31 @@ export interface PlanOptions {
  * systematic judge bias reinforces itself across runs. This is known and
  * accepted until docs/PHASE_4_PLAN.md §4.1 external-grounding work ships.
  *
+ * B1 extension (Wave E): optional `external_grounding` carries the oracle
+ * dispatch payload for claims with externally-verifiable ground truth. When
+ * present, the composition root's `onObservation` callback calls invokeOracle()
+ * and writes `oracle_resolved_truth` into the log entry, breaking the circularity.
+ * When absent (the common case until Wave F populates it), circularity fallback
+ * fires as before.
+ *
  * source: docs/PHASE_4_PLAN.md §4.1 — annotator-circularity; Wave E scope.
+ * source: Curie A2.3 cross-audit finding — Wave E B1 remediation.
  */
 export interface ClaimObservationFlushed {
   readonly claim_id: string;
   readonly judge: AgentIdentity;
   readonly claimType: Claim["claim_type"];
   readonly observation: ReliabilityObservation;
+  /**
+   * Optional external grounding payload for this claim (Wave E B1).
+   * When present, the composition root invokes the appropriate oracle and
+   * writes `oracle_resolved_truth` to the log entry.
+   * When absent, the circularity fallback fires (ground_truth from consensus).
+   */
+  readonly external_grounding?: {
+    readonly type: "schema" | "math" | "code" | "spec";
+    readonly payload: unknown;
+  };
 }
 
 /**

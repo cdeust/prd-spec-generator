@@ -132,11 +132,18 @@ const ObservationLogEntrySchema = z.object({
   timestamp: z.string(),
   schema_version: z.literal(1),
   /**
-   * Oracle-resolved ground truth (Wave E). Present when the claim has external
+   * Oracle-resolved ground truth (Wave E B1). Present when the claim has external
    * grounding and invokeOracle() was called at annotation time. Absent for
    * legacy entries without external grounding (falls back to ground_truth).
+   * source: Curie A2.3, PHASE_4_PLAN.md §4.1.
    */
   oracle_resolved_truth: z.boolean().optional(),
+  /**
+   * Human-readable oracle evidence for forensic replay (Wave E B1).
+   * Non-empty iff oracle_resolved_truth is present.
+   * source: Curie A2.3, PHASE_4_PLAN.md §4.1.
+   */
+  oracle_evidence: z.string().optional(),
 });
 type ObservationLogEntry = z.infer<typeof ObservationLogEntrySchema>;
 
