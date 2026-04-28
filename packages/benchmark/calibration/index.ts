@@ -128,3 +128,19 @@ export {
   type OracleInput,
 } from "./external-oracle.js";
 export { OracleUnavailableError } from "./oracle-errors.js";
+
+// Wave F2 — production-mode calibration runner.
+// Companion to runCalibration (canned-baseline). Output is written to a
+// parallel artefact (gate-calibration-K100-production.json).
+export {
+  runProductionCalibration,
+  runProductionFromCli,
+  PRE_REGISTERED_SEED_45_PRODUCTION,
+  DEFAULT_K_PRODUCTION,
+  PRODUCTION_OUTPUT_BASENAME,
+  type ProductionRunnerOptions,
+  type ProductionRunnerResult,
+  type ProductionGateCalibration,
+} from "./calibrate-gates-production.js";
+
+export { selectModeFromArgv } from "./calibrate-gates.js";

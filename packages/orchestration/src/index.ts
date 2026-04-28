@@ -71,3 +71,20 @@ export {
   type CannedDispatcher,
   type CannedDispatcherOptions,
 } from "./canned-dispatcher.js";
+
+// Wave F2 — production-mode dispatcher (real subagents via AgentInvoker).
+// Companion to makeCannedDispatcher; consumed by
+// @prd-gen/benchmark calibrate-gates-production.ts.
+export {
+  makeProductionDispatcher,
+  makeStubAgentInvoker,
+  type AgentInvoker,
+  type AgentInvocationRequest,
+  type AgentInvocationResponse,
+  type CortexRecallRequest,
+  type CortexRecallResponse,
+  type CortexRecallHit,
+  type ProductionDispatcher,
+  type ProductionDispatcherOptions,
+  type StubAgentInvokerOptions,
+} from "./production-dispatcher.js";

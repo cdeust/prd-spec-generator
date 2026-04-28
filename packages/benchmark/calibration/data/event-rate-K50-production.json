@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "commit_hash": "9805a15e4da6a823cd8337f0123ffa9d111de770",
+  "seed_used": 4020704,
+  "timestamp": "2026-04-28T07:05:42.147Z",
+  "k_target": 3,
+  "k_observed": 3,
+  "total_attempts": 63,
+  "total_events": 30,
+  "measured_event_rate": 0.47619047619047616,
+  "ci95_clopper_pearson": {
+    "lower": 0.34877671126591725,
+    "upper": 0.6059162449219211
+  },
+  "provisional_anchor": 0.3,
+  "diverges_beyond_tolerance": true,
+  "recompute_recommended": true
+}

@@ -1375,6 +1375,27 @@ source: PHASE_4_PLAN.md §CC-3; implementation
       auto-promotion for `hold_provisional` gates. Unblocked by: re-calibration
       with seeded (warm) cortex in a separate PR.
       Source: Fermi disposition, Wave E CONCERN-1 remediation.
+- [x] **Production-mode calibration runner machinery wired (Wave F sub-stream
+      F2, 2026-04-28).** New file `calibrate-gates-production.ts` mirrors the
+      canned runner but drives `measurePipelineAsync` via a
+      `makeProductionDispatcher({ agentInvoker })` that delegates LLM-bound
+      actions to an injected `AgentInvoker`. `--mode production|canned` flag
+      added to the CLI (default `canned`, backward compatible). Pilot K=5
+      run committed to `data/gate-calibration-K100-production.json` with
+      `data_source: "production_pilot_K=5"` to demonstrate the runner produces
+      realistic numbers (wall_time ~4400ms vs canned ~1.4ms; cortex_empty
+      ~3.8 vs canned 11). Pilot is NOT promotable (K too small + stub-only).
+      Both `wall_time_ms_max` and `cortex_recall_empty_count_max` REMAIN
+      `hold_provisional=true` until a real-host (or high-fidelity-stub) K=100
+      production batch lands. Promotion criteria + RNG seed
+      (`PRE_REGISTERED_SEED_45_PRODUCTION = 0x4_05_C3_FF`) + AgentInvoker
+      wiring + wall-clock budget documented in
+      `packages/benchmark/calibration/data/production-calibration-runbook.md`.
+- [ ] **Production-mode K=100 batch landed** (follow-up session). Once
+      committed with `agent_invoker_class: "host-real"` and the runbook's
+      §"Promotion criteria" all met, edit `gate-calibration-K100.json` to
+      set `hold_provisional=false` and update `calibrated` to the
+      production-derived value for both held gates.
 - [ ] `WALL_TIME_MS_GATE_BY_CLASS` populated for at least one bucket with
       use-site source comment + JSONL data + XmR record (CC-2)
 - [x] Held-out 20% partition sealed in `data/kpigates-heldout.lock.json`

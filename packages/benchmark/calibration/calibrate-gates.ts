@@ -447,6 +447,23 @@ export function runCalibration(options: RunnerOptions): RunnerResult {
 // ─── CLI entry point ─────────────────────────────────────────────────────────
 
 async function main(argv: ReadonlyArray<string>): Promise<void> {
+  // --mode flag (Wave F2): dispatches between the canned baseline runner
+  // (default, backward-compatible) and the production-mode runner that
+  // drives real subagents through an AgentInvoker.
+  // source: PHASE_4_PLAN.md §4.5 production-mode disposition.
+  const mode = parseFlag(argv, "mode") ?? "canned";
+  if (mode === "production") {
+    const { runProductionFromCli } = await import(
+      "./calibrate-gates-production.js"
+    );
+    await runProductionFromCli({ argv });
+    return;
+  }
+  if (mode !== "canned") {
+    throw new Error(
+      `calibrate-gates: --mode must be "canned" or "production" (got "${mode}")`,
+    );
+  }
   const k = Number(parseFlag(argv, "k") ?? DEFAULT_K);
   const eventRateK = Number(
     parseFlag(argv, "event-rate-k") ?? DEFAULT_EVENT_RATE_K,
@@ -469,6 +486,21 @@ async function main(argv: ReadonlyArray<string>): Promise<void> {
     inMemoryOnly: false,
   });
   for (const line of result.summary) console.log(line);
+}
+
+/**
+ * Pure-function variant of `main()` exposed for tests. Returns the chosen
+ * mode without performing any I/O. Tests assert the dispatch logic on
+ * arbitrary argv without spawning real runners.
+ */
+export function selectModeFromArgv(
+  argv: ReadonlyArray<string>,
+): "canned" | "production" {
+  const m = parseFlag(argv, "mode") ?? "canned";
+  if (m === "canned" || m === "production") return m;
+  throw new Error(
+    `calibrate-gates: --mode must be "canned" or "production" (got "${m}")`,
+  );
 }
 
 const invokedDirectly = (() => {
