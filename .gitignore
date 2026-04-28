@@ -29,3 +29,7 @@ packages/verification/dist
 packages/meta-prompting/dist
 packages/ecosystem-adapters/dist
 packages/skill/dist
+# Phase 4.5 per-gate XmR chart JSONs — produced by calibrate-gates.ts at
+# runtime; never committed (the master gate-calibration-K100.json carries
+# the calibrated values; the XmR per-gate files are intermediate).
+packages/benchmark/calibration/data/gate-calibration-K100.xmr/

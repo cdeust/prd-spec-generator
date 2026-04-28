@@ -1,0 +1,13 @@
+{
+  "$schema": "gate-calibration-K100-schema-v1",
+  "_comment": "Phase 4.5 K=100 gate-calibration artefact. UNSEALED TEMPLATE: empty `gates` array means provisional KPI_GATES values remain in effect (loadCalibratedGates() returns null). The calibration runner (calibrate-gates.ts) overwrites this file in place with measured values. Per docs/PHASE_4_PLAN.md §4.5, calibration data is NOT committed in the runner-machinery PR — this stub ships so the schema is reviewed; real values arrive when the runner is executed against the frozen baseline.",
+  "schema_version": 1,
+  "commit_hash": "unsealed-template",
+  "seed_used": 0,
+  "timestamp": "1970-01-01T00:00:00.000Z",
+  "k_target": 100,
+  "k_achieved": 0,
+  "frozen_baseline_commit": "unsealed-template",
+  "frozen_baseline_content_hash": "unsealed-template",
+  "gates": []
+}

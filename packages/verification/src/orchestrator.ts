@@ -76,6 +76,7 @@ export interface PlanOptions {
  * source: docs/PHASE_4_PLAN.md §4.1 — annotator-circularity; Wave E scope.
  */
 export interface ClaimObservationFlushed {
+  readonly claim_id: string;
   readonly judge: AgentIdentity;
   readonly claimType: Claim["claim_type"];
   readonly observation: ReliabilityObservation;
@@ -253,6 +254,7 @@ function concludeFromVerdicts(
           : jv.verdict === "PASS" || jv.verdict === "SPEC-COMPLETE";
         try {
           options.onObservation({
+            claim_id,
             judge: jv.judge,
             claimType,
             observation: { groundTruthIsFail, judgeWasCorrect },

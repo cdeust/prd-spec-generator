@@ -46,3 +46,23 @@ export {
   JUDGE_OBSERVATION_LOG_PATH,
   type JudgeObservationLogEntry,
 } from "../calibration/heldout-seals.js";
+
+// Phase 4.5 / Wave D3 — calibrated gates loader.
+export {
+  loadCalibratedGates,
+  getActiveKpiGates,
+  CALIBRATED_GATES_DEFAULT_PATH,
+} from "./calibrated-gates-loader.js";
+
+// Phase 4.2 — retry-ablation arm seams.
+// Re-exported from calibration/ so the composition root (@prd-gen/mcp-server)
+// can import without taking the calibration sub-path. These seams are the
+// ONLY benchmark-layer functions the composition root is permitted to call;
+// all other calibration math stays in calibration/.
+// source: PHASE_4_PLAN.md §4.2; Wave D B1 composition-root wiring.
+export {
+  getRetryArmForRun,
+  getMaxAttemptsForRun,
+  MAX_ATTEMPTS_BASELINE,
+  type RetryArm,
+} from "../calibration/calibration-seams.js";

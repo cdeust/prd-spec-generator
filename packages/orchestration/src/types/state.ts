@@ -278,6 +278,16 @@ export const PipelineStateSchema = z.object({
    * source: §1.5 DIP — high-level modules must not depend on low-level modules.
    * source: §5.2 factory / composition root pattern.
    */
+  // B9 — RetryPolicy is colocated with PipelineState rather than in a standalone
+  // retry-policy.ts file because it is structurally dependent on the state shape:
+  // the Zod schema here is an inline object (not a named Schema reference) so
+  // it participates in PipelineStateSchema's refinement chain and Zod inference
+  // without a separate parse boundary. The D1.C spec referenced a standalone
+  // file; this was intentionally inlined during Wave D1 implementation to keep
+  // the type adjacent to its only consumer (PipelineState). Any future caller
+  // that needs the RetryPolicy type standalone can do:
+  //   type RetryPolicy = NonNullable<PipelineState["retry_policy"]>
+  // source: Wave D B9 ADR (2026-04-27).
   retry_policy: z
     .object({
       maxAttempts: z.number().int().positive(),

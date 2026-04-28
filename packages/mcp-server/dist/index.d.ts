@@ -1,3 +1,3 @@
 #!/usr/bin/env node
-export {};
+export { getConsensusReliabilityProvider } from "./reliability-wiring.js";
 //# sourceMappingURL=index.d.ts.map

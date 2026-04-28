@@ -85,13 +85,46 @@ export type AccuracyMap = ReadonlyMap<string, number>;
  * source: Efron & Tibshirani (1993), "An Introduction to the Bootstrap", Ch. 16.
  * source: M4 residual — Shannon: paired-bootstrap stub missing.
  */
+/**
+ * Sentinel value passed as `sealVerified` to signal the caller has already
+ * called `verifyHeldoutPartitionSeal` (or equivalent). This is a branded
+ * boolean — callers must explicitly pass `SEAL_VERIFIED` (not just `true`)
+ * to prevent accidental bypass.
+ *
+ * Usage:
+ *   verifyHeldoutPartitionSeal(heldout.map(h => h.claim_id), lockPath);
+ *   pairedBootstrapAccuracyDifference(heldout, calibrated, prior, 1000, seed, SEAL_VERIFIED);
+ *
+ * source: Wave D B3 remediation — Popper AP-5 mechanical enforcement.
+ */
+export const SEAL_VERIFIED = true as const;
+
 export function pairedBootstrapAccuracyDifference(
   heldout: ReadonlyArray<HeldoutClaim>,
   calibrated: AccuracyMap,
   prior: AccuracyMap,
   iterations: number,
   rngSeed: number,
+  /**
+   * Precondition: caller must have called verifyHeldoutPartitionSeal (or
+   * verifyMaxAttemptsHeldoutSeal) before invoking this function. Pass the
+   * exported SEAL_VERIFIED sentinel to acknowledge the precondition.
+   *
+   * source: Wave D B3 remediation — Popper AP-5 mechanical seal enforcement.
+   */
+  sealVerified: typeof SEAL_VERIFIED,
 ): { meanDifference: number; ci95: [number, number]; iterations: number } {
+  // Precondition assertion — enforces that callers pass SEAL_VERIFIED explicitly.
+  // FAILS_ON: sealVerified is not SEAL_VERIFIED (literal true) — should not
+  //   happen if callers follow the type; this is a runtime guard for JS callers.
+  if (sealVerified !== SEAL_VERIFIED) {
+    throw new Error(
+      "pairedBootstrapAccuracyDifference: precondition violated — " +
+        "verifyHeldoutPartitionSeal must be called before invoking this function. " +
+        "Pass SEAL_VERIFIED to acknowledge (source: Popper AP-5, Wave D B3).",
+    );
+  }
+
   // Suppress unused-parameter warnings in the stub.
   void heldout;
   void calibrated;

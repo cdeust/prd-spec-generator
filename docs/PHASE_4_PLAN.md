@@ -387,10 +387,25 @@ Published seam (Wave B delivery):
   for treatment-arm runs.
 - Both exported from `packages/benchmark/calibration/observations.ts`.
 
-Wiring into `consensus.ts` is Wave C+ scope. The seam exists so 4.4 and 4.5
-CANNOT ship without explicitly wiring it.
+**AP-3 falsification instrument (Wave D delivery).**
+The cross-arm comparison metric for §4.1 is computed by
+`computeReliabilityComparison(observationLogPath, lockPath)` in
+`packages/benchmark/calibration/ablation-comparison.ts`. It groups
+ConsensusVerdicts by control vs treatment arm on the held-out 20% set,
+calls `verifyReliabilityHeldoutSeal` BEFORE reading any held-out data
+(AP-5 mechanical enforcement), and emits a typed report with per-arm
+{n, pass_rate, ci95} plus the difference {delta, ci95_paired_bootstrap,
+p_value}. Pre-registration: this function — by name — is the analysis
+script for the §4.1 closed-loop falsifier. CC-1 compliance: any change
+to its semantics requires bumping the schema_version of the report
+output.
 
-source: CC-3 (docs/PHASE_4_PLAN.md §CC-3); B-Popper-1 cross-audit finding.
+Wiring into `consensus.ts` shipped in Wave D (composition root in
+`packages/mcp-server/src/pipeline-tools.ts` injects the
+`BenchmarkConsensusReliabilityProvider` adapter into `ConsensusConfig`).
+
+source: CC-3 (docs/PHASE_4_PLAN.md §CC-3); B-Popper-1 cross-audit finding;
+Wave D AP-3 falsifier instrument naming (Popper final re-audit, 2026-04-28).
 
 ---
 
@@ -647,8 +662,31 @@ forced-exploration control arm.
   `MAX_ATTEMPTS_BASELINE` exported from `calibration-seams.ts`.
 - C2 wires this seam at the retry-loop call site (Wave C2 scope, not C1).
 
+**AP-3 falsification instrument (Wave D delivery).**
+The cross-arm comparison metric for §4.2 is computed by
+`computeAblationComparison(observationLogPath, lockPath)` in
+`packages/benchmark/calibration/ablation-comparison.ts`. It groups
+retry-observation records by `arm` (`with_prior_violations` /
+`without_prior_violations`), calls `verifyMaxAttemptsHeldoutSeal` BEFORE
+reading any held-out data (AP-5 mechanical enforcement), and emits a
+typed report with per-arm {n, pass_rate, ci95} plus the difference
+{delta, ci95_paired_bootstrap, p_value}. The report's `recommendation`
+field encodes the H1/H0 decision: `with_prior_violations_helps`,
+`without_helps`, or `inconclusive_underpowered`. Pre-registration: this
+function — by name — is the analysis script for the §4.2 ablation
+falsifier. CC-1 compliance: schema_version on the report output is the
+single change-control signal.
+
+Composition-root wiring shipped in Wave D: `start_pipeline` in
+`packages/mcp-server/src/pipeline-tools.ts` populates
+`state.retry_policy = { maxAttempts, arm }` from `getMaxAttemptsForRun` +
+`getRetryArmForRun`, making the ablation arm assignment ACTIVE in
+production runs.
+
 source: PHASE_4_PLAN.md §CC-3; implementation
-  `packages/benchmark/calibration/calibration-seams.ts::getMaxAttemptsForRun`.
+  `packages/benchmark/calibration/calibration-seams.ts::getMaxAttemptsForRun`,
+  `packages/benchmark/calibration/ablation-comparison.ts::computeAblationComparison`,
+  `packages/mcp-server/src/pipeline-tools.ts` retry_policy wiring (Wave D).
 
 **Falsifiability (positive + negative — Popper AP-5).**
 
@@ -1162,23 +1200,76 @@ rejects, the gate is miscalibrated; tune K higher, change the percentile,
 or revert to provisional.
 
 **Analysis script (CC-2).**
-- Script: `packages/benchmark/calibration/kpi-gate-tuning.ts` (NOT YET
-  WRITTEN — Wave D scope; the C3 deliverable is methodology + seams +
-  tests, not the runner).
-- Raw data: `packages/benchmark/calibration/data/kpi-gate-tuning.*.jsonl`.
-- Re-run command: `pnpm --filter @prd-gen/benchmark run calibrate:kpigates`
-  (hooked once Wave D writes the runner).
+- Script: `packages/benchmark/calibration/calibrate-gates.ts` (Wave D / D3.1
+  deliverable, 2026-04). The runner orchestrates K≥100 canned-baseline runs,
+  computes per-gate P95 + Clopper-Pearson 95% CI + XmR records, and emits
+  the calibration outputs below. Source helpers split for §4 size limits:
+  - `gate-stats.ts`         — percentile + CI + XmR record construction.
+  - `event-rate.ts`         — §4.2 event_rate measurement (D3.2).
+  - `frozen-baseline.ts`    — content-hash pre-flight (Popper AP-1).
+  - `calibration-outputs.ts`— Zod schemas + read/write helpers (D3.3).
+  - `calibrate-gates-cli.ts`+ `calibrate-gates-constants.ts` — CLI shell.
+- Output JSON paths:
+  - `data/gate-calibration-K100.json`         — per-gate P95 + CI + xmr_path.
+  - `data/gate-calibration-K100.xmr/<gate>.json` — XmR record per gate
+    (gitignored; runtime data).
+  - `data/event-rate-K50.json`                — §4.2 event_rate hedge output.
+- Loader: `packages/benchmark/src/calibrated-gates-loader.ts::loadCalibratedGates`
+  reads `gate-calibration-K100.json`, validates against an inline Zod schema
+  pinned to `GateCalibrationK100Schema`, and overlays calibrated values onto
+  `KPI_GATES` for gates that passed the §4.5 promotion threshold. Returns
+  null when the file is missing/invalid/unsealed/no-promotions, so
+  provisional defaults remain in effect by default. Production callers use
+  `getActiveKpiGates()`; the synthetic regression test
+  (`gate-tuning-regression.test.ts`) imports `KPI_GATES` directly to stay
+  anchored to provisional values.
+- Reproducibility pin: `calibrate-gates.test.ts` asserts that two runs with
+  the same seed against the same source tree produce byte-identical
+  artefacts (excluding wall_time_ms which is the natural variance source).
+- Re-run command: `pnpm --filter @prd-gen/benchmark run calibrate:gates`
+  (hooked in `packages/benchmark/package.json`, Wave D / D3.1).
+- Calibration data commit: NOT included in the runner-machinery PR. The
+  committed stub artefacts under `data/` carry `gates: []` / `k_observed: 0`
+  so `loadCalibratedGates()` returns null until the first real run produces
+  measured values. Real values are committed in a separate calibration-
+  data-only PR.
+
+**AP-3 falsification instrument (Wave D delivery).**
+The cross-arm comparison metric for §4.5 is computed by
+`computeKpiGateComparison(gateBlockedLogPath, lockPath)` in
+`packages/benchmark/calibration/ablation-comparison.ts`. It groups
+`gate-blocked-log.jsonl` entries by control vs treatment arm, calls
+`verifyKpiGatesHeldoutSeal` BEFORE reading any held-out data (AP-5
+mechanical enforcement), and emits per-gate fire-rate comparisons with
+Clopper-Pearson 95% CIs. The function returns `inconclusive_underpowered`
+unless n ≥ 30 in both arms AND the CIs are non-overlapping — this acts
+as the symmetric-ratchet hysteresis guard for the §4.5 anchor (a noisy
+fluctuation alone cannot trigger an anchor move). Pre-registration: this
+function — by name — is the analysis script for the §4.5 KPI-gate
+falsifier. CC-1 compliance: the report's `schema_version` is the single
+change-control signal.
+
+source: PHASE_4_PLAN.md §CC-3; implementation
+  `packages/benchmark/calibration/ablation-comparison.ts::computeKpiGateComparison`,
+  `packages/benchmark/calibration/heldout-seals.ts::verifyKpiGatesHeldoutSeal`
+  (Wave D AP-3 falsifier instrument naming, Popper final re-audit, 2026-04-28).
 
 **Implementation gates (Phase 4.5 finalisation, NOT this scaffolding).**
-- [ ] K ≥ 100 calibration runs completed per machine-class bucket
-- [ ] Frozen-baseline commit pinned + asserted at runner startup
+- [x] K≥100 calibration-runner machinery wired (Wave D / D3.1) —
+      `calibrate-gates.ts` ships; first real K≥100 batch is a separate PR
+- [x] Frozen-baseline content-hash check asserted at runner startup
+      (Wave D / D3.1; `frozen-baseline.ts::computePipelineKpisContentHash`)
+- [ ] First K≥100 calibration batch committed to `data/gate-calibration-K100.json`
+      with non-empty `gates` array (separate calibration-data PR)
 - [ ] `WALL_TIME_MS_GATE_BY_CLASS` populated for at least one bucket with
       use-site source comment + JSONL data + XmR record (CC-2)
 - [ ] Held-out 20% partition sealed in `data/kpigates-heldout.lock.json`
 - [ ] Negative falsifier evaluated and not rejecting
-- [ ] Synthetic +20% regression test un-skipped and passing
+- [ ] Synthetic +20% regression test continues to pass against calibrated
+      values (already passes against provisional in this scaffolding)
 - [ ] CC-3 wiring: `evaluateGates` callers consume `getKpiGatesForRun`
-- [ ] CC-4 XmR record committed per calibrated gate
+- [ ] CC-4 XmR record committed per calibrated gate (per-gate XmR JSONs
+      already produced by the runner; commit them when promoted)
 
 **Wave dependencies (downstream of 4.5 finalisation).**
 - Wave D (release-readiness gate): consumes calibrated gates as the
