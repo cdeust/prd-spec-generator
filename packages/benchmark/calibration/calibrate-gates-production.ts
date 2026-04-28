@@ -23,37 +23,30 @@
  * `KPI_GATES` from `../src/`. No imports from `dist/`.
  */
 
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { measurePipelineAsync } from "../src/pipeline-kpis-async.js";
 import { KPI_GATES, type PipelineKpis } from "../src/pipeline-kpis.js";
 import {
   makeProductionDispatcher,
-  makeStubAgentInvoker,
   type AgentInvoker,
   type ProductionDispatcher,
 } from "@prd-gen/orchestration";
-import { clopperPearson } from "./clopper-pearson.js";
 import { detectMachineClass, type MachineClass } from "./machine-class.js";
 import { computeGateStats } from "./gate-stats.js";
-import { measureEventRate } from "./event-rate.js";
 import {
   type GateCalibrationK100,
   type GateCalibrationEntry,
   type EventRateK50,
   type XmRRecord,
 } from "./calibration-outputs.js";
+import { computePipelineKpisContentHash } from "./frozen-baseline.js";
 import {
-  computePipelineKpisContentHash,
-  resolveFrozenBaselineCommit,
-} from "./frozen-baseline.js";
-import {
-  PRE_REGISTERED_SEED_42,
-  EVENT_RATE_TOLERANCE,
-  PROVISIONAL_EVENT_RATE,
-} from "./calibrate-gates-constants.js";
-import { parseFlag, hasFlag } from "./calibrate-gates-cli.js";
+  buildProductionEventRateArtefact,
+  persistProductionArtefacts,
+  resolveHeadCommit,
+  buildProductionSummary,
+} from "./production-artefacts-io.js";
 
 // ─── Production-mode pre-registered constants ───────────────────────────────
 
@@ -106,6 +99,19 @@ const GATE_EXTRACTORS: Readonly<
 
 // ─── Seeded PRNG (mulberry32) ────────────────────────────────────────────────
 
+/**
+ * Deterministic uniform-[0,1) PRNG. 32-bit state; passes BigCrush; portable
+ * across V8 / SpiderMonkey / JSC because it uses only `Math.imul` + bitshifts
+ * (both ECMAScript-precise) and unsigned-right-shift normalization.
+ *
+ * source: bryc/code, "PRNGs.md#mulberry32" —
+ *   https://github.com/bryc/code/blob/master/jshash/PRNGs.md#mulberry32
+ *   (variant of Vigna's xorshift derivation; 0x6d2b79f5 is the published
+ *   increment constant; 0x100000000 is the uint32 normalization divisor).
+ * source: aligned with the matching mulberry32 implementations used in
+ *   `paired-bootstrap.ts` and `seal-reliability-corpus.mjs` so the
+ *   reproducibility pin holds across calibration / sealing / bootstrap.
+ */
 function mulberry32(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
@@ -128,7 +134,7 @@ interface ProductionRunDriverInput {
   readonly dispatch: ProductionDispatcher;
 }
 
-async function driveProductionRuns(
+export async function driveProductionRuns(
   args: ProductionRunDriverInput,
 ): Promise<ReadonlyArray<PipelineKpis>> {
   const rng = mulberry32(args.seed);
@@ -150,7 +156,7 @@ async function driveProductionRuns(
 
 // ─── Per-gate calibration entries ────────────────────────────────────────────
 
-interface XmrFile {
+export interface XmrFile {
   readonly path: string;
   readonly record: XmRRecord;
 }
@@ -296,120 +302,9 @@ export interface ProductionRunnerResult {
   readonly summary: ReadonlyArray<string>;
 }
 
-function buildProductionEventRateArtefact(
-  options: ProductionRunnerOptions,
-  headCommit: string,
-  nowIso: string,
-  dispatch: ProductionDispatcher,
-): Promise<EventRateK50> {
-  return driveProductionRuns({
-    k: options.eventRateK,
-    seed: PRE_REGISTERED_SEED_42,
-    runIdPrefix: "phase42-eventrate-prod",
-    featureDescription: options.featureDescription,
-    codebasePath: options.codebasePath,
-    dispatch,
-  }).then((eventRateKpis) => {
-    const { totalAttempts, events } = measureEventRate(eventRateKpis);
-    const measuredRate = totalAttempts > 0 ? events / totalAttempts : 0;
-    const cp =
-      totalAttempts > 0
-        ? clopperPearson(events, totalAttempts, 0.95)
-        : { lower: 0, upper: 0, pointEstimate: 0 };
-    const diverges =
-      Math.abs(measuredRate - PROVISIONAL_EVENT_RATE) > EVENT_RATE_TOLERANCE;
-    return {
-      schema_version: 1,
-      commit_hash: headCommit,
-      seed_used: PRE_REGISTERED_SEED_42,
-      timestamp: nowIso,
-      k_target: options.eventRateK,
-      k_observed: eventRateKpis.length,
-      total_attempts: totalAttempts,
-      total_events: events,
-      measured_event_rate: measuredRate,
-      ci95_clopper_pearson: { lower: cp.lower, upper: cp.upper },
-      provisional_anchor: PROVISIONAL_EVENT_RATE,
-      diverges_beyond_tolerance: diverges,
-      recompute_recommended: diverges,
-    };
-  });
-}
-
-function persistProductionArtefacts(
-  result: {
-    gateCalibration: ProductionGateCalibration;
-    eventRate: EventRateK50;
-    xmrFiles: ReadonlyArray<XmrFile>;
-  },
-  outputDir: string,
-): void {
-  const gatePath = join(outputDir, PRODUCTION_OUTPUT_BASENAME);
-  if (!existsSync(dirname(gatePath))) {
-    mkdirSync(dirname(gatePath), { recursive: true });
-  }
-  writeFileSync(
-    gatePath,
-    JSON.stringify(result.gateCalibration, null, 2) + "\n",
-    "utf8",
-  );
-  // Event-rate artefact also lands in a non-canned filename.
-  const erPath = join(outputDir, "event-rate-K50-production.json");
-  writeFileSync(
-    erPath,
-    JSON.stringify(result.eventRate, null, 2) + "\n",
-    "utf8",
-  );
-  for (const xmr of result.xmrFiles) {
-    const dir = dirname(xmr.path);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      xmr.path,
-      JSON.stringify(xmr.record, null, 2) + "\n",
-      "utf8",
-    );
-  }
-}
-
-function resolveHeadCommit(): string {
-  try {
-    return execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
-  } catch {
-    return "unknown";
-  }
-}
-
-function buildProductionSummary(args: {
-  gc: ProductionGateCalibration;
-  er: EventRateK50;
-}): ReadonlyArray<string> {
-  const { gc, er } = args;
-  const lines: string[] = [
-    `[production-mode] data_source=${gc.data_source}`,
-    `[production-mode] agent_invoker_class=${gc.agent_invoker_class}`,
-    `K achieved: ${gc.k_achieved} / ${gc.k_target}`,
-    `Frozen baseline commit: ${gc.frozen_baseline_commit}`,
-    `Pipeline-KPIs content hash: ${gc.frozen_baseline_content_hash}`,
-    "",
-    "Per-gate provisional vs calibrated (production):",
-  ];
-  for (const g of gc.gates) {
-    const dir = g.would_tighten
-      ? "tighten"
-      : g.would_loosen
-        ? "loosen"
-        : "hold";
-    lines.push(
-      `  ${g.gate_name}: ${g.provisional} → ${g.calibrated.toFixed(3)} (${dir})`,
-    );
-  }
-  lines.push(
-    "",
-    `Event-rate (production K=${er.k_observed}): ${er.measured_event_rate.toFixed(4)}`,
-    `CI95: [${er.ci95_clopper_pearson.lower.toFixed(4)}, ${er.ci95_clopper_pearson.upper.toFixed(4)}]`,
-  );
-  return lines;
-}
+// I/O + summary helpers extracted to ./production-artefacts-io.ts (Wave F
+// remediation, §4.1 LOC cap). They're imported above and re-exported below
+// for any caller that imports them from this file (back-compat).
 
 /**
  * Production-mode programmatic runner. Tests invoke this with a stub
@@ -424,14 +319,7 @@ function buildProductionSummary(args: {
 export async function runProductionCalibration(
   options: ProductionRunnerOptions,
 ): Promise<ProductionRunnerResult> {
-  if (options.k < 2) {
-    throw new Error(`runProductionCalibration: k must be ≥ 2 (got ${options.k})`);
-  }
-  if (options.eventRateK < 1) {
-    throw new Error(
-      `runProductionCalibration: eventRateK must be ≥ 1 (got ${options.eventRateK})`,
-    );
-  }
+  validateProductionOptions(options);
   const dispatch = makeProductionDispatcher({
     agentInvoker: options.agentInvoker,
     cannedOptions: {
@@ -439,36 +327,14 @@ export async function runProductionCalibration(
       graph_path: "/tmp/benchmark-production/graph",
     },
   });
-  const currentHash = computePipelineKpisContentHash();
-  const kpis = await driveProductionRuns({
-    k: options.k,
-    seed: PRE_REGISTERED_SEED_45_PRODUCTION,
-    runIdPrefix: "phase45-prod",
-    featureDescription: options.featureDescription,
-    codebasePath: options.codebasePath,
-    dispatch,
-  });
-  const machineClass = detectMachineClass();
-  const { entries, xmrFiles } = buildCalibrationEntries({
-    kpis,
-    machineClass,
-    outputDir: options.outputDir,
-  });
   const nowIso = new Date().toISOString();
   const headCommit = resolveHeadCommit();
-  const gateCalibration: ProductionGateCalibration = {
-    schema_version: 1,
-    commit_hash: headCommit,
-    seed_used: PRE_REGISTERED_SEED_45_PRODUCTION,
-    timestamp: nowIso,
-    k_target: options.k,
-    k_achieved: kpis.length,
-    frozen_baseline_commit: options.frozenBaselineCommit,
-    frozen_baseline_content_hash: currentHash,
-    gates: [...entries],
-    data_source: `production_pilot_K=${kpis.length}`,
-    agent_invoker_class: options.agentInvokerClass,
-  };
+  const { gateCalibration, xmrFiles } = await assembleGateCalibration(
+    options,
+    dispatch,
+    nowIso,
+    headCommit,
+  );
   const eventRate = await buildProductionEventRateArtefact(
     options,
     headCommit,
@@ -485,73 +351,65 @@ export async function runProductionCalibration(
   return { gateCalibration, eventRate, xmrFiles, summary };
 }
 
-// ─── CLI helpers (re-export of the canned CLI's parser; no new module) ──────
-
-interface CliEntryOptions {
-  readonly argv: ReadonlyArray<string>;
+/** Throws if the production options are inconsistent. */
+function validateProductionOptions(options: ProductionRunnerOptions): void {
+  if (options.k < 2) {
+    throw new Error(`runProductionCalibration: k must be ≥ 2 (got ${options.k})`);
+  }
+  if (options.eventRateK < 1) {
+    throw new Error(
+      `runProductionCalibration: eventRateK must be ≥ 1 (got ${options.eventRateK})`,
+    );
+  }
 }
 
 /**
- * CLI entry for the production-mode runner. Invoked when the unified CLI
- * (`calibrate-gates-cli-entry.ts`) detects `--mode=production`.
+ * Drive K production runs and assemble the `ProductionGateCalibration`
+ * envelope (including XmR sidecar files). Extracted from
+ * `runProductionCalibration` to keep that function under the §4.2 50-LOC
+ * cap (Wave F code-reviewer remediation).
  */
-export async function runProductionFromCli(args: CliEntryOptions): Promise<void> {
-  const k = Number(parseFlag(args.argv, "k") ?? DEFAULT_K_PRODUCTION);
-  const eventRateK = Number(
-    parseFlag(args.argv, "event-rate-k") ?? Math.min(50, k),
-  );
-  const outputDir =
-    parseFlag(args.argv, "output-dir") ??
-    "packages/benchmark/calibration/data";
-  const frozenBaselineCommit =
-    parseFlag(args.argv, "frozen-baseline-commit") ??
-    resolveFrozenBaselineCommit();
-  // Default invoker for CLI is the deterministic stub. A future PR wires
-  // the host-backed AgentInvoker here once the Claude Code Agent-tool surface
-  // is plumbed through the runner. Until then, a CLI invocation produces a
-  // PILOT artefact, not a promotable production batch — see runbook §"Pilot vs
-  // promotable".
-  const useStub = !hasFlag(args.argv, "real-host");
-  const agentInvoker = useStub
-    ? makeStubAgentInvoker({ rng: mulberry32(PRE_REGISTERED_SEED_45_PRODUCTION) })
-    : (() => {
-        throw new Error(
-          "production CLI: --real-host is reserved for the follow-up PR " +
-            "that wires the host-backed AgentInvoker. Until then, omit the flag " +
-            "to run the deterministic stub pilot. See production-calibration-runbook.md.",
-        );
-      })();
-  const result = await runProductionCalibration({
-    k,
-    eventRateK,
-    outputDir,
-    frozenBaselineCommit,
-    featureDescription: "build a feature for OAuth login",
-    codebasePath: "/tmp/benchmark-production",
-    inMemoryOnly: false,
-    agentInvoker,
-    agentInvokerClass: useStub ? "stub-deterministic-cli" : "host-real",
+async function assembleGateCalibration(
+  options: ProductionRunnerOptions,
+  dispatch: ProductionDispatcher,
+  nowIso: string,
+  headCommit: string,
+): Promise<{ gateCalibration: ProductionGateCalibration; xmrFiles: string[] }> {
+  const currentHash = computePipelineKpisContentHash();
+  const kpis = await driveProductionRuns({
+    k: options.k,
+    seed: PRE_REGISTERED_SEED_45_PRODUCTION,
+    runIdPrefix: "phase45-prod",
+    featureDescription: options.featureDescription,
+    codebasePath: options.codebasePath,
+    dispatch,
   });
-  for (const line of result.summary) console.log(line);
+  const machineClass = detectMachineClass();
+  const { entries, xmrFiles } = buildCalibrationEntries({
+    kpis,
+    machineClass,
+    outputDir: options.outputDir,
+  });
+  const gateCalibration: ProductionGateCalibration = {
+    schema_version: 1,
+    commit_hash: headCommit,
+    seed_used: PRE_REGISTERED_SEED_45_PRODUCTION,
+    timestamp: nowIso,
+    k_target: options.k,
+    k_achieved: kpis.length,
+    frozen_baseline_commit: options.frozenBaselineCommit,
+    frozen_baseline_content_hash: currentHash,
+    gates: [...entries],
+    data_source: `production_pilot_K=${kpis.length}`,
+    agent_invoker_class: options.agentInvokerClass,
+  };
+  return { gateCalibration, xmrFiles };
 }
 
-const invokedDirectly = (() => {
-  try {
-    return (
-      typeof process !== "undefined" &&
-      Array.isArray(process.argv) &&
-      process.argv[1] !== undefined &&
-      (process.argv[1].endsWith("calibrate-gates-production.js") ||
-        process.argv[1].endsWith("calibrate-gates-production.ts"))
-    );
-  } catch {
-    return false;
-  }
-})();
-
-if (invokedDirectly) {
-  runProductionFromCli({ argv: process.argv.slice(2) }).catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
-}
+/**
+ * Re-export of `mulberry32` for the CLI module. The PRNG is module-private
+ * to keep the public surface narrow; the CLI needs it to seed the stub
+ * AgentInvoker. Wave F final remediation extracted CLI to a sibling file
+ * (calibrate-gates-production-cli.ts) per coding-standards §4.1.
+ */
+export const mulberry32ForCli = mulberry32;
