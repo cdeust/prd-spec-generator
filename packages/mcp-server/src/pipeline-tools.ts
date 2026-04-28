@@ -369,7 +369,10 @@ export function registerPipelineTools(server: McpServer): void {
         .optional()
         .describe(
           "Map of claim_id → claim_type. When provided, enables per-(judge × claim_type) " +
-          "reliability lookup. Omit to fall back to per-agent scalar priors.",
+          "reliability lookup. Omit to fall back to per-agent scalar priors. " +
+          "Source: derive from plan_section_verification / plan_document_verification response: " +
+          "{ [req.claim.claim_id]: req.claim.claim_type } for each entry in judge_requests[]. " +
+          "TODO(Wave-E): auto-populate from plan state when server-side session context is available.",
         ),
     },
     async ({ scope, section_type, verdicts, consensus_strategy, run_id, claim_types }) => {
@@ -411,7 +414,7 @@ export function registerPipelineTools(server: McpServer): void {
                 {
                   run_id: run_id ?? "unknown",
                   judge_id: { kind: obs.judge.kind, name: obs.judge.name },
-                  claim_id: "unknown", // claim_id is not in ClaimObservationFlushed; Wave E will add it
+                  claim_id: obs.claim_id,
                   claim_type: obs.claimType,
                   judge_verdict: judgeVerdictIsPass,
                   judge_confidence: 0, // confidence not surfaced here; Wave E will thread it
