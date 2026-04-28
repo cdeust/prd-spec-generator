@@ -543,6 +543,48 @@ v1 lock files are rejected by `verifyHeldoutPartitionSeal`.
 in the held-out partition has an assigned oracle category. Enforced by Zod
 refine in the schema.
 
+### Wave F closure — external_grounding operationally live (2026-04)
+
+`external_grounding` is now populated at the Claim level via
+`Claim.external_grounding` (optional field added in Wave F F1.A).
+
+**How it works.** Claims constructed by the pipeline can opt into oracle
+resolution by attaching their grounding payload:
+
+```ts
+const claim: Claim = {
+  claim_id: "MATH-001",
+  claim_type: "correctness",
+  text: "2 + 2 equals 4",
+  evidence: "...",
+  external_grounding: {
+    type: "math",
+    payload: { expression: "2+2", expected_value: 4 },
+  },
+};
+```
+
+When `concludeSection` / `concludeDocument` is called with a
+`ConcludeOptions` that includes `claims` and `onObservation` (as wired by
+`packages/mcp-server/src/build-conclude-opts.ts`), the oracle pipeline:
+1. Receives a `ClaimObservationFlushed` event for every resolved claim,
+   with `external_grounding` propagated from the source `Claim`.
+2. When `external_grounding` is present, invokes the appropriate oracle
+   via `invokeOracle` in `packages/benchmark/calibration/external-oracle.ts`.
+3. Calls `appendObservationLog` with `oracle_resolved_truth` populated,
+   breaking annotator-circularity (Curie A2) for that specific claim.
+
+**Default behaviour unchanged.** Leaving `external_grounding` undefined
+preserves the existing consensus-majority behaviour. Production claim-
+construction code paths that produce externally-verifiable claims SHOULD
+populate this field; all other claims continue to resolve via
+consensus-majority.
+
+**Oracle types.** `ExternalGroundingType = "schema" | "math" | "code" | "spec"`.
+All four types are implemented as real oracles (Wave E). The seam is
+verified end-to-end by 3 tests in
+`packages/mcp-server/src/__tests__/external-grounding-e2e.test.ts`.
+
 ---
 
 ## 4.2 — MAX_ATTEMPTS calibration

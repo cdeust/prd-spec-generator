@@ -96,7 +96,7 @@ export interface ClaimObservationFlushed {
    */
   readonly external_grounding?: {
     readonly type: "schema" | "math" | "code" | "spec";
-    readonly payload: unknown;
+    readonly payload?: unknown;
   };
 }
 
@@ -189,6 +189,21 @@ export interface ConcludeOptions extends ConsensusConfig {
    */
   readonly claimTypes?: ReadonlyMap<string, Claim["claim_type"]>;
   /**
+   * Optional index of the original Claim objects from the plan phase.
+   *
+   * Wave F: when provided, the orchestrator looks up each claim by claim_id
+   * and forwards its `external_grounding` field into the ClaimObservationFlushed
+   * envelope. This allows the composition root's onObservation callback to
+   * invoke the appropriate oracle without the orchestrator importing any
+   * oracle infrastructure (§2.2 layer contract preserved).
+   *
+   * When absent, `external_grounding` in the envelope is undefined and the
+   * composition root falls back to consensus-majority ground truth.
+   *
+   * source: docs/PHASE_4_PLAN.md §4.1 Wave F closure.
+   */
+  readonly claims?: ReadonlyMap<string, Claim>;
+  /**
    * Observation flush hook (D2.B). Called once per (judge × claim) after
    * consensus with the consensus-majority verdict as ground truth.
    *
@@ -262,10 +277,14 @@ function concludeFromVerdicts(
 
     // D2.B: flush per-judge observations after consensus resolves the claim.
     // Ground truth = consensus majority (annotator-circularity path).
-    // Wave E will replace this with oracle verdicts.
+    // Wave F: external_grounding is propagated from the Claim index when present,
+    // enabling the composition root to invoke the oracle and break circularity.
     // Best-effort: flusher errors must not abort the pipeline.
     if (options.onObservation !== undefined && claimType !== undefined) {
       const groundTruthIsFail = groundTruthToIsFail(result.verdict);
+      // Wave F: look up external_grounding from the claim index if provided.
+      const claim = options.claims?.get(claim_id);
+      const external_grounding = claim?.external_grounding;
       for (const jv of vs) {
         const judgeWasCorrect = groundTruthIsFail
           ? jv.verdict !== "PASS" && jv.verdict !== "SPEC-COMPLETE"
@@ -276,6 +295,7 @@ function concludeFromVerdicts(
             judge: jv.judge,
             claimType,
             observation: { groundTruthIsFail, judgeWasCorrect },
+            external_grounding,
           });
         } catch {
           // Best-effort: observation persistence failure must not break the pipeline.

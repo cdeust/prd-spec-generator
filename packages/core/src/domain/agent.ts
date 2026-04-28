@@ -97,11 +97,39 @@ export function agentSubagentType(identity: AgentIdentity): string {
     : `zetetic-team-subagents:${identity.name}`;
 }
 
+// ─── External grounding ──────────────────────────────────────────────────────
+
+/**
+ * Oracle types that can resolve a claim's truth without annotator consensus.
+ *
+ * Wave F: promoted from benchmark to core because `ExternalGroundingType` is
+ * now load-bearing for the `Claim` contract — claims annotated with
+ * `external_grounding` opt into oracle resolution which breaks annotator-
+ * circularity (Curie A2) for that specific claim. Keeping the type only in
+ * the benchmark layer would force core→benchmark imports (§2.2 violation).
+ *
+ * source: docs/PHASE_4_PLAN.md §4.1 "Externally-grounded held-out subset".
+ */
+export const ExternalGroundingTypeSchema = z.enum([
+  "schema",
+  "math",
+  "code",
+  "spec",
+]);
+export type ExternalGroundingType = z.infer<typeof ExternalGroundingTypeSchema>;
+
 // ─── Verification judge contract ────────────────────────────────────────────
 
 /**
  * A claim extracted from a PRD section, sent to a judge for evaluation.
  * Claims are atomic — one assertion per claim — so judges can return one verdict.
+ *
+ * Wave F: when `external_grounding` is present, this claim's truth can be
+ * resolved by an external oracle, breaking annotator-circularity (Curie A2)
+ * for this specific claim. Claims without this field fall back to the existing
+ * consensus-majority behaviour.
+ *
+ * source: docs/PHASE_4_PLAN.md §4.1 "Externally-grounded held-out subset".
  */
 export const ClaimSchema = z.object({
   claim_id: z.string().describe("Stable ID, e.g., FR-001, AC-005, NFR-LATENCY"),
@@ -121,6 +149,20 @@ export const ClaimSchema = z.object({
   text: z.string().describe("The claim being verified, in plain language"),
   evidence: z.string().describe("Section content / surrounding context"),
   source_section: z.string().optional(),
+  /**
+   * Optional oracle grounding. When present, the downstream oracle pipeline
+   * resolves the claim's ground truth deterministically instead of relying on
+   * judge consensus alone.
+   *
+   * Leaving this field undefined preserves the existing consensus-majority
+   * behaviour for that claim.
+   */
+  external_grounding: z
+    .object({
+      type: ExternalGroundingTypeSchema,
+      payload: z.unknown().describe("Oracle-specific payload; shape validated by the oracle implementation"),
+    })
+    .optional(),
 });
 export type Claim = z.infer<typeof ClaimSchema>;
 
