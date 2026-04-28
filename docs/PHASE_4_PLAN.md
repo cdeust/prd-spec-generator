@@ -387,10 +387,25 @@ Published seam (Wave B delivery):
   for treatment-arm runs.
 - Both exported from `packages/benchmark/calibration/observations.ts`.
 
-Wiring into `consensus.ts` is Wave C+ scope. The seam exists so 4.4 and 4.5
-CANNOT ship without explicitly wiring it.
+**AP-3 falsification instrument (Wave D delivery).**
+The cross-arm comparison metric for §4.1 is computed by
+`computeReliabilityComparison(observationLogPath, lockPath)` in
+`packages/benchmark/calibration/ablation-comparison.ts`. It groups
+ConsensusVerdicts by control vs treatment arm on the held-out 20% set,
+calls `verifyReliabilityHeldoutSeal` BEFORE reading any held-out data
+(AP-5 mechanical enforcement), and emits a typed report with per-arm
+{n, pass_rate, ci95} plus the difference {delta, ci95_paired_bootstrap,
+p_value}. Pre-registration: this function — by name — is the analysis
+script for the §4.1 closed-loop falsifier. CC-1 compliance: any change
+to its semantics requires bumping the schema_version of the report
+output.
 
-source: CC-3 (docs/PHASE_4_PLAN.md §CC-3); B-Popper-1 cross-audit finding.
+Wiring into `consensus.ts` shipped in Wave D (composition root in
+`packages/mcp-server/src/pipeline-tools.ts` injects the
+`BenchmarkConsensusReliabilityProvider` adapter into `ConsensusConfig`).
+
+source: CC-3 (docs/PHASE_4_PLAN.md §CC-3); B-Popper-1 cross-audit finding;
+Wave D AP-3 falsifier instrument naming (Popper final re-audit, 2026-04-28).
 
 ---
 
@@ -647,8 +662,31 @@ forced-exploration control arm.
   `MAX_ATTEMPTS_BASELINE` exported from `calibration-seams.ts`.
 - C2 wires this seam at the retry-loop call site (Wave C2 scope, not C1).
 
+**AP-3 falsification instrument (Wave D delivery).**
+The cross-arm comparison metric for §4.2 is computed by
+`computeAblationComparison(observationLogPath, lockPath)` in
+`packages/benchmark/calibration/ablation-comparison.ts`. It groups
+retry-observation records by `arm` (`with_prior_violations` /
+`without_prior_violations`), calls `verifyMaxAttemptsHeldoutSeal` BEFORE
+reading any held-out data (AP-5 mechanical enforcement), and emits a
+typed report with per-arm {n, pass_rate, ci95} plus the difference
+{delta, ci95_paired_bootstrap, p_value}. The report's `recommendation`
+field encodes the H1/H0 decision: `with_prior_violations_helps`,
+`without_helps`, or `inconclusive_underpowered`. Pre-registration: this
+function — by name — is the analysis script for the §4.2 ablation
+falsifier. CC-1 compliance: schema_version on the report output is the
+single change-control signal.
+
+Composition-root wiring shipped in Wave D: `start_pipeline` in
+`packages/mcp-server/src/pipeline-tools.ts` populates
+`state.retry_policy = { maxAttempts, arm }` from `getMaxAttemptsForRun` +
+`getRetryArmForRun`, making the ablation arm assignment ACTIVE in
+production runs.
+
 source: PHASE_4_PLAN.md §CC-3; implementation
-  `packages/benchmark/calibration/calibration-seams.ts::getMaxAttemptsForRun`.
+  `packages/benchmark/calibration/calibration-seams.ts::getMaxAttemptsForRun`,
+  `packages/benchmark/calibration/ablation-comparison.ts::computeAblationComparison`,
+  `packages/mcp-server/src/pipeline-tools.ts` retry_policy wiring (Wave D).
 
 **Falsifiability (positive + negative — Popper AP-5).**
 
@@ -1195,6 +1233,26 @@ or revert to provisional.
   so `loadCalibratedGates()` returns null until the first real run produces
   measured values. Real values are committed in a separate calibration-
   data-only PR.
+
+**AP-3 falsification instrument (Wave D delivery).**
+The cross-arm comparison metric for §4.5 is computed by
+`computeKpiGateComparison(gateBlockedLogPath, lockPath)` in
+`packages/benchmark/calibration/ablation-comparison.ts`. It groups
+`gate-blocked-log.jsonl` entries by control vs treatment arm, calls
+`verifyKpiGatesHeldoutSeal` BEFORE reading any held-out data (AP-5
+mechanical enforcement), and emits per-gate fire-rate comparisons with
+Clopper-Pearson 95% CIs. The function returns `inconclusive_underpowered`
+unless n ≥ 30 in both arms AND the CIs are non-overlapping — this acts
+as the symmetric-ratchet hysteresis guard for the §4.5 anchor (a noisy
+fluctuation alone cannot trigger an anchor move). Pre-registration: this
+function — by name — is the analysis script for the §4.5 KPI-gate
+falsifier. CC-1 compliance: the report's `schema_version` is the single
+change-control signal.
+
+source: PHASE_4_PLAN.md §CC-3; implementation
+  `packages/benchmark/calibration/ablation-comparison.ts::computeKpiGateComparison`,
+  `packages/benchmark/calibration/heldout-seals.ts::verifyKpiGatesHeldoutSeal`
+  (Wave D AP-3 falsifier instrument naming, Popper final re-audit, 2026-04-28).
 
 **Implementation gates (Phase 4.5 finalisation, NOT this scaffolding).**
 - [x] K≥100 calibration-runner machinery wired (Wave D / D3.1) —
