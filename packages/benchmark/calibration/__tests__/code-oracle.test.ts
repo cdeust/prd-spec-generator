@@ -18,6 +18,7 @@
 
 import { describe, it, expect } from "vitest";
 import { codeOracle, isTscAvailable } from "../code-oracle.js";
+import { OracleUnavailableError } from "../oracle-errors.js";
 
 const SIMPLE_VALID_SNIPPET = `
 const x: number = 42;
@@ -40,7 +41,11 @@ export { u };
 `;
 
 describe("codeOracle", () => {
-  it("oracle_evidence is always non-empty regardless of tsc availability", async () => {
+  it("oracle_evidence is non-empty when tsc is available", async () => {
+    // B3: when tsc is absent codeOracle throws OracleUnavailableError; this test
+    // only verifies the non-empty evidence invariant for the real-tsc path.
+    if (!isTscAvailable()) return;
+
     const result = await codeOracle({
       snippet: SIMPLE_VALID_SNIPPET,
       expected_compiles: true,
@@ -50,86 +55,83 @@ describe("codeOracle", () => {
     expect(result.oracle_evidence.length).toBeGreaterThan(0);
   });
 
-  it("when tsc unavailable: returns stub result with truth=false and stub-mode evidence", async () => {
-    if (isTscAvailable()) {
-      // tsc IS available — this branch skips the stub check; the real-tsc
-      // tests below provide coverage.
-      return;
+  it("when tsc unavailable: throws OracleUnavailableError (B3)", async () => {
+    // B3 remediation: stub mode no longer returns truth=false. It throws so callers
+    // can exclude the claim from the calibrated arm instead of corrupting labels.
+    // source: Popper AP-4, Wave E.
+    if (isTscAvailable()) return;
+
+    await expect(
+      codeOracle({ snippet: SIMPLE_VALID_SNIPPET, expected_compiles: true }),
+    ).rejects.toThrow(OracleUnavailableError);
+
+    await expect(
+      codeOracle({ snippet: SIMPLE_VALID_SNIPPET, expected_compiles: true }),
+    ).rejects.toThrow(/OracleUnavailableError\[code\]/);
+  });
+
+  it("OracleUnavailableError carries oracleType='code'", async () => {
+    if (isTscAvailable()) return;
+
+    try {
+      await codeOracle({ snippet: SIMPLE_VALID_SNIPPET, expected_compiles: true });
+      throw new Error("expected OracleUnavailableError to be thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(OracleUnavailableError);
+      expect((err as OracleUnavailableError).oracleType).toBe("code");
     }
+  });
+
+  it("valid snippet + claim compiles → truth=true (real tsc)", async () => {
+    if (!isTscAvailable()) return;
 
     const result = await codeOracle({
       snippet: SIMPLE_VALID_SNIPPET,
       expected_compiles: true,
     });
 
-    expect(result.truth).toBe(false);
-    expect(result.oracle_evidence).toContain("STUB MODE");
-    expect(result.oracle_evidence).toContain("tsc not found");
+    expect(result.truth).toBe(true);
+    expect(result.oracle_evidence).toContain("compiles_cleanly=true");
+    expect(result.oracle_evidence).toContain("truth=true");
   });
 
-  it("valid snippet + claim compiles → truth=true (real tsc) or stub evidence (no tsc)", async () => {
-    const result = await codeOracle({
-      snippet: SIMPLE_VALID_SNIPPET,
-      expected_compiles: true,
-    });
+  it("type-error snippet + claim compiles → truth=false (real tsc)", async () => {
+    if (!isTscAvailable()) return;
 
-    if (isTscAvailable()) {
-      expect(result.truth).toBe(true);
-      expect(result.oracle_evidence).toContain("compiles_cleanly=true");
-      expect(result.oracle_evidence).toContain("truth=true");
-    } else {
-      // Stub mode: always false, but evidence is present.
-      expect(result.truth).toBe(false);
-      expect(result.oracle_evidence).toContain("STUB MODE");
-    }
-  });
-
-  it("type-error snippet + claim compiles → truth=false (real tsc) or stub evidence", async () => {
     const result = await codeOracle({
       snippet: TYPE_ERROR_SNIPPET,
       expected_compiles: true,
     });
 
-    if (isTscAvailable()) {
-      expect(result.truth).toBe(false);
-      expect(result.oracle_evidence).toContain("compiles_cleanly=false");
-      expect(result.oracle_evidence).toContain("truth=false");
-    } else {
-      expect(result.truth).toBe(false);
-      expect(result.oracle_evidence).toContain("STUB MODE");
-    }
+    expect(result.truth).toBe(false);
+    expect(result.oracle_evidence).toContain("compiles_cleanly=false");
+    expect(result.oracle_evidence).toContain("truth=false");
   });
 
   it("type-error snippet + claim does not compile → truth=true (real tsc)", async () => {
+    if (!isTscAvailable()) return;
+
     const result = await codeOracle({
       snippet: TYPE_ERROR_SNIPPET,
       expected_compiles: false,
     });
 
-    if (isTscAvailable()) {
-      expect(result.truth).toBe(true);
-      expect(result.oracle_evidence).toContain("compiles_cleanly=false");
-      expect(result.oracle_evidence).toContain("expected_compiles=false");
-      expect(result.oracle_evidence).toContain("truth=true");
-    } else {
-      // In stub mode truth is always false; document the limitation.
-      expect(result.truth).toBe(false);
-      expect(result.oracle_evidence).toContain("STUB MODE");
-    }
+    expect(result.truth).toBe(true);
+    expect(result.oracle_evidence).toContain("compiles_cleanly=false");
+    expect(result.oracle_evidence).toContain("expected_compiles=false");
+    expect(result.oracle_evidence).toContain("truth=true");
   });
 
   it("valid interface snippet + claim compiles → truth=true (real tsc)", async () => {
+    if (!isTscAvailable()) return;
+
     const result = await codeOracle({
       snippet: INTERFACE_SNIPPET,
       expected_compiles: true,
     });
 
-    if (isTscAvailable()) {
-      expect(result.truth).toBe(true);
-      expect(result.oracle_evidence).toContain("truth=true");
-    } else {
-      expect(result.oracle_evidence).toContain("STUB MODE");
-    }
+    expect(result.truth).toBe(true);
+    expect(result.oracle_evidence).toContain("truth=true");
   });
 
   it("evidence includes tsc version when tsc is available", async () => {

@@ -5,19 +5,24 @@
  *                is the claim being made.
  * Postcondition: truth = (tsc exits 0 === expected_compiles).
  *                oracle_evidence is non-empty and human-readable.
+ *                When tsc is absent, throws OracleUnavailableError — callers must
+ *                catch and exclude the claim rather than scoring it false.
  * Invariant:     The snippet is written to a temp directory and cleaned up after
  *                each call. tsc is invoked with --noEmit --strict; no output is
  *                emitted to disk beyond the temp source file.
  *
+ * B3 remediation (Popper AP-4, Wave E): stub mode previously returned
+ *   truth=false when tsc was absent, fabricating ground-truth labels in CI.
+ *   Now throws OracleUnavailableError so callers can exclude the claim from
+ *   the calibrated arm rather than corrupt the held-out partition.
+ *
  * Hermetic-test contract (Wave-C no-skip rule):
- *   Tests do NOT skip when tsc is unavailable. Instead, `isTscAvailable()` is
- *   exported so test files can branch:
- *     - tsc present  → real subprocess invocation
- *     - tsc absent   → stub mode: oracle returns a canned result + logs a warning.
- *   This preserves CI determinism (tests always run) while giving local developers
- *   real-compilation fidelity.
+ *   Tests do NOT skip when tsc is unavailable. isTscAvailable() is exported
+ *   so test files can branch on real vs. stub behaviour. All code paths are
+ *   exercised regardless of tsc presence.
  *
  * Layer: benchmark/calibration. Uses Node.js child_process (infrastructure).
+ * source: PHASE_4_PLAN.md §4.1 "Externally-grounded held-out subset".
  */
 
 import { execFileSync } from "child_process";
@@ -25,6 +30,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { CodePayload, OracleResult } from "./oracle-types.js";
+import { OracleUnavailableError } from "./oracle-errors.js";
 
 /** Subprocess timeout in milliseconds. source: measured locally; tsc on a
  *  single-file snippet resolves in <3s on M1/M2 silicon; 10 000ms provides
@@ -75,17 +81,14 @@ export async function codeOracle(payload: CodePayload): Promise<OracleResult> {
   const tscBin = findTscBinary();
 
   if (tscBin === null) {
-    // Stub mode: tsc unavailable. Tests will warn; CI still gets a result.
-    console.warn(
-      "[codeOracle] tsc binary not found. " +
-      "Returning stub result (truth=false, oracle_evidence notes stub mode). " +
-      "Install TypeScript to get real compilation verdicts.",
+    // B3 remediation: throw OracleUnavailableError instead of fabricating truth=false.
+    // Callers (e.g. build-conclude-opts.ts) catch this and exclude the claim from the
+    // calibrated arm rather than scoring it falsely.
+    // source: Popper AP-4 audit, Wave E remediation.
+    throw new OracleUnavailableError(
+      "code",
+      "tsc binary not found; install TypeScript to get real compilation verdicts.",
     );
-    const evidence =
-      `codeOracle[STUB MODE — tsc not found]: snippet="${snippetSummary(snippet)}"; ` +
-      `expected_compiles=${String(expected_compiles)}; ` +
-      `truth=false (stub; cannot verify claim without tsc).`;
-    return { truth: false, oracle_evidence: evidence };
   }
 
   // Get tsc version for evidence traceability.
