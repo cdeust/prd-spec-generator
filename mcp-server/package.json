@@ -1,8 +1,15 @@
 {
   "name": "@prd-gen/mcp-server-bundle",
   "version": "0.2.0",
-  "description": "Self-contained ESM bundle of the prd-spec-generator MCP server. Built by `pnpm bundle` from the workspace TypeScript source. The marketplace .mcp.json runs index.js directly via `node`.",
+  "description": "Self-contained ESM bundle of the prd-spec-generator MCP server. Built by `pnpm bundle` from the workspace TypeScript source. `bin/ensure-deps.sh` provisions the externalised runtime deps below on first launch, then runs index.js via `node`.",
   "type": "module",
   "main": "./index.js",
-  "private": true
+  "private": true,
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.7.0"
+  }
 }
