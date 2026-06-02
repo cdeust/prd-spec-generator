@@ -160,6 +160,33 @@ export const PipelineStateSchema = z.object({
   codebase_output_dir: z.string().nullable(),
   codebase_indexed: z.boolean(),
   /**
+   * Code-graph grounding for the feature, returned by automatised-pipeline
+   * `prepare_prd_input` in FEATURE MODE (response field `prd_context`):
+   *   { matched_symbols, impacted_communities, impacted_processes,
+   *     graph_stats, mode }
+   * Distinct from `prd_context` above (which is the PRD *kind* enum:
+   * feature/bug/incident/…). This is the code-graph evidence later steps
+   * (budget / section generation) inject as grounding so generated sections
+   * reference real symbols/communities/processes. Stored as an opaque object
+   * because the orchestration layer is a pure passthrough — it does not parse
+   * the AP payload (mirrors how `index_codebase` data is consumed inline).
+   *
+   * Null until `prepare_prd_input` succeeds, or permanently null when no
+   * codebase/feature_description is available (skip path, backward-compatible).
+   *
+   * source: AP feature-mode prepare_prd_input contract (shipped 2026-06).
+   */
+  codebase_grounding: z.record(z.string(), z.unknown()).nullable().default(null),
+  /**
+   * Idempotency flag for the `prepare_prd_input` emission in input_analysis.
+   * Mirrors `codebase_indexed`: set true once the grounding call has been
+   * processed (success OR a skip-after-index decision) so the step advances
+   * exactly once and replayed state does not re-issue the call.
+   *
+   * source: AP feature-mode prepare_prd_input contract (shipped 2026-06).
+   */
+  prd_input_prepared: z.boolean().default(false),
+  /**
    * Preflight gate state — `null` while preflight has not been attempted
    * yet, `"ok"` once Cortex (and ai-architect, when a codebase is given)
    * passed their liveness checks. Treated as a precondition: the runner
@@ -236,6 +263,30 @@ export const PipelineStateSchema = z.object({
    * read in Phase B to attribute verdicts. Null until Phase A runs.
    */
   verification_plan: VerificationPlanSnapshotSchema.nullable().default(null),
+  /**
+   * PRD-vs-graph validation report from automatised-pipeline
+   * `validate_prd_against_graph` (args { prd_path, graph_path }), fetched in
+   * self-check after the PRD file is exported. Symbol-hallucination /
+   * community-consistency / process-impact findings. Merged into the
+   * self-check `done.verification` surface (not a new top-level shape).
+   *
+   * Stored as an opaque object — the orchestration layer is a pure passthrough
+   * and does not parse the AP payload. Null until the call succeeds, or
+   * permanently null when no `codebase_graph_path` exists (skip path,
+   * backward-compatible).
+   *
+   * source: AP validate_prd_against_graph contract (shipped 2026-06).
+   */
+  prd_validation: z.record(z.string(), z.unknown()).nullable().default(null),
+  /**
+   * Idempotency flag for the `validate_prd_against_graph` emission in
+   * self-check. Mirrors `prd_input_prepared`: set true once the validation
+   * call has been processed (success OR skip) so self-check advances to its
+   * existing verify phase exactly once.
+   *
+   * source: AP validate_prd_against_graph contract (shipped 2026-06).
+   */
+  prd_validated: z.boolean().default(false),
   /**
    * Append-only queue of strategy execution results, populated when a
    * section transitions to a terminal status (passed/failed). The

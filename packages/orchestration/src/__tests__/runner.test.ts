@@ -43,14 +43,14 @@ describe("pipeline runner — emit_message coalescing", () => {
     }
   });
 
-  it("input_analysis stores graph_path and output_dir on success then advances to clarification compose", () => {
+  it("input_analysis: index_codebase success emits prepare_prd_input (feature mode) before advancing", () => {
     const issued = step({ state: seed("/x") });
     expect(issued.state.codebase_output_dir).not.toBeNull();
     const correlation_id =
       issued.action.kind === "call_pipeline_tool"
         ? issued.action.correlation_id
         : "";
-    const after = step({
+    const afterIndex = step({
       state: issued.state,
       result: {
         kind: "tool_result",
@@ -59,10 +59,102 @@ describe("pipeline runner — emit_message coalescing", () => {
         data: { graph_path: "/x/.prd-gen/graphs/test_run_001/graph" },
       },
     });
-    expect(after.state.codebase_indexed).toBe(true);
-    expect(after.state.codebase_graph_path).toBe(
+    // Graph recorded but step has NOT advanced — it now emits the grounding call.
+    expect(afterIndex.state.codebase_indexed).toBe(true);
+    expect(afterIndex.state.codebase_graph_path).toBe(
       "/x/.prd-gen/graphs/test_run_001/graph",
     );
+    expect(afterIndex.state.prd_input_prepared).toBe(false);
+    expect(afterIndex.state.current_step).toBe("input_analysis");
+    expect(afterIndex.action.kind).toBe("call_pipeline_tool");
+    if (afterIndex.action.kind === "call_pipeline_tool") {
+      expect(afterIndex.action.tool_name).toBe("prepare_prd_input");
+      // Feature mode: free-text feature + graph, no finding_id.
+      expect(afterIndex.action.arguments).toHaveProperty("feature_description");
+      expect(afterIndex.action.arguments).not.toHaveProperty("finding_id");
+      expect(afterIndex.action.arguments).toHaveProperty(
+        "graph_path",
+        "/x/.prd-gen/graphs/test_run_001/graph",
+      );
+      expect(afterIndex.action.arguments).toHaveProperty("output_dir");
+    }
+  });
+
+  it("input_analysis: prepare_prd_input result stores grounding then advances to clarification compose", () => {
+    const issued = step({ state: seed("/x") });
+    const indexCid =
+      issued.action.kind === "call_pipeline_tool"
+        ? issued.action.correlation_id
+        : "";
+    const afterIndex = step({
+      state: issued.state,
+      result: {
+        kind: "tool_result",
+        correlation_id: indexCid,
+        success: true,
+        data: { graph_path: "/x/.prd-gen/graphs/test_run_001/graph" },
+      },
+    });
+    const prepareCid =
+      afterIndex.action.kind === "call_pipeline_tool"
+        ? afterIndex.action.correlation_id
+        : "";
+    const grounding = {
+      matched_symbols: [{ fqn: "auth::login" }],
+      impacted_communities: [1],
+      impacted_processes: [],
+      graph_stats: { nodes: 10 },
+      mode: "feature",
+    };
+    const after = step({
+      state: afterIndex.state,
+      result: {
+        kind: "tool_result",
+        correlation_id: prepareCid,
+        success: true,
+        // AP feature mode wraps the grounding in `prd_context`.
+        data: { prd_context: grounding },
+      },
+    });
+    expect(after.state.prd_input_prepared).toBe(true);
+    expect(after.state.codebase_grounding).toEqual(grounding);
+    // prd_context (the PRD-kind enum) must NOT be clobbered by grounding.
+    expect(after.state.prd_context).toBe("feature");
+    expect(after.state.current_step).toBe("clarification");
+    expect(after.action.kind).toBe("spawn_subagents");
+  });
+
+  it("input_analysis: prepare_prd_input failure is advisory — advances without grounding", () => {
+    const issued = step({ state: seed("/x") });
+    const indexCid =
+      issued.action.kind === "call_pipeline_tool"
+        ? issued.action.correlation_id
+        : "";
+    const afterIndex = step({
+      state: issued.state,
+      result: {
+        kind: "tool_result",
+        correlation_id: indexCid,
+        success: true,
+        data: { graph_path: "/x/g" },
+      },
+    });
+    const prepareCid =
+      afterIndex.action.kind === "call_pipeline_tool"
+        ? afterIndex.action.correlation_id
+        : "";
+    const after = step({
+      state: afterIndex.state,
+      result: {
+        kind: "tool_result",
+        correlation_id: prepareCid,
+        success: false,
+        data: null,
+        error: "graph unreadable",
+      },
+    });
+    expect(after.state.prd_input_prepared).toBe(true);
+    expect(after.state.codebase_grounding).toBeNull();
     expect(after.state.current_step).toBe("clarification");
     expect(after.action.kind).toBe("spawn_subagents");
   });

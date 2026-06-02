@@ -138,6 +138,19 @@ export const VerificationSummarySchema = z.object({
   claims_evaluated: z.number().int().nonnegative(),
   distribution: z.record(VerdictSchema, z.number().int().nonnegative()),
   distribution_suspicious: z.boolean(),
+  /**
+   * PRD-vs-graph validation report from automatised-pipeline
+   * `validate_prd_against_graph`, attached when the run had a code graph.
+   * Symbol-hallucination / community-consistency / process-impact findings.
+   * Opaque object — the orchestration layer is a passthrough and does not parse
+   * the AP payload. Absent when no codebase was provided (preserves the prior
+   * verification shape for non-codebase runs).
+   *
+   * source: AP validate_prd_against_graph contract (shipped 2026-06). Attached
+   * here (not as a new top-level done field) so KPI/test consumers read one
+   * typed verification surface.
+   */
+  prd_graph_validation: z.record(z.string(), z.unknown()).optional(),
 });
 export type VerificationSummary = z.infer<typeof VerificationSummarySchema>;
 

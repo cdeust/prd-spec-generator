@@ -36,7 +36,10 @@ import {
   CAPABILITIES,
   type SectionType,
 } from "@prd-gen/core";
-import { buildSectionPrompt } from "@prd-gen/meta-prompting";
+import {
+  buildSectionPrompt,
+  type CodebaseGrounding,
+} from "@prd-gen/meta-prompting";
 import { selectStrategy, type StrategyAssignment } from "@prd-gen/strategy";
 import { SECTIONS_BY_CONTEXT, SECTION_RECALL_TEMPLATES } from "../section-plan.js";
 import {
@@ -116,6 +119,35 @@ function recallAction(
   };
 }
 
+/**
+ * Normalize the opaque `state.codebase_grounding` into the grounding shape the
+ * section prompt renders.
+ *
+ * AP's feature-mode `prepare_prd_input` returns a RESPONSE object that CONTAINS
+ * the grounding under `.prd_context`. `state.codebase_grounding` is stored as
+ * that whole response (the orchestration layer is a pure passthrough — see
+ * state.ts), so the grounding is `state.codebase_grounding.prd_context`. Fall
+ * back to the object itself if `.prd_context` is absent (already-flat payloads),
+ * and to `undefined` when no grounding exists at all.
+ *
+ * precondition: `raw` is `state.codebase_grounding` (Record<string, unknown> | null).
+ * postcondition: returns a CodebaseGrounding (possibly empty-but-typed) when a
+ *   grounding object is present, else `undefined`. An `undefined` result makes
+ *   `renderGroundingBlock` emit nothing → byte-identical pre-grounding prompt.
+ *
+ * source: AP feature-mode prepare_prd_input contract — response carries
+ * `prd_context` (the grounding); shipped 2026-06.
+ */
+function normalizeGrounding(
+  raw: Record<string, unknown> | null | undefined,
+): CodebaseGrounding | undefined {
+  if (!raw) return undefined;
+  const nested = (raw as { prd_context?: unknown }).prd_context;
+  const grounding =
+    nested && typeof nested === "object" ? nested : raw;
+  return grounding as CodebaseGrounding;
+}
+
 function draftAction(
   state: PipelineState,
   section: SectionStatus,
@@ -141,6 +173,11 @@ function draftAction(
     // so every retry uses the SAME strategies the selector chose at the
     // pending → retrieving transition.
     strategy_assignment: section.strategy_assignment,
+    // Thread AP's code-graph grounding (state.codebase_grounding, possibly
+    // wrapped in a prepare_prd_input response) into the prompt so drafts
+    // reference real symbols/files/communities/processes. `undefined` when no
+    // codebase grounding exists → prompt is byte-identical to before.
+    codebase_grounding: normalizeGrounding(state.codebase_grounding),
   });
 
   return {

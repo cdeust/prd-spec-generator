@@ -23,6 +23,46 @@ import {
 } from "@prd-gen/core";
 import type { StrategyAssignment } from "@prd-gen/strategy";
 
+/**
+ * One symbol matched against the codebase graph by automatised-pipeline's
+ * feature-mode `prepare_prd_input`. Only the fields the rendered grounding
+ * block consumes are typed; the AP payload may carry more (relationships,
+ * processes), which this builder deliberately does not render to keep the
+ * prompt token-bounded.
+ *
+ * source: AP feature-mode prepare_prd_input contract (prd_context shape),
+ * shipped 2026-06.
+ */
+export interface GroundedSymbol {
+  readonly qualified_name?: string;
+  readonly name?: string;
+  readonly label?: string;
+  readonly file_path?: string;
+  readonly community_id?: string | number;
+}
+
+/**
+ * Code-graph grounding for the feature (AP `prepare_prd_input.prd_context`).
+ * Every field is optional so a partial / older payload still type-checks; the
+ * renderer guards each field independently and emits NOTHING when the grounding
+ * carries no usable evidence (backward-compatible with pre-grounding callers).
+ *
+ * source: AP feature-mode prepare_prd_input contract (prd_context shape),
+ * shipped 2026-06.
+ */
+export interface CodebaseGrounding {
+  readonly finding_summary?: string;
+  readonly matched_symbols?: ReadonlyArray<GroundedSymbol>;
+  readonly impacted_communities?: readonly string[];
+  readonly impacted_processes?: readonly string[];
+  readonly graph_stats?: {
+    readonly nodes?: number;
+    readonly edges?: number;
+    readonly communities?: number;
+    readonly processes?: number;
+  };
+}
+
 export interface SectionPromptInput {
   readonly section_type: SectionType;
   readonly feature_description: string;
@@ -40,6 +80,20 @@ export interface SectionPromptInput {
    * source: Phase 4 strategy-wiring (2026-04).
    */
   readonly strategy_assignment?: StrategyAssignment;
+  /**
+   * Code-graph grounding for the feature, produced by automatised-pipeline's
+   * feature-mode `prepare_prd_input` (its `prd_context` payload) and threaded
+   * through from `PipelineState.codebase_grounding`. When present and non-empty,
+   * the rendered prompt gains a `<codebase_grounding>` block listing real
+   * matched symbols / files / communities / processes so the drafted section
+   * references the actual codebase rather than inventing structure.
+   *
+   * Optional: pipelines without a codebase (or predating grounding) omit it,
+   * and the rendered prompt is then byte-identical to before.
+   *
+   * source: AP feature-mode prepare_prd_input contract, shipped 2026-06.
+   */
+  readonly codebase_grounding?: CodebaseGrounding;
 }
 
 const COMMON_RULES = [
@@ -136,6 +190,97 @@ function renderStrategiesBlock(
   return lines.join("\n");
 }
 
+/**
+ * Size caps for the grounding block. These bound prompt tokens — a large graph
+ * (hundreds of matched symbols / communities) must not blow the per-section
+ * prompt budget. Caps mirror the intent of summarizeRecall's truncation in
+ * orchestration: include enough real evidence to ground the draft, drop the
+ * long tail.
+ *
+ * source: provisional heuristic, parallel to RECALL_MAX_RESULTS_INCLUDED=8 in
+ * orchestration/section-generation.ts (Phase 3+4 retrieval budget). Symbols get
+ * a higher cap (15) because each is one short line and they are the primary
+ * grounding signal; community/process name lists get 10 each.
+ */
+const GROUNDING_MAX_SYMBOLS = 15;
+const GROUNDING_MAX_COMMUNITY_NAMES = 10;
+const GROUNDING_MAX_PROCESS_NAMES = 10;
+
+/**
+ * Render the `<codebase_grounding>` block. Returns "" when grounding is absent
+ * or carries no usable evidence (no symbols, no communities, no processes, no
+ * stats) — so a pipeline without grounding produces a byte-identical prompt to
+ * before (no empty tags). Concise on purpose: a stats header, then capped lists
+ * of real symbols/files/communities/processes.
+ *
+ * source: AP feature-mode prepare_prd_input contract (prd_context), 2026-06.
+ */
+function renderGroundingBlock(
+  grounding: CodebaseGrounding | undefined,
+): string {
+  if (!grounding) return "";
+
+  const symbols = grounding.matched_symbols ?? [];
+  const communities = grounding.impacted_communities ?? [];
+  const processes = grounding.impacted_processes ?? [];
+  const stats = grounding.graph_stats;
+  const summary = grounding.finding_summary?.trim() ?? "";
+
+  const hasStats =
+    !!stats &&
+    [stats.nodes, stats.edges, stats.communities, stats.processes].some(
+      (n) => typeof n === "number",
+    );
+  const hasContent =
+    symbols.length > 0 ||
+    communities.length > 0 ||
+    processes.length > 0 ||
+    summary.length > 0 ||
+    hasStats;
+  if (!hasContent) return "";
+
+  const lines: string[] = [`<codebase_grounding>`];
+
+  if (summary) lines.push(summary);
+
+  if (hasStats && stats) {
+    lines.push(
+      `Graph: ${stats.nodes ?? "?"} nodes, ${stats.edges ?? "?"} edges, ` +
+        `${stats.communities ?? "?"} communities, ${stats.processes ?? "?"} processes.`,
+    );
+  }
+
+  if (symbols.length > 0) {
+    lines.push(
+      `Matched symbols (showing ${Math.min(symbols.length, GROUNDING_MAX_SYMBOLS)} of ${symbols.length}):`,
+    );
+    for (const s of symbols.slice(0, GROUNDING_MAX_SYMBOLS)) {
+      const label = s.name ?? s.qualified_name ?? "(unnamed)";
+      const file = s.file_path ? ` — ${s.file_path}` : "";
+      const community =
+        s.community_id !== undefined ? ` (community ${s.community_id})` : "";
+      lines.push(`  - ${label}${file}${community}`);
+    }
+  }
+
+  if (communities.length > 0) {
+    const shown = communities.slice(0, GROUNDING_MAX_COMMUNITY_NAMES);
+    lines.push(
+      `Impacted communities (${communities.length}): ${shown.join(", ")}`,
+    );
+  }
+
+  if (processes.length > 0) {
+    const shown = processes.slice(0, GROUNDING_MAX_PROCESS_NAMES);
+    lines.push(
+      `Impacted processes (${processes.length}): ${shown.join(", ")}`,
+    );
+  }
+
+  lines.push(`</codebase_grounding>`);
+  return lines.join("\n");
+}
+
 export function buildSectionPrompt(input: SectionPromptInput): string {
   const display = SECTION_DISPLAY_NAMES[input.section_type];
   const contextConfig = PRD_CONTEXT_CONFIGS[input.prd_context];
@@ -159,6 +304,7 @@ export function buildSectionPrompt(input: SectionPromptInput): string {
     : "";
 
   const strategiesBlock = renderStrategiesBlock(input.strategy_assignment);
+  const groundingBlock = renderGroundingBlock(input.codebase_grounding);
 
   return [
     `<role>You draft section "${display}" of a ${contextConfig.displayName} PRD.</role>`,
@@ -174,6 +320,8 @@ export function buildSectionPrompt(input: SectionPromptInput): string {
     input.recall_summary
       ? `<codebase_context>\n${input.recall_summary}\n</codebase_context>\n`
       : "",
+    groundingBlock,
+    groundingBlock ? "" : "",
     clarificationLines
       ? `<clarifications>\n${clarificationLines}\n</clarifications>\n`
       : "",
