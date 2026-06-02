@@ -18342,6 +18342,33 @@ var init_state = __esm({
       codebase_output_dir: external_exports.string().nullable(),
       codebase_indexed: external_exports.boolean(),
       /**
+       * Code-graph grounding for the feature, returned by automatised-pipeline
+       * `prepare_prd_input` in FEATURE MODE (response field `prd_context`):
+       *   { matched_symbols, impacted_communities, impacted_processes,
+       *     graph_stats, mode }
+       * Distinct from `prd_context` above (which is the PRD *kind* enum:
+       * feature/bug/incident/…). This is the code-graph evidence later steps
+       * (budget / section generation) inject as grounding so generated sections
+       * reference real symbols/communities/processes. Stored as an opaque object
+       * because the orchestration layer is a pure passthrough — it does not parse
+       * the AP payload (mirrors how `index_codebase` data is consumed inline).
+       *
+       * Null until `prepare_prd_input` succeeds, or permanently null when no
+       * codebase/feature_description is available (skip path, backward-compatible).
+       *
+       * source: AP feature-mode prepare_prd_input contract (shipped 2026-06).
+       */
+      codebase_grounding: external_exports.record(external_exports.string(), external_exports.unknown()).nullable().default(null),
+      /**
+       * Idempotency flag for the `prepare_prd_input` emission in input_analysis.
+       * Mirrors `codebase_indexed`: set true once the grounding call has been
+       * processed (success OR a skip-after-index decision) so the step advances
+       * exactly once and replayed state does not re-issue the call.
+       *
+       * source: AP feature-mode prepare_prd_input contract (shipped 2026-06).
+       */
+      prd_input_prepared: external_exports.boolean().default(false),
+      /**
        * Preflight gate state — `null` while preflight has not been attempted
        * yet, `"ok"` once Cortex (and ai-architect, when a codebase is given)
        * passed their liveness checks. Treated as a precondition: the runner
@@ -18416,6 +18443,30 @@ var init_state = __esm({
        * read in Phase B to attribute verdicts. Null until Phase A runs.
        */
       verification_plan: VerificationPlanSnapshotSchema.nullable().default(null),
+      /**
+       * PRD-vs-graph validation report from automatised-pipeline
+       * `validate_prd_against_graph` (args { prd_path, graph_path }), fetched in
+       * self-check after the PRD file is exported. Symbol-hallucination /
+       * community-consistency / process-impact findings. Merged into the
+       * self-check `done.verification` surface (not a new top-level shape).
+       *
+       * Stored as an opaque object — the orchestration layer is a pure passthrough
+       * and does not parse the AP payload. Null until the call succeeds, or
+       * permanently null when no `codebase_graph_path` exists (skip path,
+       * backward-compatible).
+       *
+       * source: AP validate_prd_against_graph contract (shipped 2026-06).
+       */
+      prd_validation: external_exports.record(external_exports.string(), external_exports.unknown()).nullable().default(null),
+      /**
+       * Idempotency flag for the `validate_prd_against_graph` emission in
+       * self-check. Mirrors `prd_input_prepared`: set true once the validation
+       * call has been processed (success OR skip) so self-check advances to its
+       * existing verify phase exactly once.
+       *
+       * source: AP validate_prd_against_graph contract (shipped 2026-06).
+       */
+      prd_validated: external_exports.boolean().default(false),
       /**
        * Append-only queue of strategy execution results, populated when a
        * section transitions to a terminal status (passed/failed). The
@@ -18544,7 +18595,20 @@ var init_actions = __esm({
     VerificationSummarySchema = external_exports.object({
       claims_evaluated: external_exports.number().int().nonnegative(),
       distribution: external_exports.record(VerdictSchema, external_exports.number().int().nonnegative()),
-      distribution_suspicious: external_exports.boolean()
+      distribution_suspicious: external_exports.boolean(),
+      /**
+       * PRD-vs-graph validation report from automatised-pipeline
+       * `validate_prd_against_graph`, attached when the run had a code graph.
+       * Symbol-hallucination / community-consistency / process-impact findings.
+       * Opaque object — the orchestration layer is a passthrough and does not parse
+       * the AP payload. Absent when no codebase was provided (preserves the prior
+       * verification shape for non-codebase runs).
+       *
+       * source: AP validate_prd_against_graph contract (shipped 2026-06). Attached
+       * here (not as a new top-level done field) so KPI/test consumers read one
+       * typed verification surface.
+       */
+      prd_graph_validation: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
     });
     DoneActionSchema = external_exports.object({
       kind: external_exports.literal("done"),
@@ -18990,12 +19054,45 @@ import { join as join3 } from "node:path";
 function deriveOutputDir(codebasePath, runId) {
   return join3(codebasePath, ".prd-gen", "graphs", runId);
 }
-var CORRELATION_ID, handleInputAnalysis;
+function emitPrepare(state) {
+  const featureDescription = state.feature_description.trim();
+  const graphPath = state.codebase_graph_path;
+  if (!featureDescription || !graphPath) {
+    return {
+      state: {
+        ...state,
+        prd_input_prepared: true,
+        current_step: "feasibility_gate"
+      },
+      action: {
+        kind: "emit_message",
+        message: "No feature description to ground; skipping code-graph grounding."
+      }
+    };
+  }
+  const outputDir = state.codebase_output_dir ?? deriveOutputDir(state.codebase_path, state.run_id);
+  return {
+    state: { ...state, codebase_output_dir: outputDir },
+    action: {
+      kind: "call_pipeline_tool",
+      tool_name: "prepare_prd_input",
+      // Feature mode: no finding_id. AP grounds the free text on the graph.
+      arguments: {
+        feature_description: featureDescription,
+        output_dir: outputDir,
+        graph_path: graphPath
+      },
+      correlation_id: PREPARE_CORRELATION_ID
+    }
+  };
+}
+var CORRELATION_ID, PREPARE_CORRELATION_ID, handleInputAnalysis;
 var init_input_analysis = __esm({
   async "packages/orchestration/dist/handlers/input-analysis.js"() {
     "use strict";
     await init_state();
     CORRELATION_ID = "input_analysis_index";
+    PREPARE_CORRELATION_ID = "input_analysis_prepare_prd_input";
     handleInputAnalysis = ({ state, result }) => {
       if (!state.codebase_path) {
         return {
@@ -19006,12 +19103,42 @@ var init_input_analysis = __esm({
           }
         };
       }
-      if (state.codebase_indexed && state.codebase_graph_path) {
+      if (state.codebase_indexed && state.codebase_graph_path && state.prd_input_prepared) {
         return {
           state: { ...state, current_step: "feasibility_gate" },
           action: {
             kind: "emit_message",
-            message: `Codebase indexed (graph: ${state.codebase_graph_path}).`
+            message: `Codebase analysis ready (graph: ${state.codebase_graph_path}).`
+          }
+        };
+      }
+      if (result?.kind === "tool_result" && result.correlation_id === PREPARE_CORRELATION_ID) {
+        if (!result.success) {
+          return {
+            state: {
+              ...appendError(state, `prepare_prd_input failed: ${result.error ?? "unknown"}; continuing without code-graph grounding`, "upstream_failure"),
+              prd_input_prepared: true,
+              current_step: "feasibility_gate"
+            },
+            action: {
+              kind: "emit_message",
+              message: "Code-graph grounding unavailable; proceeding without it.",
+              level: "warn"
+            }
+          };
+        }
+        const data = result.data ?? {};
+        const grounding = data.prd_context ?? result.data ?? {};
+        return {
+          state: {
+            ...state,
+            codebase_grounding: grounding,
+            prd_input_prepared: true,
+            current_step: "feasibility_gate"
+          },
+          action: {
+            kind: "emit_message",
+            message: "Feature grounded on code graph."
           }
         };
       }
@@ -19053,18 +19180,14 @@ var init_input_analysis = __esm({
             }
           };
         }
-        return {
-          state: {
-            ...state,
-            codebase_indexed: true,
-            codebase_graph_path: graphPath,
-            current_step: "feasibility_gate"
-          },
-          action: {
-            kind: "emit_message",
-            message: `Codebase indexed (graph: ${graphPath}).`
-          }
-        };
+        return emitPrepare({
+          ...state,
+          codebase_indexed: true,
+          codebase_graph_path: graphPath
+        });
+      }
+      if (state.codebase_indexed && state.codebase_graph_path && !state.prd_input_prepared) {
+        return emitPrepare(state);
       }
       const outputDir = state.codebase_output_dir ?? deriveOutputDir(state.codebase_path, state.run_id);
       return {
@@ -19176,6 +19299,44 @@ function renderStrategiesBlock(assignment) {
   lines.push(`</strategies>`);
   return lines.join("\n");
 }
+function renderGroundingBlock(grounding) {
+  if (!grounding)
+    return "";
+  const symbols = grounding.matched_symbols ?? [];
+  const communities = grounding.impacted_communities ?? [];
+  const processes = grounding.impacted_processes ?? [];
+  const stats = grounding.graph_stats;
+  const summary = grounding.finding_summary?.trim() ?? "";
+  const hasStats = !!stats && [stats.nodes, stats.edges, stats.communities, stats.processes].some((n) => typeof n === "number");
+  const hasContent = symbols.length > 0 || communities.length > 0 || processes.length > 0 || summary.length > 0 || hasStats;
+  if (!hasContent)
+    return "";
+  const lines = [`<codebase_grounding>`];
+  if (summary)
+    lines.push(summary);
+  if (hasStats && stats) {
+    lines.push(`Graph: ${stats.nodes ?? "?"} nodes, ${stats.edges ?? "?"} edges, ${stats.communities ?? "?"} communities, ${stats.processes ?? "?"} processes.`);
+  }
+  if (symbols.length > 0) {
+    lines.push(`Matched symbols (showing ${Math.min(symbols.length, GROUNDING_MAX_SYMBOLS)} of ${symbols.length}):`);
+    for (const s of symbols.slice(0, GROUNDING_MAX_SYMBOLS)) {
+      const label = s.name ?? s.qualified_name ?? "(unnamed)";
+      const file = s.file_path ? ` \u2014 ${s.file_path}` : "";
+      const community = s.community_id !== void 0 ? ` (community ${s.community_id})` : "";
+      lines.push(`  - ${label}${file}${community}`);
+    }
+  }
+  if (communities.length > 0) {
+    const shown = communities.slice(0, GROUNDING_MAX_COMMUNITY_NAMES);
+    lines.push(`Impacted communities (${communities.length}): ${shown.join(", ")}`);
+  }
+  if (processes.length > 0) {
+    const shown = processes.slice(0, GROUNDING_MAX_PROCESS_NAMES);
+    lines.push(`Impacted processes (${processes.length}): ${shown.join(", ")}`);
+  }
+  lines.push(`</codebase_grounding>`);
+  return lines.join("\n");
+}
 function buildSectionPrompt(input) {
   const display = SECTION_DISPLAY_NAMES[input.section_type];
   const contextConfig = PRD_CONTEXT_CONFIGS[input.prd_context];
@@ -19190,6 +19351,7 @@ A: ${c.answer}`).join("\n\n");
     `</previous_attempt_failed>`
   ].join("\n") : "";
   const strategiesBlock = renderStrategiesBlock(input.strategy_assignment);
+  const groundingBlock = renderGroundingBlock(input.codebase_grounding);
   return [
     `<role>You draft section "${display}" of a ${contextConfig.displayName} PRD.</role>`,
     "",
@@ -19205,6 +19367,8 @@ A: ${c.answer}`).join("\n\n");
 ${input.recall_summary}
 </codebase_context>
 ` : "",
+    groundingBlock,
+    groundingBlock ? "" : "",
     clarificationLines ? `<clarifications>
 ${clarificationLines}
 </clarifications>
@@ -19224,7 +19388,7 @@ ${clarificationLines}
     `Produce the "${display}" section now. Markdown only.`
   ].filter((line) => line !== "").join("\n");
 }
-var COMMON_RULES, PER_SECTION_GUIDANCE;
+var COMMON_RULES, PER_SECTION_GUIDANCE, GROUNDING_MAX_SYMBOLS, GROUNDING_MAX_COMMUNITY_NAMES, GROUNDING_MAX_PROCESS_NAMES;
 var init_section_prompts = __esm({
   async "packages/meta-prompting/dist/section-prompts.js"() {
     "use strict";
@@ -19255,6 +19419,9 @@ var init_section_prompts = __esm({
       risks: "Risk register: | Risk | Likelihood | Impact | Mitigation | Owner |. One row per risk.",
       timeline: "Phases with sprint counts. Each phase total = sum of stories in that phase. Grand total = sum of phases."
     };
+    GROUNDING_MAX_SYMBOLS = 15;
+    GROUNDING_MAX_COMMUNITY_NAMES = 10;
+    GROUNDING_MAX_PROCESS_NAMES = 10;
   }
 });
 
@@ -19766,6 +19933,13 @@ function recallAction(feature, sectionType) {
     correlation_id: correlationFor(RETRIEVE_PREFIX, sectionType)
   };
 }
+function normalizeGrounding(raw) {
+  if (!raw)
+    return void 0;
+  const nested = raw.prd_context;
+  const grounding = nested && typeof nested === "object" ? nested : raw;
+  return grounding;
+}
 function draftAction(state, section, recall_summary, prior_violations) {
   const display = SECTION_DISPLAY_NAMES[section.section_type];
   if (!state.prd_context) {
@@ -19782,7 +19956,12 @@ function draftAction(state, section, recall_summary, prior_violations) {
     // Phase 4 strategy-wiring (2026-04): pass the persisted assignment
     // so every retry uses the SAME strategies the selector chose at the
     // pending → retrieving transition.
-    strategy_assignment: section.strategy_assignment
+    strategy_assignment: section.strategy_assignment,
+    // Thread AP's code-graph grounding (state.codebase_grounding, possibly
+    // wrapped in a prepare_prd_input response) into the prompt so drafts
+    // reference real symbols/files/communities/processes. `undefined` when no
+    // codebase grounding exists → prompt is byte-identical to before.
+    codebase_grounding: normalizeGrounding(state.codebase_grounding)
   });
   return {
     kind: "spawn_subagents",
@@ -20965,6 +21144,41 @@ var init_dist5 = __esm({
 });
 
 // packages/orchestration/dist/handlers/self-check.js
+function exportedPrdPath(state) {
+  return state.written_files.find((p) => /(^|\/)01-prd\.md$/.test(p)) ?? null;
+}
+function handlePrdValidation(state, result) {
+  if (result?.kind === "tool_result" && result.correlation_id === VALIDATE_PRD_CORRELATION_ID) {
+    if (!result.success) {
+      return {
+        state: appendError({ ...state, prd_validated: true }, `validate_prd_against_graph failed: ${result.error ?? "unknown"}; continuing without graph validation`, "upstream_failure"),
+        fallthrough: true
+      };
+    }
+    const report = result.data ?? {};
+    return {
+      state: { ...state, prd_validation: report, prd_validated: true },
+      fallthrough: true
+    };
+  }
+  if (state.prd_validated) {
+    return { state, fallthrough: true };
+  }
+  const graphPath = state.codebase_graph_path;
+  const prdPath = exportedPrdPath(state);
+  if (!graphPath || !prdPath) {
+    return { state: { ...state, prd_validated: true }, fallthrough: true };
+  }
+  return {
+    state,
+    action: {
+      kind: "call_pipeline_tool",
+      tool_name: "validate_prd_against_graph",
+      arguments: { prd_path: prdPath, graph_path: graphPath },
+      correlation_id: VALIDATE_PRD_CORRELATION_ID
+    }
+  };
+}
 function invocationIdFor(idx) {
   return `${SELF_CHECK_JUDGE_INV_PREFIX}${idx.toString().padStart(4, "0")}`;
 }
@@ -21071,7 +21285,11 @@ function finalize(state, verdicts = []) {
       verification: {
         claims_evaluated: verificationReport.claims_evaluated,
         distribution: verificationReport.distribution,
-        distribution_suspicious: verificationReport.distribution_suspicious
+        distribution_suspicious: verificationReport.distribution_suspicious,
+        // Attach the PRD-vs-graph validation report when one was produced. Left
+        // undefined for non-codebase runs so the prior verification shape is
+        // unchanged (backward-compatible). See VerificationSummarySchema.
+        ...state.prd_validation ? { prd_graph_validation: state.prd_validation } : {}
       }
     }
   };
@@ -21148,7 +21366,7 @@ function parseVerdictsFromSnapshot(snapshot, state, batchResult) {
   }
   return out;
 }
-var VERIFY_BATCH_ID, RawVerdictSchema, handleSelfCheck;
+var VERIFY_BATCH_ID, VALIDATE_PRD_CORRELATION_ID, RawVerdictSchema, handleSelfCheck;
 var init_self_check = __esm({
   async "packages/orchestration/dist/handlers/self-check.js"() {
     "use strict";
@@ -21159,6 +21377,7 @@ var init_self_check = __esm({
     init_zod();
     init_protocol_ids();
     VERIFY_BATCH_ID = "self_check_verify";
+    VALIDATE_PRD_CORRELATION_ID = "self_check_validate_prd_against_graph";
     RawVerdictSchema = external_exports.object({
       verdict: VerdictSchema,
       rationale: external_exports.string(),
@@ -21166,10 +21385,15 @@ var init_self_check = __esm({
       confidence: external_exports.number().min(0).max(1)
     });
     handleSelfCheck = ({ state, result }) => {
-      if (result?.kind === "subagent_batch_result" && result.batch_id === VERIFY_BATCH_ID) {
-        return handleSelfCheckPhaseB(state, result);
+      const validation = handlePrdValidation(state, result);
+      if ("action" in validation) {
+        return { state: validation.state, action: validation.action };
       }
-      return handleSelfCheckPhaseA(state);
+      const stateAfterValidation = validation.state;
+      if (result?.kind === "subagent_batch_result" && result.batch_id === VERIFY_BATCH_ID) {
+        return handleSelfCheckPhaseB(stateAfterValidation, result);
+      }
+      return handleSelfCheckPhaseA(stateAfterValidation);
     };
   }
 });
