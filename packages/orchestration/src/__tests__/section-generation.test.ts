@@ -119,6 +119,79 @@ describe("section-generation — cortex_recall_empty_count", () => {
   });
 });
 
+// ─── Codebase grounding threading into the draft prompt ────────────────────
+
+describe("section-generation — codebase_grounding flows into the draft prompt", () => {
+  /**
+   * Drive a fresh pipeline to the section-recall action, inject the grounding
+   * onto state, feed a non-empty recall result so the retrieving→generating
+   * transition fires draftAction, and return the emitted spawn_subagents draft
+   * prompt. This verifies the handler threads state.codebase_grounding through
+   * buildSectionPrompt (normalized via .prd_context where present).
+   */
+  function draftPromptWithGrounding(
+    runId: string,
+    grounding: Record<string, unknown>,
+  ): string {
+    const { state: atRecall, correlationId } = driveToSectionRecall(runId);
+    const grounded: PipelineState = { ...atRecall, codebase_grounding: grounding };
+    const out = step({
+      state: grounded,
+      result: {
+        kind: "tool_result",
+        correlation_id: correlationId,
+        success: true,
+        data: { results: [{ content: "prior memory" }] },
+      },
+    });
+    if (out.action.kind !== "spawn_subagents") {
+      throw new Error(
+        `Expected spawn_subagents draft action, got '${out.action.kind}'.`,
+      );
+    }
+    const prompt = out.action.invocations[0]?.prompt;
+    if (!prompt) throw new Error("draft action had no prompt");
+    return prompt;
+  }
+
+  const PRD_CONTEXT_GROUNDING = {
+    finding_summary: "Feature touches the auth community.",
+    matched_symbols: [
+      {
+        qualified_name: "src/auth.ts::loginHandler",
+        name: "loginHandler",
+        file_path: "src/auth.ts",
+        community_id: 7,
+      },
+    ],
+    impacted_communities: ["auth"],
+    impacted_processes: ["login_flow"],
+    graph_stats: { nodes: 1200, edges: 4300, communities: 18, processes: 12 },
+  };
+
+  it("threads grounding wrapped in a prepare_prd_input response (.prd_context)", () => {
+    // AP stores the WHOLE response on state; grounding lives at .prd_context.
+    const prompt = draftPromptWithGrounding("grounding-nested", {
+      prd_context: PRD_CONTEXT_GROUNDING,
+    });
+    expect(prompt).toContain("<codebase_grounding>");
+    expect(prompt).toContain("loginHandler");
+    expect(prompt).toContain("src/auth.ts");
+    expect(prompt).toContain("community 7");
+    expect(prompt).toContain("login_flow");
+    expect(prompt).toContain("1200 nodes");
+  });
+
+  it("threads an already-flat grounding object (no .prd_context wrapper)", () => {
+    const prompt = draftPromptWithGrounding(
+      "grounding-flat",
+      PRD_CONTEXT_GROUNDING,
+    );
+    expect(prompt).toContain("<codebase_grounding>");
+    expect(prompt).toContain("loginHandler");
+  });
+});
+
 // ─── D1.B: SectionStatus.attempt_log Zod round-trip ────────────────────────
 
 describe("SectionStatusSchema — attempt_log Zod round-trip (Wave D1.B)", () => {

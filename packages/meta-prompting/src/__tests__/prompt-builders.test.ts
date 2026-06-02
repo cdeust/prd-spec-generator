@@ -241,6 +241,121 @@ describe("buildSectionPrompt", () => {
     expect(out).not.toContain("FORBIDDEN (do NOT apply");
   });
 
+  it("renders a <codebase_grounding> block with real symbols/communities/processes when grounding is provided", () => {
+    const out = buildSectionPrompt({
+      section_type: "requirements",
+      feature_description: "OAuth login",
+      prd_context: "feature",
+      recall_summary: "",
+      clarification_qa: [],
+      prior_violations: [],
+      attempt: 1,
+      codebase_grounding: {
+        finding_summary: "OAuth touches 3 auth-layer symbols.",
+        matched_symbols: [
+          {
+            qualified_name: "src/auth.ts::loginHandler",
+            name: "loginHandler",
+            label: "function",
+            file_path: "src/auth.ts",
+            community_id: 7,
+          },
+          {
+            qualified_name: "src/session.ts::SessionStore",
+            name: "SessionStore",
+            label: "class",
+            file_path: "src/session.ts",
+            community_id: 7,
+          },
+        ],
+        impacted_communities: ["auth", "session"],
+        impacted_processes: ["login_flow", "token_refresh"],
+        graph_stats: {
+          nodes: 1200,
+          edges: 4300,
+          communities: 18,
+          processes: 12,
+        },
+      },
+    });
+    expect(out).toContain("<codebase_grounding>");
+    // matched-symbol text: name + file_path + community
+    expect(out).toContain("loginHandler");
+    expect(out).toContain("src/auth.ts");
+    expect(out).toContain("community 7");
+    expect(out).toContain("SessionStore");
+    // impacted communities + processes
+    expect(out).toContain("auth");
+    expect(out).toContain("login_flow");
+    // graph stats header
+    expect(out).toContain("1200 nodes");
+    // finding summary
+    expect(out).toContain("OAuth touches 3 auth-layer symbols.");
+  });
+
+  it("caps matched symbols at 15 and reports the true total", () => {
+    const matched_symbols = Array.from({ length: 40 }, (_, i) => ({
+      qualified_name: `src/f${i}.ts::sym${i}`,
+      name: `sym${i}`,
+      file_path: `src/f${i}.ts`,
+      community_id: i,
+    }));
+    const out = buildSectionPrompt({
+      section_type: "requirements",
+      feature_description: "x",
+      prd_context: "feature",
+      recall_summary: "",
+      clarification_qa: [],
+      prior_violations: [],
+      attempt: 1,
+      codebase_grounding: { matched_symbols },
+    });
+    expect(out).toContain("showing 15 of 40");
+    expect(out).toContain("sym0");
+    expect(out).toContain("sym14");
+    // 16th symbol (index 15) must be dropped by the cap
+    expect(out).not.toContain("sym15 —");
+  });
+
+  it("omits the <codebase_grounding> block when grounding is absent (back-compat, byte-identical)", () => {
+    const base = {
+      section_type: "overview" as const,
+      feature_description: "x",
+      prd_context: "feature" as const,
+      recall_summary: "",
+      clarification_qa: [],
+      prior_violations: [],
+      attempt: 1,
+    };
+    const withoutField = buildSectionPrompt(base);
+    const withUndefined = buildSectionPrompt({
+      ...base,
+      codebase_grounding: undefined,
+    });
+    expect(withoutField).not.toContain("<codebase_grounding>");
+    expect(withUndefined).not.toContain("<codebase_grounding>");
+    // No empty tag, and the two renderings are identical → backward compatible.
+    expect(withUndefined).toBe(withoutField);
+  });
+
+  it("omits the <codebase_grounding> block when grounding is present but carries no usable evidence", () => {
+    const out = buildSectionPrompt({
+      section_type: "overview",
+      feature_description: "x",
+      prd_context: "feature",
+      recall_summary: "",
+      clarification_qa: [],
+      prior_violations: [],
+      attempt: 1,
+      codebase_grounding: {
+        matched_symbols: [],
+        impacted_communities: [],
+        impacted_processes: [],
+      },
+    });
+    expect(out).not.toContain("<codebase_grounding>");
+  });
+
   it("includes the COMMON_RULES that gate downstream validators", () => {
     const out = buildSectionPrompt({
       section_type: "requirements",

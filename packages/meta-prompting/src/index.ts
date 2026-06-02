@@ -1,6 +1,8 @@
 export {
   buildSectionPrompt,
   type SectionPromptInput,
+  type CodebaseGrounding,
+  type GroundedSymbol,
 } from "./section-prompts.js";
 
 export {
