@@ -31,11 +31,27 @@ export const RecalledMemorySchema = z.object({
 });
 export type RecalledMemory = z.infer<typeof RecalledMemorySchema>;
 
-export const RecallResponseSchema = z.object({
-  results: z.array(RecalledMemorySchema),
-  total: z.number().int().nonnegative(),
-  query_intent: z.string().optional(),
-});
+/**
+ * Wire schema matches Cortex's canonical response keys (`memories`/`count`/
+ * `intent`). The legacy `results`/`total` aliases were removed from Cortex
+ * on 2026-06-10 — they byte-duplicated every memory on the wire (measured:
+ * 815KB response for 15 memories, 50% pure duplication).
+ *
+ * The transform preserves prd-spec-generator's internal `{results, total}`
+ * shape so downstream consumers (production-dispatcher, section-generation)
+ * stay untouched.
+ */
+export const RecallResponseSchema = z
+  .object({
+    memories: z.array(RecalledMemorySchema),
+    count: z.number().int().nonnegative(),
+    intent: z.string().optional(),
+  })
+  .transform(({ memories, count, intent }) => ({
+    results: memories,
+    total: count,
+    query_intent: intent,
+  }));
 export type RecallResponse = z.infer<typeof RecallResponseSchema>;
 
 // ─── remember ───────────────────────────────────────────────────────────────
