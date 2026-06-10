@@ -44,6 +44,30 @@ try {
  * Location: ~/.prd-gen/evidence.db
  */
 
+// ─── Retention constant (bounded-I/O Phase 3) ────────────────────────────────
+
+/**
+ * Max strategy_executions rows retained by pruneToRetention(). This table is
+ * the only run-keyed, monotonically-growing evidence table; without a cap it
+ * grows one row per strategy execution per run forever.
+ *
+ * The retention floor is functional, not cosmetic: getStrategyPerformance() and
+ * getHistoricalAdjustments() require minExecutions = 10 per strategy before a
+ * strategy contributes an adjustment, and recalculateThresholds() requires
+ * minSamples = 20 quality scores. With a handful of strategies the learning
+ * signal saturates in the low thousands of rows; beyond that, older rows only
+ * dilute recent behavior (the adjustments are clamped to ±0.3 regardless).
+ *
+ * source: derived from the existing learning floors in THIS file
+ * (getStrategyPerformance minExecutions=10, recalculateThresholds
+ * minSamples=20). 10_000 = engineering default pending measurement: it is
+ * ~500× the largest learning floor (20), giving deep history per strategy while
+ * bounding the table. Calibrate by measuring the row count at which
+ * getHistoricalAdjustments stops changing across a benchmark run, then set
+ * MAX_EVIDENCE_ROWS to that saturation point + headroom.
+ */
+export const MAX_EVIDENCE_ROWS = 10_000; // engineering default — see source note
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface StrategyExecution {
@@ -351,6 +375,71 @@ export class EvidenceRepository {
       upsert.run("quality_good_threshold", p75, values.length);
     });
     updateAll();
+  }
+
+  // ─── Retention (bounded-I/O Phase 3) ─────────────────────────────────────
+
+  /**
+   * Release evidence tied to a single run. Strategy executions are written
+   * with session_id = run_id (see pipeline-tools.ts drainStrategyExecutions →
+   * EffectivenessTracker.recordExecution). When the InMemoryRunStore evicts a
+   * terminal run, the composition root calls this to free the run's persisted
+   * feedback rows so disk growth tracks live runs, not all-time runs.
+   *
+   * precondition: runId is the session_id used at write time (the pipeline
+   *   run_id). An empty/unknown runId deletes nothing.
+   * postcondition: every strategy_executions row with session_id = runId is
+   *   removed; returns the number of rows deleted (observable, never silent).
+   *
+   * Note: prd_quality_scores and adaptive_thresholds are NOT run-scoped (no
+   * session_id column) — they are cross-run learning aggregates and are bounded
+   * separately by pruneToRetention(). source: schema in migrate() — only
+   * strategy_executions carries session_id.
+   */
+  pruneRunEvidence(runId: string): number {
+    if (runId === "") return 0;
+    const res = this.db
+      .prepare(`DELETE FROM strategy_executions WHERE session_id = ?`)
+      .run(runId);
+    return res.changes;
+  }
+
+  /**
+   * Bound standalone growth of the strategy_executions table. Keeps the most
+   * recent `maxRows` rows (by created_at, ties broken by id) and deletes the
+   * rest. Called periodically by the composition root so the table cannot grow
+   * without limit even for runs that complete but are never evicted (e.g. the
+   * host process never re-reads them, so the RunStore TTL fires but the rows
+   * would otherwise persist on disk forever).
+   *
+   * precondition: maxRows >= 0.
+   * postcondition: strategy_executions has at most maxRows rows; returns the
+   *   number of rows deleted (observable). Newest rows are retained because the
+   *   selector and adaptive thresholds weight recent behavior — the oldest
+   *   executions are the least informative, mirroring appendError FIFO.
+   *
+   * source: see MAX_EVIDENCE_ROWS default in this file.
+   */
+  pruneToRetention(maxRows: number = MAX_EVIDENCE_ROWS): number {
+    const res = this.db
+      .prepare(
+        `DELETE FROM strategy_executions
+         WHERE id NOT IN (
+           SELECT id FROM strategy_executions
+           ORDER BY created_at DESC, id DESC
+           LIMIT ?
+         )`,
+      )
+      .run(maxRows);
+    return res.changes;
+  }
+
+  /** Current strategy_executions row count — observable for retention checks. */
+  strategyExecutionCount(): number {
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM strategy_executions`)
+      .get() as { n: number };
+    return row.n;
   }
 
   // ─── Lifecycle ───────────────────────────────────────────────────────────

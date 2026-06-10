@@ -20,7 +20,61 @@ import { SectionTypeSchema, JudgeVerdictSchema, ClaimSchema, ExternalGroundingTy
 import { EffectivenessTracker } from "@prd-gen/strategy";
 import { getRetryArmForRun, getMaxAttemptsForRun, MAX_ATTEMPTS_BASELINE, } from "@prd-gen/benchmark";
 import { buildConcludeOpts } from "./build-conclude-opts.js";
-const runStore = new InMemoryRunStore();
+import { boundFullStateResponse, boundGroundingResponse, } from "./bound-full-state.js";
+/**
+ * Global run semaphore cap — max pipeline runs in flight at once.
+ *
+ * A "run in flight" is a run whose current_step !== "complete": the host is
+ * still driving its loop (start_pipeline → submit_action_result*). Each in-flight
+ * run pins one PipelineState (≤ MAX_RESPONSE_CHARS) plus any subagent work the
+ * host spawns for it. Without a cap, a host that fires start_pipeline in a loop
+ * grows unbounded concurrent work.
+ *
+ * source: engineering default pending measurement; calibrate by the observed
+ * peak concurrent in-flight run count on a real interactive host (instrument
+ * inFlightRunCount() at each start_pipeline and set MAX_CONCURRENT_RUNS to
+ * p99 + headroom). 8 is chosen conservatively: an interactive Claude Code host
+ * drives one pipeline at a time in the common case, so 8 leaves generous room
+ * for overlap while bounding fan-out. It is well under the RunStore max-runs cap
+ * (64) so the semaphore — not eviction — is the first limit a runaway caller
+ * hits, yielding a clear structured rejection instead of silent eviction.
+ */
+const MAX_CONCURRENT_RUNS = Number(process.env.PRD_MAX_CONCURRENT_RUNS ?? 8); // env-configurable; default 8 — see source note above
+/**
+ * Lazily-built EvidenceRepository handle for run-eviction cleanup. The full
+ * tracker is built in getTracker(); this references the same repo so onEvict can
+ * release run-tied evidence. Both share the _repo cache below.
+ */
+function getRepo() {
+    // Force lazy init via getTracker so _repo is resolved exactly once.
+    getTracker();
+    return _repo ?? null;
+}
+const runStore = new InMemoryRunStore({
+    // When a terminal run is evicted (TTL or max-runs), release its persisted
+    // strategy-execution evidence so disk growth tracks live runs. Best-effort:
+    // onEvict must not throw (InMemoryRunStore swallows throws), and a missing
+    // repo is a no-op. source: evidence-repository.ts pruneRunEvidence.
+    onEvict: (runId) => {
+        getRepo()?.pruneRunEvidence(runId);
+    },
+});
+/**
+ * Count runs currently in flight (not terminal). The semaphore admits a new
+ * start_pipeline only while this is below MAX_CONCURRENT_RUNS.
+ *
+ * precondition: none.
+ * postcondition: returns the number of runStore runs whose current_step is not
+ *   "complete". Terminal runs awaiting eviction do not count against the cap.
+ */
+function inFlightRunCount() {
+    let n = 0;
+    for (const s of runStore.list()) {
+        if (s.current_step !== "complete")
+            n += 1;
+    }
+    return n;
+}
 /**
  * Lazy EvidenceRepository + EffectivenessTracker. Both are optional —
  * better-sqlite3 may be unavailable at runtime. When the repository is
@@ -115,6 +169,33 @@ export function registerPipelineTools(server) {
             .optional()
             .describe("If true, skip the preflight step that probes Cortex (and ai-architect when codebase_path is set). Default false. Use only when you accept degraded section generation without persistent memory recall."),
     }, async ({ feature_description, codebase_path, skip_preflight }) => {
+        // Global run semaphore (bounded-I/O Phase 3). Admit a new run only while
+        // fewer than MAX_CONCURRENT_RUNS are in flight. At cap we REJECT with a
+        // structured, retryable error rather than hang or grow unbounded — the
+        // caller backs off and retries. No queue: an MCP tool call is synchronous
+        // request/response, so a bounded queue would just move the wait onto a
+        // held connection; an explicit retry signal is the honest contract.
+        // source: MAX_CONCURRENT_RUNS in this file.
+        const inFlightCount = inFlightRunCount();
+        if (inFlightCount >= MAX_CONCURRENT_RUNS) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            error: "run_capacity_exceeded",
+                            message: `pipeline run capacity reached: ${inFlightCount}/${MAX_CONCURRENT_RUNS} runs in flight. ` +
+                                "Retry after an in-flight run completes (current_step:'complete'), " +
+                                "or raise PRD_MAX_CONCURRENT_RUNS.",
+                            in_flight: inFlightCount,
+                            max_concurrent_runs: MAX_CONCURRENT_RUNS,
+                            retryable: true,
+                        }, null, 2),
+                    },
+                ],
+                isError: true,
+            };
+        }
         const run_id = generateRunId();
         const initial = newPipelineState({
             run_id,
@@ -221,9 +302,18 @@ export function registerPipelineTools(server) {
         }
     });
     // ─── get_pipeline_state ─────────────────────────────────────────────────
-    server.tool("get_pipeline_state", "Read the current pipeline state by run_id.", {
+    server.tool("get_pipeline_state", "Read the current pipeline state by run_id. format:'summary' (default) returns " +
+        "the lightweight envelope; format:'full' returns the whole state, bounded to the " +
+        "Claude Code 100,000-char MCP response budget by shedding least-relevant detail " +
+        "first (observable __bounded markers; full grounding re-fetchable via " +
+        "format:'grounding'); format:'grounding' returns the codebase_grounding (+ " +
+        "prd_validation when it fits) blobs format:'full' sheds first; format:'validation' " +
+        "returns prd_validation alone (the blob format:'grounding' sheds when the pair " +
+        "overshoots).", {
         run_id: z.string(),
-        format: z.enum(["full", "summary"]).default("summary"),
+        format: z
+            .enum(["full", "summary", "grounding", "validation"])
+            .default("summary"),
     }, async ({ run_id, format }) => {
         const state = runStore.get(run_id);
         if (!state) {
@@ -237,10 +327,44 @@ export function registerPipelineTools(server) {
                 isError: true,
             };
         }
-        const body = format === "full"
-            ? JSON.stringify(state, null, 2)
-            : JSON.stringify(envelope(state, null), null, 2);
-        return { content: [{ type: "text", text: body }] };
+        let payload;
+        if (format === "full") {
+            // Bound the full-state serialization to the 100,000-char MCP budget.
+            // The per-field input caps (Phase 1c) overlap, so a worst-case state
+            // overshoots the AGGREGATE budget; boundFullStateResponse degrades by
+            // priority (grounding → clarifications → section content), recording
+            // every shed in __bounded. source: bound-full-state.ts.
+            payload = boundFullStateResponse(state);
+        }
+        else if (format === "grounding") {
+            // The narrow re-fetch path for the blobs format:"full" sheds first.
+            // Each blob is bounded at the input contract (codebase_grounding ≈ 90k
+            // via PrdInputBundleSchema; prd_validation ≈ 10k). Each fits ALONE, but
+            // the two together at their caps reach ~100,257 wire chars — over budget.
+            // So this selector is itself bounded: codebase_grounding (the named
+            // purpose of this format) is kept; prd_validation rides only if it fits,
+            // else it is shed to a stub pointing at format:"validation". source:
+            // measured 2026-06-10 — grounding+validation at input caps = 100,257 >
+            // 100,000; boundGroundingResponse in bound-full-state.ts.
+            payload = boundGroundingResponse(state);
+        }
+        else if (format === "validation") {
+            // Narrow re-fetch for prd_validation alone (the blob format:"grounding"
+            // sheds when grounding+validation together overshoot). Fits standalone:
+            // prd_validation is input-capped ≈ 10k. source: bound-full-state.ts.
+            payload = {
+                run_id: state.run_id,
+                prd_validation: state.prd_validation,
+            };
+        }
+        else {
+            payload = envelope(state, null);
+        }
+        return {
+            content: [
+                { type: "text", text: JSON.stringify(payload, null, 2) },
+            ],
+        };
     });
     // ─── plan_section_verification ─────────────────────────────────────────────
     server.tool("plan_section_verification", "Extract claims from a PRD section and select judges. Returns JudgeRequest[] the host must execute via Agent tool in parallel.", {

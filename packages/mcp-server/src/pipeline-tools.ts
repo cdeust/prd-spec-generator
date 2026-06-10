@@ -51,7 +51,64 @@ import {
   boundGroundingResponse,
 } from "./bound-full-state.js";
 
-const runStore = new InMemoryRunStore();
+/**
+ * Global run semaphore cap — max pipeline runs in flight at once.
+ *
+ * A "run in flight" is a run whose current_step !== "complete": the host is
+ * still driving its loop (start_pipeline → submit_action_result*). Each in-flight
+ * run pins one PipelineState (≤ MAX_RESPONSE_CHARS) plus any subagent work the
+ * host spawns for it. Without a cap, a host that fires start_pipeline in a loop
+ * grows unbounded concurrent work.
+ *
+ * source: engineering default pending measurement; calibrate by the observed
+ * peak concurrent in-flight run count on a real interactive host (instrument
+ * inFlightRunCount() at each start_pipeline and set MAX_CONCURRENT_RUNS to
+ * p99 + headroom). 8 is chosen conservatively: an interactive Claude Code host
+ * drives one pipeline at a time in the common case, so 8 leaves generous room
+ * for overlap while bounding fan-out. It is well under the RunStore max-runs cap
+ * (64) so the semaphore — not eviction — is the first limit a runaway caller
+ * hits, yielding a clear structured rejection instead of silent eviction.
+ */
+const MAX_CONCURRENT_RUNS = Number(
+  process.env.PRD_MAX_CONCURRENT_RUNS ?? 8,
+); // env-configurable; default 8 — see source note above
+
+/**
+ * Lazily-built EvidenceRepository handle for run-eviction cleanup. The full
+ * tracker is built in getTracker(); this references the same repo so onEvict can
+ * release run-tied evidence. Both share the _repo cache below.
+ */
+function getRepo(): EvidenceRepository | null {
+  // Force lazy init via getTracker so _repo is resolved exactly once.
+  getTracker();
+  return _repo ?? null;
+}
+
+const runStore = new InMemoryRunStore({
+  // When a terminal run is evicted (TTL or max-runs), release its persisted
+  // strategy-execution evidence so disk growth tracks live runs. Best-effort:
+  // onEvict must not throw (InMemoryRunStore swallows throws), and a missing
+  // repo is a no-op. source: evidence-repository.ts pruneRunEvidence.
+  onEvict: (runId: string) => {
+    getRepo()?.pruneRunEvidence(runId);
+  },
+});
+
+/**
+ * Count runs currently in flight (not terminal). The semaphore admits a new
+ * start_pipeline only while this is below MAX_CONCURRENT_RUNS.
+ *
+ * precondition: none.
+ * postcondition: returns the number of runStore runs whose current_step is not
+ *   "complete". Terminal runs awaiting eviction do not count against the cap.
+ */
+function inFlightRunCount(): number {
+  let n = 0;
+  for (const s of runStore.list()) {
+    if (s.current_step !== "complete") n += 1;
+  }
+  return n;
+}
 
 /**
  * Lazy EvidenceRepository + EffectivenessTracker. Both are optional —
@@ -162,6 +219,39 @@ export function registerPipelineTools(server: McpServer): void {
         ),
     },
     async ({ feature_description, codebase_path, skip_preflight }) => {
+      // Global run semaphore (bounded-I/O Phase 3). Admit a new run only while
+      // fewer than MAX_CONCURRENT_RUNS are in flight. At cap we REJECT with a
+      // structured, retryable error rather than hang or grow unbounded — the
+      // caller backs off and retries. No queue: an MCP tool call is synchronous
+      // request/response, so a bounded queue would just move the wait onto a
+      // held connection; an explicit retry signal is the honest contract.
+      // source: MAX_CONCURRENT_RUNS in this file.
+      const inFlightCount = inFlightRunCount();
+      if (inFlightCount >= MAX_CONCURRENT_RUNS) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  error: "run_capacity_exceeded",
+                  message:
+                    `pipeline run capacity reached: ${inFlightCount}/${MAX_CONCURRENT_RUNS} runs in flight. ` +
+                    "Retry after an in-flight run completes (current_step:'complete'), " +
+                    "or raise PRD_MAX_CONCURRENT_RUNS.",
+                  in_flight: inFlightCount,
+                  max_concurrent_runs: MAX_CONCURRENT_RUNS,
+                  retryable: true,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+          isError: true,
+        };
+      }
+
       const run_id = generateRunId();
       const initial = newPipelineState({
         run_id,

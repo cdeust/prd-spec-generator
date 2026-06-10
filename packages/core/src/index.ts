@@ -96,6 +96,7 @@ export { extractJsonObject } from "./utils/json-extract.js";
 export {
   EvidenceRepository,
   tryCreateEvidenceRepository,
+  MAX_EVIDENCE_ROWS,
   type StrategyExecution,
   type PRDQualityScore,
   type AdaptiveThreshold,

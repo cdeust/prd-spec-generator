@@ -61,8 +61,14 @@ export {
 // Runner
 export { step, type StepInput, type StepOutput, type StepHandler } from "./runner.js";
 
-// Run store
-export { InMemoryRunStore, type RunStore } from "./run-store.js";
+// Run store (bounded-I/O Phase 3: TTL + max-runs eviction of terminal runs)
+export {
+  InMemoryRunStore,
+  type RunStore,
+  type RunStoreOptions,
+  type Clock,
+  RUN_STORE_RESIDENT_CHAR_CEILING,
+} from "./run-store.js";
 
 // Section-generation constants (exported for benchmark layer — benchmark → orchestration direction per §2.2)
 export { MAX_ATTEMPTS } from "./handlers/section-generation.js";
