@@ -23794,6 +23794,7 @@ try {
   Database = (await import("better-sqlite3")).default;
 } catch {
 }
+var MAX_EVIDENCE_ROWS = 1e4;
 var EvidenceRepository = class {
   db;
   constructor(dbPath) {
@@ -23980,6 +23981,60 @@ var EvidenceRepository = class {
       upsert.run("quality_good_threshold", p75, values.length);
     });
     updateAll();
+  }
+  // ─── Retention (bounded-I/O Phase 3) ─────────────────────────────────────
+  /**
+   * Release evidence tied to a single run. Strategy executions are written
+   * with session_id = run_id (see pipeline-tools.ts drainStrategyExecutions →
+   * EffectivenessTracker.recordExecution). When the InMemoryRunStore evicts a
+   * terminal run, the composition root calls this to free the run's persisted
+   * feedback rows so disk growth tracks live runs, not all-time runs.
+   *
+   * precondition: runId is the session_id used at write time (the pipeline
+   *   run_id). An empty/unknown runId deletes nothing.
+   * postcondition: every strategy_executions row with session_id = runId is
+   *   removed; returns the number of rows deleted (observable, never silent).
+   *
+   * Note: prd_quality_scores and adaptive_thresholds are NOT run-scoped (no
+   * session_id column) — they are cross-run learning aggregates and are bounded
+   * separately by pruneToRetention(). source: schema in migrate() — only
+   * strategy_executions carries session_id.
+   */
+  pruneRunEvidence(runId) {
+    if (runId === "")
+      return 0;
+    const res = this.db.prepare(`DELETE FROM strategy_executions WHERE session_id = ?`).run(runId);
+    return res.changes;
+  }
+  /**
+   * Bound standalone growth of the strategy_executions table. Keeps the most
+   * recent `maxRows` rows (by created_at, ties broken by id) and deletes the
+   * rest. Called periodically by the composition root so the table cannot grow
+   * without limit even for runs that complete but are never evicted (e.g. the
+   * host process never re-reads them, so the RunStore TTL fires but the rows
+   * would otherwise persist on disk forever).
+   *
+   * precondition: maxRows >= 0.
+   * postcondition: strategy_executions has at most maxRows rows; returns the
+   *   number of rows deleted (observable). Newest rows are retained because the
+   *   selector and adaptive thresholds weight recent behavior — the oldest
+   *   executions are the least informative, mirroring appendError FIFO.
+   *
+   * source: see MAX_EVIDENCE_ROWS default in this file.
+   */
+  pruneToRetention(maxRows = MAX_EVIDENCE_ROWS) {
+    const res = this.db.prepare(`DELETE FROM strategy_executions
+         WHERE id NOT IN (
+           SELECT id FROM strategy_executions
+           ORDER BY created_at DESC, id DESC
+           LIMIT ?
+         )`).run(maxRows);
+    return res.changes;
+  }
+  /** Current strategy_executions row count — observable for retention checks. */
+  strategyExecutionCount() {
+    const row2 = this.db.prepare(`SELECT COUNT(*) AS n FROM strategy_executions`).get();
+    return row2.n;
   }
   // ─── Lifecycle ───────────────────────────────────────────────────────────
   close() {
@@ -30127,6 +30182,11 @@ var SectionStatusSchema = external_exports.object({
     violations_fed: external_exports.array(external_exports.string()).readonly()
   })).readonly().default([])
 });
+var MAX_RESPONSE_CHARS = 1e5;
+var CLARIFICATION_TURN_CHARS = 1e3;
+var MAX_CLARIFICATION_TURNS = Math.floor(MAX_RESPONSE_CHARS / 2 / CLARIFICATION_TURN_CHARS);
+var ERROR_MESSAGE_CHARS = 500;
+var MAX_PIPELINE_ERRORS = Math.floor(MAX_RESPONSE_CHARS / 4 / ERROR_MESSAGE_CHARS);
 var ClarificationTurnSchema = external_exports.object({
   round: external_exports.number().int().min(1),
   question: external_exports.string(),
@@ -30198,7 +30258,16 @@ var PipelineStateSchema = external_exports.object({
    */
   preflight_status: external_exports.enum(["ok", "skipped"]).nullable().default(null),
   sections: external_exports.array(SectionStatusSchema).default([]),
-  clarifications: external_exports.array(ClarificationTurnSchema).default([]),
+  /**
+   * Bounded-I/O cap (Phase 1c): at most MAX_CLARIFICATION_TURNS turns. The
+   * handler bounds rounds per-context, but the default tier's
+   * CAPABILITIES.maxClarificationRounds is Infinity, so this schema cap is the
+   * guaranteed bound. Over-cap state parses to a ZodError (observable) rather
+   * than silently growing the MCP response. source: see MAX_CLARIFICATION_TURNS.
+   */
+  clarifications: external_exports.array(ClarificationTurnSchema).max(MAX_CLARIFICATION_TURNS, {
+    message: `clarifications exceeds ${MAX_CLARIFICATION_TURNS}-turn bounded-I/O cap (Claude Code 100,000-char MCP response budget). source: see MAX_CLARIFICATION_TURNS in state.ts.`
+  }).default([]),
   /**
    * Set when the user types "proceed" or clarification reaches max rounds.
    * Read by handleBudget to sanity-check that clarification finished cleanly
@@ -30207,8 +30276,18 @@ var PipelineStateSchema = external_exports.object({
   proceed_signal: external_exports.boolean().default(false),
   started_at: external_exports.string(),
   updated_at: external_exports.string(),
-  /** Genuine error messages only. NOT a progress log. */
-  errors: external_exports.array(external_exports.string()).default([]),
+  /**
+   * Genuine error messages only. NOT a progress log.
+   *
+   * Bounded-I/O cap (Phase 1c): at most MAX_PIPELINE_ERRORS entries, kept in
+   * lockstep with error_kinds. Appended ONLY via appendError(), which performs
+   * FIFO eviction (drops oldest) once the cap is reached and reports the
+   * dropped count — never silent loss. The schema .max() is the backstop that
+   * makes a direct over-cap spread fail to parse. source: see MAX_PIPELINE_ERRORS.
+   */
+  errors: external_exports.array(external_exports.string()).max(MAX_PIPELINE_ERRORS, {
+    message: `errors exceeds ${MAX_PIPELINE_ERRORS}-entry bounded-I/O cap \u2014 append via appendError() (FIFO eviction). source: see MAX_PIPELINE_ERRORS in state.ts.`
+  }).default([]),
   /**
    * Parallel to `errors[]` (same length, same order). Tags each error as
    * one of three kinds. pipeline-kpis.ts:structural_error_count reads
@@ -30239,7 +30318,17 @@ var PipelineStateSchema = external_exports.object({
    * of the parallel array; curie H1 (Phase 3+4 follow-up, 2026-04) for the
    * upstream_failure split.
    */
-  error_kinds: external_exports.array(external_exports.enum(["section_failure", "structural", "upstream_failure"])).default([]),
+  error_kinds: external_exports.array(external_exports.enum(["section_failure", "structural", "upstream_failure"])).max(MAX_PIPELINE_ERRORS, {
+    message: `error_kinds exceeds ${MAX_PIPELINE_ERRORS}-entry bounded-I/O cap (must stay lockstep with errors[]). source: see MAX_PIPELINE_ERRORS in state.ts.`
+  }).default([]),
+  /**
+   * Count of error entries evicted from `errors`/`error_kinds` by appendError's
+   * FIFO cap (bounded-I/O, Phase 1c). Non-zero means the run produced more than
+   * MAX_PIPELINE_ERRORS errors and the oldest were dropped to stay within the
+   * MCP response budget — the drop is observable here, never silent.
+   * source: see MAX_PIPELINE_ERRORS / appendError in this file.
+   */
+  errors_dropped: external_exports.number().int().nonnegative().default(0),
   /** Paths of files successfully written during file_export. Append-only. */
   written_files: external_exports.array(external_exports.string()).default([]),
   /**
@@ -30372,10 +30461,21 @@ function touch(state) {
   return { ...state, updated_at: (/* @__PURE__ */ new Date()).toISOString() };
 }
 function appendError(state, message, kind) {
+  const nextErrors = [...state.errors, message];
+  const nextKinds = [...state.error_kinds, kind];
+  const overflow = nextErrors.length - MAX_PIPELINE_ERRORS;
+  if (overflow > 0) {
+    return {
+      ...state,
+      errors: nextErrors.slice(overflow),
+      error_kinds: nextKinds.slice(overflow),
+      errors_dropped: state.errors_dropped + overflow
+    };
+  }
   return {
     ...state,
-    errors: [...state.errors, message],
-    error_kinds: [...state.error_kinds, kind]
+    errors: nextErrors,
+    error_kinds: nextKinds
   };
 }
 
@@ -33138,19 +33238,121 @@ function invoke(state, result) {
 }
 
 // packages/orchestration/dist/run-store.js
+function isTerminal2(state) {
+  return state.current_step === "complete";
+}
+var DEFAULT_TTL_MS = 30 * 60 * 1e3;
+var MAX_RUNS_MULTIPLIER = 64;
+var DEFAULT_MAX_RUNS = MAX_RUNS_MULTIPLIER;
+var RUN_STORE_RESIDENT_CHAR_CEILING = DEFAULT_MAX_RUNS * MAX_RESPONSE_CHARS;
 var InMemoryRunStore = class {
   runs = /* @__PURE__ */ new Map();
-  get(runId) {
-    return this.runs.get(runId);
+  ttlMs;
+  maxRuns;
+  clock;
+  onEvict;
+  /** Observable counter — total terminal runs evicted over the store's life. */
+  _evicted = 0;
+  constructor(options = {}) {
+    this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
+    this.maxRuns = options.maxRuns ?? DEFAULT_MAX_RUNS;
+    this.clock = options.clock ?? Date.now;
+    this.onEvict = options.onEvict;
   }
+  /** Total terminal runs evicted (TTL + max-runs) since construction. */
+  get evicted() {
+    return this._evicted;
+  }
+  /** Current number of runs resident in the store (in-flight + terminal). */
+  size() {
+    return this.runs.size;
+  }
+  /**
+   * precondition: runId is any string.
+   * postcondition: returns the live PipelineState for runId, or undefined.
+   *   A successful get refreshes lastAccess (LRU) and first sweeps expired
+   *   terminal runs — so a get on an expired terminal run returns undefined.
+   */
+  get(runId) {
+    this.sweepExpired();
+    const entry = this.runs.get(runId);
+    if (!entry)
+      return void 0;
+    entry.lastAccess = this.clock();
+    return entry.state;
+  }
+  /**
+   * precondition: state.run_id is the key.
+   * postcondition: state is stored with lastAccess = now; expired terminal runs
+   *   are swept; if the store exceeds maxRuns, terminal runs are evicted
+   *   LRU-first until size <= maxRuns OR no terminal run remains. The run being
+   *   set is never the eviction target (it was just touched → most-recent LRU).
+   * invariant: an in-flight run is never evicted.
+   */
   set(state) {
-    this.runs.set(state.run_id, state);
+    this.sweepExpired();
+    this.runs.set(state.run_id, { state, lastAccess: this.clock() });
+    this.evictOverCap();
   }
   delete(runId) {
     this.runs.delete(runId);
   }
   list() {
-    return Array.from(this.runs.values());
+    return Array.from(this.runs.values(), (e3) => e3.state);
+  }
+  /**
+   * Evict terminal runs whose age since lastAccess exceeds ttlMs.
+   * In-flight runs are skipped regardless of age (a slow host loop is not a
+   * leak — the run is still active). source: see DEFAULT_TTL_MS.
+   */
+  sweepExpired() {
+    const now = this.clock();
+    for (const [runId, entry] of this.runs) {
+      if (!isTerminal2(entry.state))
+        continue;
+      if (now - entry.lastAccess >= this.ttlMs) {
+        this.evict(runId);
+      }
+    }
+  }
+  /**
+   * Evict terminal runs LRU-first until size <= maxRuns. If only in-flight runs
+   * remain, the store stays over cap rather than dropping an active run — the
+   * overflow is bounded by the host's real concurrency, not unbounded growth.
+   * source: see DEFAULT_MAX_RUNS.
+   */
+  evictOverCap() {
+    while (this.runs.size > this.maxRuns) {
+      const victim = this.lruTerminal();
+      if (victim === null)
+        return;
+      this.evict(victim);
+    }
+  }
+  /** run_id of the least-recently-accessed TERMINAL run, or null if none. */
+  lruTerminal() {
+    let oldestId = null;
+    let oldestAccess = Infinity;
+    for (const [runId, entry] of this.runs) {
+      if (!isTerminal2(entry.state))
+        continue;
+      if (entry.lastAccess < oldestAccess) {
+        oldestAccess = entry.lastAccess;
+        oldestId = runId;
+      }
+    }
+    return oldestId;
+  }
+  /** Remove a run, bump the observable counter, and fire onEvict. */
+  evict(runId) {
+    this.runs.delete(runId);
+    this._evicted += 1;
+    if (this.onEvict) {
+      try {
+        this.onEvict(runId);
+      } catch {
+      }
+    }
   }
 };
 
@@ -78027,8 +78229,164 @@ function buildConcludeOpts(input) {
   };
 }
 
+// packages/mcp-server/dist/bound-full-state.js
+function serializedChars(value) {
+  return JSON.stringify(value).length;
+}
+function wireChars(payload) {
+  return JSON.stringify(payload, null, 2).length;
+}
+function boundFullStateResponse(state) {
+  const work = { ...state };
+  const applied = [];
+  const budget = MAX_RESPONSE_CHARS;
+  const originalChars = wireChars({ state: work });
+  const fits = () => wireChars({
+    state: work,
+    __bounded: {
+      original_chars: originalChars,
+      final_chars: 0,
+      budget_chars: budget,
+      applied
+    }
+  }) <= budget;
+  if (fits()) {
+    return {
+      state: work,
+      __bounded: {
+        original_chars: originalChars,
+        final_chars: originalChars,
+        budget_chars: budget,
+        applied
+      }
+    };
+  }
+  for (const field of ["codebase_grounding", "prd_validation"]) {
+    if (!fits() && work[field] != null) {
+      const reclaimed = serializedChars(work[field]);
+      const stub = {
+        omitted: true,
+        chars: reclaimed,
+        hint: `re-fetch via get_pipeline_state(run_id, format:"grounding")`
+      };
+      work[field] = stub;
+      applied.push({ field, kind: "omitted", reclaimed_chars: reclaimed });
+    }
+  }
+  if (!fits() && Array.isArray(work.clarifications) && work.clarifications.length > 0) {
+    const full = work.clarifications;
+    const before = serializedChars(full);
+    let kept = full.slice();
+    while (kept.length > 1) {
+      work.clarifications = kept;
+      if (fits())
+        break;
+      kept = kept.slice(1);
+    }
+    work.clarifications = kept;
+    const dropped = full.length - kept.length;
+    if (dropped > 0) {
+      const reclaimed = before - serializedChars(kept);
+      applied.push({
+        field: "clarifications",
+        kind: "elided",
+        reclaimed_chars: reclaimed,
+        dropped
+      });
+    }
+  }
+  if (!fits() && Array.isArray(work.sections) && work.sections.length > 0) {
+    const sections = work.sections;
+    let reclaimed = 0;
+    const stripped = sections.map((s) => {
+      if (typeof s.content === "string" && s.content.length > 0) {
+        reclaimed += serializedChars(s.content);
+        return {
+          ...s,
+          content: {
+            omitted: true,
+            chars: serializedChars(s.content),
+            hint: "section markdown is in the exported PRD file (written_files)"
+          }
+        };
+      }
+      return s;
+    });
+    if (reclaimed > 0) {
+      work.sections = stripped;
+      applied.push({
+        field: "sections[].content",
+        kind: "omitted",
+        reclaimed_chars: reclaimed
+      });
+    }
+  }
+  const finalChars = wireChars({
+    state: work,
+    __bounded: {
+      original_chars: originalChars,
+      final_chars: 0,
+      budget_chars: budget,
+      applied
+    }
+  });
+  return {
+    state: work,
+    __bounded: {
+      original_chars: originalChars,
+      final_chars: finalChars,
+      budget_chars: budget,
+      applied
+    }
+  };
+}
+function boundGroundingResponse(state) {
+  const applied = [];
+  const base = {
+    run_id: state.run_id,
+    codebase_grounding: state.codebase_grounding,
+    prd_validation: state.prd_validation,
+    __bounded: { budget_chars: MAX_RESPONSE_CHARS, applied }
+  };
+  if (wireChars(base) <= MAX_RESPONSE_CHARS || state.prd_validation == null) {
+    return base;
+  }
+  const reclaimed = serializedChars(state.prd_validation);
+  applied.push({ field: "prd_validation", kind: "omitted", reclaimed_chars: reclaimed });
+  return {
+    ...base,
+    prd_validation: {
+      omitted: true,
+      chars: reclaimed,
+      hint: `re-fetch via get_pipeline_state(run_id, format:"validation")`
+    },
+    __bounded: { budget_chars: MAX_RESPONSE_CHARS, applied }
+  };
+}
+
 // packages/mcp-server/dist/pipeline-tools.js
-var runStore = new InMemoryRunStore();
+var MAX_CONCURRENT_RUNS = Number(process.env.PRD_MAX_CONCURRENT_RUNS ?? 8);
+function getRepo() {
+  getTracker();
+  return _repo ?? null;
+}
+var runStore = new InMemoryRunStore({
+  // When a terminal run is evicted (TTL or max-runs), release its persisted
+  // strategy-execution evidence so disk growth tracks live runs. Best-effort:
+  // onEvict must not throw (InMemoryRunStore swallows throws), and a missing
+  // repo is a no-op. source: evidence-repository.ts pruneRunEvidence.
+  onEvict: (runId) => {
+    getRepo()?.pruneRunEvidence(runId);
+  }
+});
+function inFlightRunCount() {
+  let n = 0;
+  for (const s of runStore.list()) {
+    if (s.current_step !== "complete")
+      n += 1;
+  }
+  return n;
+}
 var _repo = void 0;
 var _tracker = null;
 function getTracker() {
@@ -78082,6 +78440,24 @@ function registerPipelineTools(server2) {
     codebase_path: external_exports.string().optional().describe("Absolute path to the codebase. Triggers index_codebase via automatised-pipeline."),
     skip_preflight: external_exports.boolean().optional().describe("If true, skip the preflight step that probes Cortex (and ai-architect when codebase_path is set). Default false. Use only when you accept degraded section generation without persistent memory recall.")
   }, async ({ feature_description, codebase_path, skip_preflight }) => {
+    const inFlightCount = inFlightRunCount();
+    if (inFlightCount >= MAX_CONCURRENT_RUNS) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              error: "run_capacity_exceeded",
+              message: `pipeline run capacity reached: ${inFlightCount}/${MAX_CONCURRENT_RUNS} runs in flight. Retry after an in-flight run completes (current_step:'complete'), or raise PRD_MAX_CONCURRENT_RUNS.`,
+              in_flight: inFlightCount,
+              max_concurrent_runs: MAX_CONCURRENT_RUNS,
+              retryable: true
+            }, null, 2)
+          }
+        ],
+        isError: true
+      };
+    }
     const run_id = generateRunId();
     const initial = newPipelineState({
       run_id,
@@ -78155,9 +78531,9 @@ function registerPipelineTools(server2) {
       inFlight.delete(run_id);
     }
   });
-  server2.tool("get_pipeline_state", "Read the current pipeline state by run_id.", {
+  server2.tool("get_pipeline_state", "Read the current pipeline state by run_id. format:'summary' (default) returns the lightweight envelope; format:'full' returns the whole state, bounded to the Claude Code 100,000-char MCP response budget by shedding least-relevant detail first (observable __bounded markers; full grounding re-fetchable via format:'grounding'); format:'grounding' returns the codebase_grounding (+ prd_validation when it fits) blobs format:'full' sheds first; format:'validation' returns prd_validation alone (the blob format:'grounding' sheds when the pair overshoots).", {
     run_id: external_exports.string(),
-    format: external_exports.enum(["full", "summary"]).default("summary")
+    format: external_exports.enum(["full", "summary", "grounding", "validation"]).default("summary")
   }, async ({ run_id, format: format5 }) => {
     const state = runStore.get(run_id);
     if (!state) {
@@ -78171,8 +78547,24 @@ function registerPipelineTools(server2) {
         isError: true
       };
     }
-    const body = format5 === "full" ? JSON.stringify(state, null, 2) : JSON.stringify(envelope(state, null), null, 2);
-    return { content: [{ type: "text", text: body }] };
+    let payload;
+    if (format5 === "full") {
+      payload = boundFullStateResponse(state);
+    } else if (format5 === "grounding") {
+      payload = boundGroundingResponse(state);
+    } else if (format5 === "validation") {
+      payload = {
+        run_id: state.run_id,
+        prd_validation: state.prd_validation
+      };
+    } else {
+      payload = envelope(state, null);
+    }
+    return {
+      content: [
+        { type: "text", text: JSON.stringify(payload, null, 2) }
+      ]
+    };
   });
   server2.tool("plan_section_verification", "Extract claims from a PRD section and select judges. Returns JudgeRequest[] the host must execute via Agent tool in parallel.", {
     section_type: SectionTypeSchema,
