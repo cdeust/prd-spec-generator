@@ -1,0 +1,110 @@
+{
+  "manifest_version": "0.4",
+  "name": "prd-spec-generator",
+  "display_name": "prd-spec-generator — Verified PRD Generator",
+  "version": "0.4.0",
+  "license": "MIT",
+  "description": "Turns a feature description into a verified 9-file PRD — multi-judge consensus, 17 MCP tools.",
+  "long_description": "Production-grade PRD generator with closed-loop reliability calibration, multi-judge verification against externally-grounded oracles, and mechanically-sealed falsifier protocols. 17 MCP tools, 583 tests, full Phase 4 audit lineage. Runs locally over stdio — no network calls, no telemetry.",
+  "author": {
+    "name": "Clement Deust",
+    "email": "admin@ai-architect.tools",
+    "url": "https://ai-architect.tools"
+  },
+  "homepage": "https://github.com/cdeust/prd-spec-generator#readme",
+  "documentation": "https://github.com/cdeust/prd-spec-generator#readme",
+  "support": "https://github.com/cdeust/prd-spec-generator/issues",
+  "icon": "icon.png",
+  "privacy_policies": [
+    "https://github.com/cdeust/prd-spec-generator/blob/main/PRIVACY.md"
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=20"
+    }
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "mcp-server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/mcp-server/index.js"],
+      "env": {
+        "PRD_GEN_SKILL_CONFIG": "${__dirname}/packages/skill/skill-config.json",
+        "PRD_GEN_EVIDENCE_DB": "${__dirname}/.prd-gen/evidence.db"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_config",
+      "description": "Get the full skill configuration"
+    },
+    {
+      "name": "read_skill_config",
+      "description": "Read the SKILL.md content that drives PRD generation"
+    },
+    {
+      "name": "check_health",
+      "description": "Check system health — verify all components are accessible"
+    },
+    {
+      "name": "get_prd_context_info",
+      "description": "Get configuration for a specific PRD context type"
+    },
+    {
+      "name": "list_available_strategies",
+      "description": "List thinking strategies available to the pipeline."
+    },
+    {
+      "name": "validate_prd_section",
+      "description": "Run deterministic Hard Output Rules validation on a single PRD section. Returns violations found — zero LLM calls, pure regex/parsing."
+    },
+    {
+      "name": "validate_prd_document",
+      "description": "Run full document validation including cross-section checks (SP arithmetic, AC numbering, FR-AC coverage, test traceability). Returns comprehensive validation report."
+    },
+    {
+      "name": "get_quality_history",
+      "description": "Get historical PRD quality scores from the evidence repository"
+    },
+    {
+      "name": "get_strategy_effectiveness",
+      "description": "Get strategy performance data — actual vs expected improvement, compliance rate"
+    },
+    {
+      "name": "coordinate_context_budget",
+      "description": "Calculate token budget allocation for PRD generation. Returns per-section retrieval limits for Cortex recall, generation budgets, and section-specific query templates. Call this BEFORE starting section generation."
+    },
+    {
+      "name": "map_failure_to_retrieval",
+      "description": "When validate_prd_section returns violations, call this to get corrective Cortex recall queries. Closes the validation→retrieval feedback loop so retries use better context."
+    },
+    {
+      "name": "start_pipeline",
+      "description": "Initialize a new PRD pipeline run. Returns run_id and the first NextAction the host must execute."
+    },
+    {
+      "name": "submit_action_result",
+      "description": "Feed an ActionResult to the pipeline runner; receive the next NextAction."
+    },
+    {
+      "name": "get_pipeline_state",
+      "description": "Read the current pipeline state by run_id. Supports format: summary (default), full, grounding, or validation."
+    },
+    {
+      "name": "plan_section_verification",
+      "description": "Extract claims from a PRD section and select judges. Returns JudgeRequest[] the host must execute via Agent tool in parallel."
+    },
+    {
+      "name": "plan_document_verification",
+      "description": "Same as plan_section_verification but across all sections of a document."
+    },
+    {
+      "name": "conclude_verification",
+      "description": "Aggregate JudgeVerdict[] from spawned subagents into a VerificationReport (consensus + dissent)."
+    }
+  ],
+  "tools_generated": true
+}

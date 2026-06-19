@@ -33755,7 +33755,7 @@ function registerBudgetTools(server2) {
     prd_context: external_exports.enum(["proposal", "feature", "bug", "incident", "poc", "mvp", "release", "cicd"]).describe("The PRD context type"),
     completed_sections: external_exports.array(external_exports.string()).default([]).describe("Section types already generated"),
     context_window_size: external_exports.number().int().default(2e5).describe("Total context window size in tokens")
-  }, async ({ prd_context, completed_sections, context_window_size }) => {
+  }, { readOnlyHint: true }, async ({ prd_context, completed_sections, context_window_size }) => {
     const budget = calculateContextBudget(prd_context, completed_sections, context_window_size);
     return {
       content: [
@@ -33773,7 +33773,7 @@ function registerBudgetTools(server2) {
     // type system at the layer boundary (cross-audit code-reviewer C3 +
     // dijkstra §3.2, Phase 3+4, 2026-04).
     violations: external_exports.array(HardOutputRuleViolationSchema).describe("Violations from validate_prd_section")
-  }, async ({ violations }) => {
+  }, { readOnlyHint: true }, async ({ violations }) => {
     const result = mapFailuresToRetrievals(violations);
     return {
       content: [
@@ -78439,7 +78439,7 @@ function registerPipelineTools(server2) {
     feature_description: external_exports.string().describe("What the PRD is about \u2014 passed to all prompts"),
     codebase_path: external_exports.string().optional().describe("Absolute path to the codebase. Triggers index_codebase via automatised-pipeline."),
     skip_preflight: external_exports.boolean().optional().describe("If true, skip the preflight step that probes Cortex (and ai-architect when codebase_path is set). Default false. Use only when you accept degraded section generation without persistent memory recall.")
-  }, async ({ feature_description, codebase_path, skip_preflight }) => {
+  }, { destructiveHint: true }, async ({ feature_description, codebase_path, skip_preflight }) => {
     const inFlightCount = inFlightRunCount();
     if (inFlightCount >= MAX_CONCURRENT_RUNS) {
       return {
@@ -78488,7 +78488,7 @@ function registerPipelineTools(server2) {
     // this inline copy with no compile-time enforcement of synchrony
     // (cross-audit feynman HIGH-1, Phase 3+4 follow-up, 2026-04).
     result: ActionResultSchema
-  }, async ({ run_id, result }) => {
+  }, { destructiveHint: true }, async ({ run_id, result }) => {
     if (inFlight.has(run_id)) {
       return {
         content: [
@@ -78534,7 +78534,7 @@ function registerPipelineTools(server2) {
   server2.tool("get_pipeline_state", "Read the current pipeline state by run_id. format:'summary' (default) returns the lightweight envelope; format:'full' returns the whole state, bounded to the Claude Code 100,000-char MCP response budget by shedding least-relevant detail first (observable __bounded markers; full grounding re-fetchable via format:'grounding'); format:'grounding' returns the codebase_grounding (+ prd_validation when it fits) blobs format:'full' sheds first; format:'validation' returns prd_validation alone (the blob format:'grounding' sheds when the pair overshoots).", {
     run_id: external_exports.string(),
     format: external_exports.enum(["full", "summary", "grounding", "validation"]).default("summary")
-  }, async ({ run_id, format: format5 }) => {
+  }, { readOnlyHint: true }, async ({ run_id, format: format5 }) => {
     const state = runStore.get(run_id);
     if (!state) {
       return {
@@ -78571,7 +78571,7 @@ function registerPipelineTools(server2) {
     content: external_exports.string(),
     codebase_excerpts: external_exports.array(external_exports.string()).default([]),
     memory_excerpts: external_exports.array(external_exports.string()).default([])
-  }, async ({ section_type, content, codebase_excerpts, memory_excerpts }) => {
+  }, { readOnlyHint: true }, async ({ section_type, content, codebase_excerpts, memory_excerpts }) => {
     const plan = planSectionVerification(section_type, content, {
       codebase_excerpts,
       memory_excerpts,
@@ -78593,7 +78593,7 @@ function registerPipelineTools(server2) {
     })).min(1),
     codebase_excerpts: external_exports.array(external_exports.string()).default([]),
     memory_excerpts: external_exports.array(external_exports.string()).default([])
-  }, async ({ sections, codebase_excerpts, memory_excerpts }) => {
+  }, { readOnlyHint: true }, async ({ sections, codebase_excerpts, memory_excerpts }) => {
     const plan = planDocumentVerification(sections, {
       codebase_excerpts,
       memory_excerpts,
@@ -78626,7 +78626,7 @@ function registerPipelineTools(server2) {
         payload: external_exports.unknown()
       }).optional()
     })).optional().describe("OPTIONAL. Pass the Claim objects from the corresponding plan_section_verification / plan_document_verification response if you want oracle-based ground truth (breaks Curie A2 annotator-circularity for grounded claims). Claims that carry external_grounding will have their truth resolved by the appropriate oracle; claims without it fall back to consensus-majority (back-compat preserved). Shape mirrors the Claim type but only text and evidence are required for grounding propagation \u2014 omit them to pass minimal objects. source: Curie A2.3, PHASE_4_PLAN.md \xA74.1 Wave F closure.")
-  }, async ({ scope, section_type, verdicts, consensus_strategy, run_id, claim_types, claims }) => {
+  }, { destructiveHint: true }, async ({ scope, section_type, verdicts, consensus_strategy, run_id, claim_types, claims }) => {
     let claimsMap;
     if (claims !== void 0 && claims.length > 0) {
       const map4 = /* @__PURE__ */ new Map();
@@ -78686,7 +78686,7 @@ function loadSkillMd() {
 }
 var server = new McpServer({
   name: "prd-gen",
-  version: "0.1.0"
+  version: "0.4.0"
 });
 var _evidenceRepo = void 0;
 function getEvidenceRepo() {
@@ -78695,19 +78695,19 @@ function getEvidenceRepo() {
   }
   return _evidenceRepo;
 }
-server.tool("get_config", "Get the full skill configuration", {}, async () => {
+server.tool("get_config", "Get the full skill configuration", {}, { readOnlyHint: true }, async () => {
   const config5 = loadSkillConfig();
   return {
     content: [{ type: "text", text: JSON.stringify(config5, null, 2) }]
   };
 });
-server.tool("read_skill_config", "Read the SKILL.md content that drives PRD generation", {}, async () => {
+server.tool("read_skill_config", "Read the SKILL.md content that drives PRD generation", {}, { readOnlyHint: true }, async () => {
   const skillMd = loadSkillMd();
   return {
     content: [{ type: "text", text: skillMd }]
   };
 });
-server.tool("check_health", "Check system health \u2014 verify all components are accessible", {}, async () => {
+server.tool("check_health", "Check system health \u2014 verify all components are accessible", {}, { readOnlyHint: true }, async () => {
   const configAvailable = loadSkillConfig().version !== void 0;
   const skillAvailable = loadSkillMd() !== "SKILL.md not found";
   let dbHealthy = false;
@@ -78746,13 +78746,13 @@ server.tool("get_prd_context_info", "Get configuration for a specific PRD contex
     "release",
     "cicd"
   ]).describe("The PRD context type")
-}, async ({ context }) => {
+}, { readOnlyHint: true }, async ({ context }) => {
   const config5 = PRD_CONTEXT_CONFIGS[context];
   return {
     content: [{ type: "text", text: JSON.stringify(config5, null, 2) }]
   };
 });
-server.tool("list_available_strategies", "List thinking strategies available to the pipeline.", {}, async () => {
+server.tool("list_available_strategies", "List thinking strategies available to the pipeline.", {}, { readOnlyHint: true }, async () => {
   return {
     content: [
       {
@@ -78768,7 +78768,7 @@ server.tool("list_available_strategies", "List thinking strategies available to 
 server.tool("validate_prd_section", "Run deterministic Hard Output Rules validation on a single PRD section. Returns violations found \u2014 zero LLM calls, pure regex/parsing.", {
   content: external_exports.string().describe("The markdown content of the PRD section"),
   section_type: SectionTypeSchema.describe("The type of PRD section being validated")
-}, async ({ content, section_type }) => {
+}, { readOnlyHint: true }, async ({ content, section_type }) => {
   const report = validateSection(content, section_type);
   return {
     content: [
@@ -78784,7 +78784,7 @@ server.tool("validate_prd_document", "Run full document validation including cro
     type: SectionTypeSchema.describe("Section type"),
     content: external_exports.string().describe("Section content")
   })).describe("Array of PRD sections to validate")
-}, async ({ sections }) => {
+}, { readOnlyHint: true }, async ({ sections }) => {
   const report = validateDocument(sections);
   return {
     content: [
@@ -78794,7 +78794,7 @@ server.tool("validate_prd_document", "Run full document validation including cro
 });
 server.tool("get_quality_history", "Get historical PRD quality scores from the evidence repository", {
   limit: external_exports.number().int().min(1).max(200).default(20).describe("Maximum number of records to return")
-}, async ({ limit }) => {
+}, { readOnlyHint: true }, async ({ limit }) => {
   const repo = getEvidenceRepo();
   if (!repo) {
     return {
@@ -78818,7 +78818,7 @@ server.tool("get_quality_history", "Get historical PRD quality scores from the e
 });
 server.tool("get_strategy_effectiveness", "Get strategy performance data \u2014 actual vs expected improvement, compliance rate", {
   min_executions: external_exports.number().int().min(1).default(5).describe("Minimum executions required to include a strategy")
-}, async ({ min_executions }) => {
+}, { readOnlyHint: true }, async ({ min_executions }) => {
   const repo = getEvidenceRepo();
   if (!repo) {
     return {

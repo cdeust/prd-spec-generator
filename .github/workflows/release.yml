@@ -39,6 +39,9 @@ jobs:
       - name: Run full test suite
         run: pnpm test
 
+      - name: Rebuild and bundle MCP server
+        run: pnpm bundle
+
       - name: Verify mcp-server bundle is current
         run: |
           # Rebuild the bundle and fail if the committed version diverges
@@ -47,6 +50,53 @@ jobs:
             git diff --exit-code packages/mcp-server/dist/ \
               || (echo "::error::mcp-server bundle out of date — run 'pnpm build' and commit"; exit 1)
           fi
+
+      - name: Assemble .mcpb staging directory
+        run: |
+          set -euo pipefail
+          STAGE_DIR="$(mktemp -d)/prd-spec-generator-mcpb"
+          mkdir -p "${STAGE_DIR}/mcp-server"
+          mkdir -p "${STAGE_DIR}/packages/skill"
+          mkdir -p "${STAGE_DIR}/bin"
+
+          # Core runtime files
+          cp manifest.json "${STAGE_DIR}/"
+          cp icon.png "${STAGE_DIR}/" 2>/dev/null || true
+          cp README.md "${STAGE_DIR}/"
+          cp LICENSE "${STAGE_DIR}/"
+          cp PRIVACY.md "${STAGE_DIR}/"
+
+          # Bundled server
+          cp mcp-server/index.js "${STAGE_DIR}/mcp-server/"
+          cp mcp-server/package.json "${STAGE_DIR}/mcp-server/"
+
+          # Runtime dep provisioner
+          cp bin/ensure-deps.sh "${STAGE_DIR}/bin/"
+          chmod +x "${STAGE_DIR}/bin/ensure-deps.sh"
+
+          # Skill config (required at runtime — PRD_GEN_SKILL_CONFIG)
+          cp packages/skill/skill-config.json "${STAGE_DIR}/packages/skill/"
+
+          echo "STAGE_DIR=${STAGE_DIR}" >> "$GITHUB_ENV"
+          echo "Staged contents:"
+          find "${STAGE_DIR}" -type f
+
+      - name: Pack .mcpb bundle
+        run: |
+          set -euo pipefail
+          OUTFILE="${GITHUB_WORKSPACE}/prd-spec-generator.mcpb"
+
+          # Use @anthropic-ai/mcpb if available, else zip
+          if npx -y --yes @anthropic-ai/mcpb@latest pack --help >/dev/null 2>&1; then
+            npx -y @anthropic-ai/mcpb@latest pack "${STAGE_DIR}" "${OUTFILE}"
+          else
+            (cd "${STAGE_DIR}" && zip -r "${OUTFILE}" .)
+          fi
+
+          # Compute SHA-256 checksum
+          shasum -a 256 "${OUTFILE}" | awk '{print $1}' > "${OUTFILE}.sha256"
+          echo "SHA256: $(cat "${OUTFILE}.sha256")"
+          echo "MCPB_SHA256=$(cat "${OUTFILE}.sha256")" >> "$GITHUB_ENV"
 
       - name: Extract release notes from CHANGELOG
         id: changelog
@@ -63,12 +113,19 @@ jobs:
           if [ ! -s release-notes.md ]; then
             echo "No CHANGELOG entry found for $VERSION; using tag message" > release-notes.md
           fi
+          # Append SHA256 to release notes for auditability
+          echo "" >> release-notes.md
+          echo "### .mcpb bundle" >> release-notes.md
+          echo "SHA-256: \`${MCPB_SHA256}\`" >> release-notes.md
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (with .mcpb artifact)
         uses: softprops/action-gh-release@v2
         with:
           body_path: release-notes.md
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            prd-spec-generator.mcpb
+            prd-spec-generator.mcpb.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -168,7 +168,7 @@ export function registerPipelineTools(server) {
             .boolean()
             .optional()
             .describe("If true, skip the preflight step that probes Cortex (and ai-architect when codebase_path is set). Default false. Use only when you accept degraded section generation without persistent memory recall."),
-    }, async ({ feature_description, codebase_path, skip_preflight }) => {
+    }, { destructiveHint: true }, async ({ feature_description, codebase_path, skip_preflight }) => {
         // Global run semaphore (bounded-I/O Phase 3). Admit a new run only while
         // fewer than MAX_CONCURRENT_RUNS are in flight. At cap we REJECT with a
         // structured, retryable error rather than hang or grow unbounded — the
@@ -253,7 +253,7 @@ export function registerPipelineTools(server) {
         // this inline copy with no compile-time enforcement of synchrony
         // (cross-audit feynman HIGH-1, Phase 3+4 follow-up, 2026-04).
         result: ActionResultSchema,
-    }, async ({ run_id, result }) => {
+    }, { destructiveHint: true }, async ({ run_id, result }) => {
         if (inFlight.has(run_id)) {
             return {
                 content: [
@@ -314,7 +314,7 @@ export function registerPipelineTools(server) {
         format: z
             .enum(["full", "summary", "grounding", "validation"])
             .default("summary"),
-    }, async ({ run_id, format }) => {
+    }, { readOnlyHint: true }, async ({ run_id, format }) => {
         const state = runStore.get(run_id);
         if (!state) {
             return {
@@ -372,7 +372,7 @@ export function registerPipelineTools(server) {
         content: z.string(),
         codebase_excerpts: z.array(z.string()).default([]),
         memory_excerpts: z.array(z.string()).default([]),
-    }, async ({ section_type, content, codebase_excerpts, memory_excerpts }) => {
+    }, { readOnlyHint: true }, async ({ section_type, content, codebase_excerpts, memory_excerpts }) => {
         const plan = planSectionVerification(section_type, content, {
             codebase_excerpts,
             memory_excerpts,
@@ -397,7 +397,7 @@ export function registerPipelineTools(server) {
             .min(1),
         codebase_excerpts: z.array(z.string()).default([]),
         memory_excerpts: z.array(z.string()).default([]),
-    }, async ({ sections, codebase_excerpts, memory_excerpts }) => {
+    }, { readOnlyHint: true }, async ({ sections, codebase_excerpts, memory_excerpts }) => {
         const plan = planDocumentVerification(sections, {
             codebase_excerpts,
             memory_excerpts,
@@ -459,7 +459,7 @@ export function registerPipelineTools(server) {
             "(back-compat preserved). Shape mirrors the Claim type but only text and evidence " +
             "are required for grounding propagation — omit them to pass minimal objects. " +
             "source: Curie A2.3, PHASE_4_PLAN.md §4.1 Wave F closure."),
-    }, async ({ scope, section_type, verdicts, consensus_strategy, run_id, claim_types, claims }) => {
+    }, { destructiveHint: true }, async ({ scope, section_type, verdicts, consensus_strategy, run_id, claim_types, claims }) => {
         // Parse incoming claims array → Map<claim_id, Claim> when provided.
         // Precondition: each element has at least claim_id, claim_type (validated by zod above).
         // Postcondition: claimsMap is undefined when claims is absent (back-compat);

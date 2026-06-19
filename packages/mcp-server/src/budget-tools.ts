@@ -35,6 +35,7 @@ export function registerBudgetTools(server: McpServer): void {
         .default(200000)
         .describe("Total context window size in tokens"),
     },
+    { readOnlyHint: true },
     async ({ prd_context, completed_sections, context_window_size }) => {
       const budget = calculateContextBudget(
         prd_context as PRDContext,
@@ -69,6 +70,7 @@ export function registerBudgetTools(server: McpServer): void {
         .array(HardOutputRuleViolationSchema)
         .describe("Violations from validate_prd_section"),
     },
+    { readOnlyHint: true },
     async ({ violations }) => {
       // No cast required: Zod has already parsed violations into the exact
       // shape mapFailuresToRetrievals expects.

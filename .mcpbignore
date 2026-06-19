@@ -1,0 +1,33 @@
+# Exclude everything not needed to run the bundled server.
+# Kept in bundle: manifest.json, icon.png, README.md, LICENSE, PRIVACY.md,
+#   mcp-server/ (index.js + package.json), bin/ensure-deps.sh,
+#   packages/skill/skill-config.json (runtime env PRD_GEN_SKILL_CONFIG)
+
+node_modules/
+packages/benchmark/
+packages/core/
+packages/ecosystem-adapters/
+packages/mcp-server/
+packages/meta-prompting/
+packages/orchestration/
+packages/strategy/
+packages/validation/
+packages/verification/
+.git/
+.github/
+.claude/
+.claude-plugin/
+docs/
+commands/
+assets/
+scripts/
+pnpm-lock.yaml
+pnpm-workspace.yaml
+tsconfig.base.json
+vitest.config.ts
+*.mcpb
+CHANGELOG.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+skill-config.json

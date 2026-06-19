@@ -51,7 +51,7 @@ function loadSkillMd() {
 // ─── Server Setup ────────────────────────────────────────────────────────────
 const server = new McpServer({
     name: "prd-gen",
-    version: "0.1.0",
+    version: "0.4.0",
 });
 // Lazy-init evidence repository (only when better-sqlite3 is available).
 // `tryCreateEvidenceRepository` returns null if the native module is
@@ -65,21 +65,21 @@ function getEvidenceRepo() {
     return _evidenceRepo;
 }
 // ─── Tool 1: get_config ──────────────────────────────────────────────────────
-server.tool("get_config", "Get the full skill configuration", {}, async () => {
+server.tool("get_config", "Get the full skill configuration", {}, { readOnlyHint: true }, async () => {
     const config = loadSkillConfig();
     return {
         content: [{ type: "text", text: JSON.stringify(config, null, 2) }],
     };
 });
 // ─── Tool 2: read_skill_config ───────────────────────────────────────────────
-server.tool("read_skill_config", "Read the SKILL.md content that drives PRD generation", {}, async () => {
+server.tool("read_skill_config", "Read the SKILL.md content that drives PRD generation", {}, { readOnlyHint: true }, async () => {
     const skillMd = loadSkillMd();
     return {
         content: [{ type: "text", text: skillMd }],
     };
 });
 // ─── Tool 3: check_health ────────────────────────────────────────────────────
-server.tool("check_health", "Check system health — verify all components are accessible", {}, async () => {
+server.tool("check_health", "Check system health — verify all components are accessible", {}, { readOnlyHint: true }, async () => {
     const configAvailable = loadSkillConfig().version !== undefined;
     const skillAvailable = loadSkillMd() !== "SKILL.md not found";
     let dbHealthy = false;
@@ -122,14 +122,14 @@ server.tool("get_prd_context_info", "Get configuration for a specific PRD contex
         "cicd",
     ])
         .describe("The PRD context type"),
-}, async ({ context }) => {
+}, { readOnlyHint: true }, async ({ context }) => {
     const config = PRD_CONTEXT_CONFIGS[context];
     return {
         content: [{ type: "text", text: JSON.stringify(config, null, 2) }],
     };
 });
 // ─── Tool 5: list_available_strategies ───────────────────────────────────────
-server.tool("list_available_strategies", "List thinking strategies available to the pipeline.", {}, async () => {
+server.tool("list_available_strategies", "List thinking strategies available to the pipeline.", {}, { readOnlyHint: true }, async () => {
     return {
         content: [
             {
@@ -146,7 +146,7 @@ server.tool("list_available_strategies", "List thinking strategies available to 
 server.tool("validate_prd_section", "Run deterministic Hard Output Rules validation on a single PRD section. Returns violations found — zero LLM calls, pure regex/parsing.", {
     content: z.string().describe("The markdown content of the PRD section"),
     section_type: SectionTypeSchema.describe("The type of PRD section being validated"),
-}, async ({ content, section_type }) => {
+}, { readOnlyHint: true }, async ({ content, section_type }) => {
     // section_type is already validated by SectionTypeSchema at the MCP
     // boundary above. No cast required (cross-audit code-reviewer H5,
     // Phase 3+4, 2026-04).
@@ -168,7 +168,7 @@ server.tool("validate_prd_document", "Run full document validation including cro
         content: z.string().describe("Section content"),
     }))
         .describe("Array of PRD sections to validate"),
-}, async ({ sections }) => {
+}, { readOnlyHint: true }, async ({ sections }) => {
     const report = validateDocument(sections);
     return {
         content: [
@@ -185,7 +185,7 @@ server.tool("get_quality_history", "Get historical PRD quality scores from the e
         .max(200)
         .default(20)
         .describe("Maximum number of records to return"),
-}, async ({ limit }) => {
+}, { readOnlyHint: true }, async ({ limit }) => {
     const repo = getEvidenceRepo();
     if (!repo) {
         return {
@@ -215,7 +215,7 @@ server.tool("get_strategy_effectiveness", "Get strategy performance data — act
         .min(1)
         .default(5)
         .describe("Minimum executions required to include a strategy"),
-}, async ({ min_executions }) => {
+}, { readOnlyHint: true }, async ({ min_executions }) => {
     const repo = getEvidenceRepo();
     if (!repo) {
         return {

@@ -218,6 +218,7 @@ export function registerPipelineTools(server: McpServer): void {
           "If true, skip the preflight step that probes Cortex (and ai-architect when codebase_path is set). Default false. Use only when you accept degraded section generation without persistent memory recall.",
         ),
     },
+    { destructiveHint: true },
     async ({ feature_description, codebase_path, skip_preflight }) => {
       // Global run semaphore (bounded-I/O Phase 3). Admit a new run only while
       // fewer than MAX_CONCURRENT_RUNS are in flight. At cap we REJECT with a
@@ -319,6 +320,7 @@ export function registerPipelineTools(server: McpServer): void {
       // (cross-audit feynman HIGH-1, Phase 3+4 follow-up, 2026-04).
       result: ActionResultSchema,
     },
+    { destructiveHint: true },
     async ({ run_id, result }) => {
       if (inFlight.has(run_id)) {
         return {
@@ -390,6 +392,7 @@ export function registerPipelineTools(server: McpServer): void {
         .enum(["full", "summary", "grounding", "validation"])
         .default("summary"),
     },
+    { readOnlyHint: true },
     async ({ run_id, format }) => {
       const state = runStore.get(run_id);
       if (!state) {
@@ -452,6 +455,7 @@ export function registerPipelineTools(server: McpServer): void {
       codebase_excerpts: z.array(z.string()).default([]),
       memory_excerpts: z.array(z.string()).default([]),
     },
+    { readOnlyHint: true },
     async ({ section_type, content, codebase_excerpts, memory_excerpts }) => {
       const plan = planSectionVerification(section_type, content, {
         codebase_excerpts,
@@ -486,6 +490,7 @@ export function registerPipelineTools(server: McpServer): void {
       codebase_excerpts: z.array(z.string()).default([]),
       memory_excerpts: z.array(z.string()).default([]),
     },
+    { readOnlyHint: true },
     async ({ sections, codebase_excerpts, memory_excerpts }) => {
       const plan = planDocumentVerification(sections, {
         codebase_excerpts,
@@ -512,6 +517,7 @@ export function registerPipelineTools(server: McpServer): void {
     "for this batch — the calibration data will be missing for these runs (one-sided censoring).",
     {
       scope: z.enum(["section", "document"]).default("section"),
+
       section_type: SectionTypeSchema.optional(),
       verdicts: z.array(JudgeVerdictSchema),
       consensus_strategy: z
@@ -563,6 +569,7 @@ export function registerPipelineTools(server: McpServer): void {
           "source: Curie A2.3, PHASE_4_PLAN.md §4.1 Wave F closure.",
         ),
     },
+    { destructiveHint: true },
     async ({ scope, section_type, verdicts, consensus_strategy, run_id, claim_types, claims }) => {
       // Parse incoming claims array → Map<claim_id, Claim> when provided.
       // Precondition: each element has at least claim_id, claim_type (validated by zod above).

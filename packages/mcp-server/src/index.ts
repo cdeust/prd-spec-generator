@@ -86,7 +86,7 @@ function loadSkillMd(): string {
 
 const server = new McpServer({
   name: "prd-gen",
-  version: "0.1.0",
+  version: "0.4.0",
 });
 
 // Lazy-init evidence repository (only when better-sqlite3 is available).
@@ -107,6 +107,7 @@ server.tool(
   "get_config",
   "Get the full skill configuration",
   {},
+  { readOnlyHint: true },
   async () => {
     const config = loadSkillConfig();
     return {
@@ -121,6 +122,7 @@ server.tool(
   "read_skill_config",
   "Read the SKILL.md content that drives PRD generation",
   {},
+  { readOnlyHint: true },
   async () => {
     const skillMd = loadSkillMd();
     return {
@@ -135,6 +137,7 @@ server.tool(
   "check_health",
   "Check system health — verify all components are accessible",
   {},
+  { readOnlyHint: true },
   async () => {
     const configAvailable = loadSkillConfig().version !== undefined;
     const skillAvailable = loadSkillMd() !== "SKILL.md not found";
@@ -190,6 +193,7 @@ server.tool(
       ])
       .describe("The PRD context type"),
   },
+  { readOnlyHint: true },
   async ({ context }) => {
     const config = PRD_CONTEXT_CONFIGS[context as PRDContext];
     return {
@@ -204,6 +208,7 @@ server.tool(
   "list_available_strategies",
   "List thinking strategies available to the pipeline.",
   {},
+  { readOnlyHint: true },
   async () => {
     return {
       content: [
@@ -234,6 +239,7 @@ server.tool(
       "The type of PRD section being validated",
     ),
   },
+  { readOnlyHint: true },
   async ({ content, section_type }) => {
     // section_type is already validated by SectionTypeSchema at the MCP
     // boundary above. No cast required (cross-audit code-reviewer H5,
@@ -265,6 +271,7 @@ server.tool(
       )
       .describe("Array of PRD sections to validate"),
   },
+  { readOnlyHint: true },
   async ({ sections }) => {
     const report = validateDocument(sections);
     return {
@@ -289,6 +296,7 @@ server.tool(
       .default(20)
       .describe("Maximum number of records to return"),
   },
+  { readOnlyHint: true },
   async ({ limit }) => {
     const repo = getEvidenceRepo();
     if (!repo) {
@@ -326,6 +334,7 @@ server.tool(
       .default(5)
       .describe("Minimum executions required to include a strategy"),
   },
+  { readOnlyHint: true },
   async ({ min_executions }) => {
     const repo = getEvidenceRepo();
     if (!repo) {
