@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License">
   <img src="https://img.shields.io/badge/TypeScript-5.9+-3178c6.svg" alt="TypeScript 5.9+">
   <img src="https://img.shields.io/badge/Node-20.x_·_22.x-339933.svg" alt="Node 20/22">
-  <img src="https://img.shields.io/badge/Tests-583_passing-brightgreen" alt="583 tests">
+  <img src="https://img.shields.io/badge/Tests-628_passing-brightgreen" alt="628 passing">
   <img src="https://img.shields.io/badge/Packages-10-orange" alt="10 packages">
   <img src="https://img.shields.io/badge/MCP_Tools-17-8A2BE2" alt="17 MCP tools">
   <img src="https://img.shields.io/badge/Validators-Hard_Output_Rules-red" alt="Hard Output Rules">
@@ -32,7 +32,7 @@ Every AI agent that drafts a PRD eventually invents a function that doesn't exis
 
 **prd-spec-generator** is a TypeScript MCP server that fixes this at the structural level. The pipeline is a stateless reducer (`step(state, result?) → next_state, action`) driven by a host (Claude Code or any MCP-speaking agent). Sections are produced one at a time, validated by deterministic Hard Output Rules before the host ever sees them, and every load-bearing claim is judged by a panel of genius reasoning agents drawn from `zetetic-team-subagents` against the codebase graph from `automatised-pipeline`. **Phase 4** then closes the loop: per-judge reliability is calibrated from history, retry budgets are derived from survival statistics, KPI gates are tuned against frozen baselines, and held-out partitions are mechanically sealed so no calibration result can be peeked at before evaluation.
 
-**10 packages. 17 MCP tools. 10 pipeline steps. Multi-judge verification with consensus. Closed-loop calibration with externally-grounded falsifiers. 583 tests. Every numeric constant traces to a citation, a benchmark, or a `// source: provisional heuristic` admission.**
+**10 packages. 17 MCP tools. 10 pipeline steps. Multi-judge verification with consensus. Closed-loop calibration with externally-grounded falsifiers. 629 tests. Every numeric constant traces to a citation, a benchmark, or a `// source: provisional heuristic` admission.**
 
 ---
 
@@ -134,7 +134,7 @@ cd prd-spec-generator
 pnpm install --frozen-lockfile
 pnpm build      # builds all 9 buildable packages via tsc
 pnpm bundle     # produces the standalone mcp-server/index.js
-pnpm test       # 583 tests + 2 integration skipped (live MCP integration
+pnpm test       # 629 tests + 2 integration skipped (live MCP integration
                 # env-gated by AIPRD_PIPELINE_BIN)
 ```
 
