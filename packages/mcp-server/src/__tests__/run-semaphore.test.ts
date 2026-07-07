@@ -28,12 +28,11 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<{
 }>;
 
 interface CapturingServer {
-  tool(
-    name: string,
-    description: string,
-    schema: unknown,
-    handler: ToolHandler,
-  ): void;
+  // Production server.tool() calls pass an optional annotations object
+  // (e.g. { destructiveHint: true }) between the schema and the handler, so the
+  // handler is not at a fixed positional index. Capture the LAST argument as the
+  // handler so this shim stays correct whether or not a tool passes annotations.
+  tool(name: string, ...rest: unknown[]): void;
 }
 
 let handlers: Map<string, ToolHandler>;
@@ -44,7 +43,8 @@ beforeAll(async () => {
   const { registerPipelineTools } = await import("../pipeline-tools.js");
   handlers = new Map();
   const server: CapturingServer = {
-    tool(name, _description, _schema, handler) {
+    tool(name, ...rest) {
+      const handler = rest[rest.length - 1] as ToolHandler;
       handlers.set(name, handler);
     },
   };
