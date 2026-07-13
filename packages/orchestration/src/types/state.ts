@@ -376,6 +376,19 @@ export const PipelineStateSchema = z.object({
    */
   verification_plan: VerificationPlanSnapshotSchema.nullable().default(null),
   /**
+   * Path to the `stage-5.affected_symbols.json` sidecar written by
+   * file-export.ts, when the technical_specification section asserted ≥1
+   * symbol-level claim. Set in file-export at the file-set-complete
+   * transition; read by self-check to pass `affected_symbols_path` to
+   * `validate_prd_against_graph`. Null when no claims were parsed (the
+   * sidecar is then never exported — see file-export.ts module doc) or when
+   * file_export has not yet run.
+   *
+   * source: AP validate_prd_against_graph contract, `affected_symbols_path`
+   * argument (automatised-pipeline stages/stage-6.md §4.2 / §6.1).
+   */
+  affected_symbols_path: z.string().nullable().default(null),
+  /**
    * PRD-vs-graph validation report from automatised-pipeline
    * `validate_prd_against_graph` (args { prd_path, graph_path }), fetched in
    * self-check after the PRD file is exported. Symbol-hallucination /

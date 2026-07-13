@@ -106,3 +106,133 @@ describe("file_export handler", () => {
     expect(out.action.kind).toBe("done");
   });
 });
+
+describe("file_export handler — stage-5.affected_symbols.json sidecar", () => {
+  const AFFECTED_SYMBOLS_BLOCK = [
+    "## Technical Specification",
+    "",
+    "We use ports-and-adapters architecture.",
+    "",
+    "<!-- AFFECTED_SYMBOLS_JSON -->",
+    "```json",
+    JSON.stringify({
+      affected_symbols: [
+        {
+          qualified_name: "src/main.rs::handle_tool_call",
+          change_kind: "modify",
+          rationale: "add retry logic",
+        },
+      ],
+    }),
+    "```",
+  ].join("\n");
+
+  function stateWithTechSpec(content: string): PipelineState {
+    const s = stateAtFileExport();
+    return {
+      ...s,
+      sections: [
+        ...s.sections,
+        {
+          section_type: "technical_specification",
+          status: "passed",
+          attempt: 1,
+          violation_count: 0,
+          last_violations: [],
+          content,
+        },
+      ],
+    };
+  }
+
+  it("emits the sidecar as a 10th file when the technical_specification section carries claims", () => {
+    const s: PipelineState = {
+      ...stateWithTechSpec(AFFECTED_SYMBOLS_BLOCK),
+      written_files: [
+        "prd-output/test_exp/01-prd.md",
+        "prd-output/test_exp/02-data-model.md",
+        "prd-output/test_exp/03-api-spec.md",
+        "prd-output/test_exp/04-security.md",
+        "prd-output/test_exp/05-testing.md",
+        "prd-output/test_exp/06-deployment.md",
+        "prd-output/test_exp/07-jira-tickets.md",
+        "prd-output/test_exp/08-source-code.md",
+        "prd-output/test_exp/09-test-code.md",
+      ],
+    };
+    const out = step({ state: s });
+    expect(out.action.kind).toBe("write_file");
+    if (out.action.kind === "write_file") {
+      expect(out.action.path).toBe(
+        "prd-output/test_exp/stage-5.affected_symbols.json",
+      );
+      const parsed = JSON.parse(out.action.content);
+      expect(parsed.affected_symbols).toEqual([
+        {
+          qualified_name: "src/main.rs::handle_tool_call",
+          change_kind: "modify",
+          rationale: "add retry logic",
+        },
+      ]);
+    }
+  });
+
+  it("does NOT emit a sidecar when the section carries no affected_symbols block (stays at 9 files)", () => {
+    const s = stateAtFileExport(); // only "overview", no technical_specification block
+    const out = step({ state: s });
+    // Drain every write until self_check — the sidecar path must never appear.
+    let current = s;
+    let action = out.action;
+    const written: string[] = [];
+    for (let i = 0; i < 15 && action.kind === "write_file"; i++) {
+      written.push(action.path);
+      const next = step({
+        state: current,
+        result: { kind: "file_written", path: action.path, bytes: 1 },
+      });
+      current = next.state;
+      action = next.action;
+    }
+    expect(written).toHaveLength(9);
+    expect(
+      written.some((p) => p.endsWith("stage-5.affected_symbols.json")),
+    ).toBe(false);
+    expect(current.affected_symbols_path).toBeNull();
+  });
+
+  it("records affected_symbols_path in state once the sidecar is written", () => {
+    const s: PipelineState = {
+      ...stateWithTechSpec(AFFECTED_SYMBOLS_BLOCK),
+      written_files: [
+        "prd-output/test_exp/01-prd.md",
+        "prd-output/test_exp/02-data-model.md",
+        "prd-output/test_exp/03-api-spec.md",
+        "prd-output/test_exp/04-security.md",
+        "prd-output/test_exp/05-testing.md",
+        "prd-output/test_exp/06-deployment.md",
+        "prd-output/test_exp/07-jira-tickets.md",
+        "prd-output/test_exp/08-source-code.md",
+        "prd-output/test_exp/09-test-code.md",
+        "prd-output/test_exp/stage-5.affected_symbols.json",
+      ],
+    };
+    const out = step({ state: s });
+    expect(out.state.affected_symbols_path).toBe(
+      "prd-output/test_exp/stage-5.affected_symbols.json",
+    );
+    expect(out.state.current_step).toBe("self_check");
+  });
+
+  it("strips the affected-symbols block from the human-readable 01-prd.md content", () => {
+    const s = stateWithTechSpec(AFFECTED_SYMBOLS_BLOCK);
+    const out = step({ state: s });
+    expect(out.action.kind).toBe("write_file");
+    if (out.action.kind === "write_file" && out.action.path.endsWith("01-prd.md")) {
+      expect(out.action.content).not.toContain("AFFECTED_SYMBOLS_JSON");
+      expect(out.action.content).not.toContain("affected_symbols");
+      expect(out.action.content).toContain(
+        "We use ports-and-adapters architecture.",
+      );
+    }
+  });
+});

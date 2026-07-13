@@ -23552,6 +23552,63 @@ var CrossRefValidationResultSchema = external_exports.object({
   isValid: external_exports.boolean()
 });
 
+// packages/core/dist/domain/affected-symbols.js
+var ChangeKindSchema = external_exports.enum(["add", "modify", "remove", "rename"]);
+var AffectedSymbolSchema = external_exports.object({
+  qualified_name: external_exports.string().min(1),
+  change_kind: ChangeKindSchema.optional(),
+  rationale: external_exports.string().optional()
+});
+var ScopeClaimSchema = external_exports.object({
+  kind: external_exports.enum(["community_scope", "process_exclusion"]),
+  /** Used by `community_scope` claims — a human-readable community label. */
+  assertion: external_exports.string().optional(),
+  /** Used by `process_exclusion` claims — processes the PRD claims NOT to affect. */
+  processes: external_exports.array(external_exports.string()).optional()
+});
+var AffectedSymbolsDocumentSchema = external_exports.object({
+  affected_symbols: external_exports.array(AffectedSymbolSchema),
+  scope_claims: external_exports.array(ScopeClaimSchema)
+});
+var EMPTY_DOCUMENT = {
+  affected_symbols: [],
+  scope_claims: []
+};
+var AFFECTED_SYMBOLS_MARKER = "<!-- AFFECTED_SYMBOLS_JSON -->";
+var AFFECTED_SYMBOLS_BLOCK_PATTERN = new RegExp(`${AFFECTED_SYMBOLS_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\`\`\`(?:json)?\\s*\\n([\\s\\S]*?)\\n?\`\`\``);
+function parseAffectedSymbolsBlock(content) {
+  const match = AFFECTED_SYMBOLS_BLOCK_PATTERN.exec(content);
+  if (!match)
+    return EMPTY_DOCUMENT;
+  let raw;
+  try {
+    raw = JSON.parse(match[1]);
+  } catch {
+    return EMPTY_DOCUMENT;
+  }
+  if (typeof raw !== "object" || raw === null)
+    return EMPTY_DOCUMENT;
+  const obj = raw;
+  return {
+    affected_symbols: filterValid(obj.affected_symbols, AffectedSymbolSchema),
+    scope_claims: filterValid(obj.scope_claims, ScopeClaimSchema)
+  };
+}
+function stripAffectedSymbolsBlock(content) {
+  return content.replace(AFFECTED_SYMBOLS_BLOCK_PATTERN, "").trim();
+}
+function filterValid(value, schema2) {
+  if (!Array.isArray(value))
+    return [];
+  const out = [];
+  for (const item of value) {
+    const result = schema2.safeParse(item);
+    if (result.success)
+      out.push(result.data);
+  }
+  return out;
+}
+
 // packages/core/dist/domain/agent.js
 var GeniusAgentSchema = external_exports.enum([
   "alexander",
@@ -30361,6 +30418,19 @@ var PipelineStateSchema = external_exports.object({
    */
   verification_plan: VerificationPlanSnapshotSchema.nullable().default(null),
   /**
+   * Path to the `stage-5.affected_symbols.json` sidecar written by
+   * file-export.ts, when the technical_specification section asserted ≥1
+   * symbol-level claim. Set in file-export at the file-set-complete
+   * transition; read by self-check to pass `affected_symbols_path` to
+   * `validate_prd_against_graph`. Null when no claims were parsed (the
+   * sidecar is then never exported — see file-export.ts module doc) or when
+   * file_export has not yet run.
+   *
+   * source: AP validate_prd_against_graph contract, `affected_symbols_path`
+   * argument (automatised-pipeline stages/stage-6.md §4.2 / §6.1).
+   */
+  affected_symbols_path: external_exports.string().nullable().default(null),
+  /**
    * PRD-vs-graph validation report from automatised-pipeline
    * `validate_prd_against_graph` (args { prd_path, graph_path }), fetched in
    * self-check after the PRD file is exported. Symbol-hallucination /
@@ -31298,6 +31368,36 @@ function renderGroundingBlock(grounding) {
   lines.push(`</codebase_grounding>`);
   return lines.join("\n");
 }
+function renderAffectedSymbolsInstruction(sectionType) {
+  if (sectionType !== "technical_specification")
+    return "";
+  return [
+    `<affected_symbols_instruction>`,
+    `After the section body above, if this feature modifies, adds, removes, or`,
+    `renames any existing codebase symbol, append EXACTLY ONE block in this`,
+    `exact form (this is the ONLY place fenced JSON is permitted in this`,
+    `section \u2014 do not use JSON/fences anywhere else):`,
+    "",
+    AFFECTED_SYMBOLS_MARKER,
+    "```json",
+    `{`,
+    `  "affected_symbols": [`,
+    `    {"qualified_name": "<file_path>::<symbol_name>", "change_kind": "add|modify|remove|rename", "rationale": "<why this symbol is touched>"}`,
+    `  ],`,
+    `  "scope_claims": [`,
+    `    {"kind": "community_scope", "assertion": "<human-readable community label>"},`,
+    `    {"kind": "process_exclusion", "processes": ["process::<entry_qualified_name>"]}`,
+    `  ]`,
+    `}`,
+    "```",
+    "",
+    `Rules for this block:`,
+    `  - qualified_name MUST be "<file_path>::<symbol_name>" (e.g. "src/main.rs::handle_tool_call"), matching a REAL symbol from <codebase_grounding> when grounding is present. Entries without qualified_name are ignored downstream.`,
+    `  - scope_claims is optional; omit the key entirely if there is nothing to claim.`,
+    `  - If nothing in this feature touches an existing symbol, omit this entire block (marker and fence both) \u2014 do not emit an empty affected_symbols array.`,
+    `</affected_symbols_instruction>`
+  ].join("\n");
+}
 function buildSectionPrompt(input) {
   const display = SECTION_DISPLAY_NAMES[input.section_type];
   const contextConfig = PRD_CONTEXT_CONFIGS[input.prd_context];
@@ -31313,6 +31413,7 @@ A: ${c.answer}`).join("\n\n");
   ].join("\n") : "";
   const strategiesBlock = renderStrategiesBlock(input.strategy_assignment);
   const groundingBlock = renderGroundingBlock(input.codebase_grounding);
+  const affectedSymbolsInstruction = renderAffectedSymbolsInstruction(input.section_type);
   return [
     `<role>You draft section "${display}" of a ${contextConfig.displayName} PRD.</role>`,
     "",
@@ -31346,6 +31447,8 @@ ${clarificationLines}
     COMMON_RULES.join("\n"),
     `</hard_rules>`,
     "",
+    affectedSymbolsInstruction,
+    affectedSymbolsInstruction ? "" : "",
     `Produce the "${display}" section now. Markdown only.`
   ].filter((line) => line !== "").join("\n");
 }
@@ -32057,19 +32160,28 @@ var handleJiraGeneration = ({ state, result }) => {
 
 // packages/orchestration/dist/handlers/file-export.js
 var OUTPUT_DIR = "prd-output";
+var AFFECTED_SYMBOLS_FILENAME = "stage-5.affected_symbols.json";
+function sectionBody(section) {
+  const trimmed = section.content.trim();
+  return section.section_type === "technical_specification" ? stripAffectedSymbolsBlock(trimmed) : trimmed;
+}
 function joinSections(state, types) {
   return state.sections.filter((s) => types.includes(s.section_type) && s.content).sort((a, b) => SECTION_ORDER[a.section_type] - SECTION_ORDER[b.section_type]).map((s) => `## ${SECTION_DISPLAY_NAMES[s.section_type]}
 
-${s.content.trim()}`).join("\n\n");
+${sectionBody(s)}`).join("\n\n");
 }
 function jiraContent(state) {
   const last = [...state.sections].reverse().find((s) => s.section_type === "jira_tickets" && s.content);
   return last?.content?.trim() ?? "";
 }
+function affectedSymbolsForState(state) {
+  const techSpec = state.sections.find((s) => s.section_type === "technical_specification" && s.content);
+  return techSpec ? parseAffectedSymbolsBlock(techSpec.content) : { affected_symbols: [], scope_claims: [] };
+}
 function buildFileSet(state) {
   const slug = state.run_id.slice(0, 8);
   const base = `${OUTPUT_DIR}/${slug}`;
-  return [
+  const files = [
     {
       path: `${base}/01-prd.md`,
       content: () => [
@@ -32124,6 +32236,14 @@ function buildFileSet(state) {
       content: () => joinSections(state, ["test_code"]) || "_Test code section not generated in this run._"
     }
   ];
+  const affected = affectedSymbolsForState(state);
+  if (affected.affected_symbols.length > 0) {
+    files.push({
+      path: `${base}/${AFFECTED_SYMBOLS_FILENAME}`,
+      content: () => JSON.stringify(affected, null, 2)
+    });
+  }
+  return files;
 }
 var handleFileExport = ({ state, result }) => {
   let nextState = state;
@@ -32142,8 +32262,10 @@ var handleFileExport = ({ state, result }) => {
   const done = new Set(nextState.written_files);
   const remaining = files.filter((f) => !done.has(f.path));
   if (remaining.length === 0) {
+    const sidecar = files.find((f) => f.path.endsWith(AFFECTED_SYMBOLS_FILENAME));
+    const finalState = sidecar ? { ...nextState, affected_symbols_path: sidecar.path } : nextState;
     return {
-      state: { ...nextState, current_step: "self_check" },
+      state: { ...finalState, current_step: "self_check" },
       action: {
         kind: "emit_message",
         message: `All ${files.length} files written. Running self-check.`
@@ -32958,7 +33080,11 @@ function handlePrdValidation(state, result) {
     action: {
       kind: "call_pipeline_tool",
       tool_name: "validate_prd_against_graph",
-      arguments: { prd_path: prdPath, graph_path: graphPath },
+      arguments: {
+        prd_path: prdPath,
+        graph_path: graphPath,
+        ...state.affected_symbols_path ? { affected_symbols_path: state.affected_symbols_path } : {}
+      },
       correlation_id: VALIDATE_PRD_CORRELATION_ID
     }
   };
