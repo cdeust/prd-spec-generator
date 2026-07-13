@@ -380,14 +380,11 @@ export function buildSectionPrompt(input: SectionPromptInput): string {
       ? `<codebase_context>\n${input.recall_summary}\n</codebase_context>\n`
       : "",
     groundingBlock,
-    groundingBlock ? "" : "",
     clarificationLines
       ? `<clarifications>\n${clarificationLines}\n</clarifications>\n`
       : "",
     violationsBlock,
-    violationsBlock ? "" : "",
     strategiesBlock,
-    strategiesBlock ? "" : "",
     `<guidance>`,
     sectionGuidance,
     `</guidance>`,
@@ -397,7 +394,6 @@ export function buildSectionPrompt(input: SectionPromptInput): string {
     `</hard_rules>`,
     "",
     affectedSymbolsInstruction,
-    affectedSymbolsInstruction ? "" : "",
     `Produce the "${display}" section now. Markdown only.`,
   ]
     .filter((line) => line !== "")

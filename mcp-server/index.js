@@ -31430,15 +31430,12 @@ ${input.recall_summary}
 </codebase_context>
 ` : "",
     groundingBlock,
-    groundingBlock ? "" : "",
     clarificationLines ? `<clarifications>
 ${clarificationLines}
 </clarifications>
 ` : "",
     violationsBlock,
-    violationsBlock ? "" : "",
     strategiesBlock,
-    strategiesBlock ? "" : "",
     `<guidance>`,
     sectionGuidance,
     `</guidance>`,
@@ -31448,7 +31445,6 @@ ${clarificationLines}
     `</hard_rules>`,
     "",
     affectedSymbolsInstruction,
-    affectedSymbolsInstruction ? "" : "",
     `Produce the "${display}" section now. Markdown only.`
   ].filter((line) => line !== "").join("\n");
 }
