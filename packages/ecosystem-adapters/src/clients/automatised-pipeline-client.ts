@@ -12,6 +12,8 @@ import { StdioMcpClient, type StdioMcpClientConfig } from "../transport/stdio-mc
 import {
   IndexCodebaseRequestSchema,
   IndexCodebaseResponseSchema,
+  AnalyzeCodebaseRequestSchema,
+  AnalyzeCodebaseResponseSchema,
   QueryGraphRequestSchema,
   SearchCodebaseRequestSchema,
   SearchCodebaseHitSchema,
@@ -26,6 +28,8 @@ import {
   SemanticDiffReportSchema,
   type IndexCodebaseRequest,
   type IndexCodebaseResponse,
+  type AnalyzeCodebaseRequest,
+  type AnalyzeCodebaseResponse,
   type QueryGraphRequest,
   type SearchCodebaseRequest,
   type SearchCodebaseHit,
@@ -133,8 +137,25 @@ export class AutomatisedPipelineClient {
     return this.client.callTool("get_context", validated);
   }
 
-  async analyzeCodebase(directory: string): Promise<unknown> {
-    return this.client.callTool("analyze_codebase", { directory });
+  /**
+   * Stage 3 all-in-one: index_codebase + resolve_graph + cluster_graph in
+   * one call. Prefer this over indexCodebase() when the caller needs
+   * resolved/clustered graph state (e.g. before prepare_prd_input) — a
+   * bare index_codebase graph has zero communities/processes because it
+   * skips Stage 3b/3c (see input-analysis.ts module doc for the measured
+   * regression this fixes: memory 4263670).
+   *
+   * source: automatised-pipeline/src/tool_schemas.rs:522
+   * analyze_codebase_schema — required { path, output_dir }, NOT
+   * { directory } (pre-fix signature was wrong and never matched the
+   * live binary's schema).
+   */
+  async analyzeCodebase(
+    req: AnalyzeCodebaseRequest,
+  ): Promise<AnalyzeCodebaseResponse> {
+    const validated = AnalyzeCodebaseRequestSchema.parse(req);
+    const raw = await this.client.callTool("analyze_codebase", validated);
+    return AnalyzeCodebaseResponseSchema.parse(raw);
   }
 
   // ─── Stage 4 ─────────────────────────────────────────────────────────────

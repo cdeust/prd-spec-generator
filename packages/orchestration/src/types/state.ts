@@ -225,6 +225,16 @@ export const PipelineStateSchema = z.object({
   codebase_output_dir: z.string().nullable(),
   codebase_indexed: z.boolean(),
   /**
+   * Idempotency flag for the `.prd-gen/.gitignore` self-ignore guard write
+   * (input_analysis.ts), set true once the corresponding `file_written`
+   * result is processed. Deliberately NOT tracked in `written_files` — that
+   * array is the PRD-deliverable ledger file-export.ts builds and
+   * pipeline-kpis.ts counts (`written_files_count` KPI expects exactly the
+   * 9 PRD output files); folding an infrastructure guard file into it would
+   * silently inflate that count. source: git-hygiene defect, memory 4263670.
+   */
+  codebase_gitignore_written: z.boolean().default(false),
+  /**
    * Code-graph grounding for the feature, returned by automatised-pipeline
    * `prepare_prd_input` in FEATURE MODE (response field `prd_context`):
    *   { matched_symbols, impacted_communities, impacted_processes,
@@ -482,6 +492,7 @@ export function newPipelineState(input: {
     codebase_graph_path: null,
     codebase_output_dir: null,
     codebase_indexed: false,
+    codebase_gitignore_written: false,
     preflight_status: input.skip_preflight ? "skipped" : null,
     sections: [],
     clarifications: [],

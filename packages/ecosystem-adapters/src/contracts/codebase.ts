@@ -39,6 +39,69 @@ export const IndexCodebaseResponseSchema = z.object({
 });
 export type IndexCodebaseResponse = z.infer<typeof IndexCodebaseResponseSchema>;
 
+/**
+ * source: automatised-pipeline/src/tool_schemas.rs:522 analyze_codebase_schema
+ * (verified against the live binary's do_analyze_codebase in main.rs,
+ * 2026-07-13). Stage 3 all-in-one: runs index_codebase + resolve_graph +
+ * cluster_graph in one call. Required fields are `path` and `output_dir`;
+ * `language` defaults to "auto"; `dependency_scope` defaults to "none".
+ * NOTE: the schema has no `directory` field — do not confuse with the
+ * pre-fix client stub that passed `{ directory }`.
+ */
+export const AnalyzeCodebaseRequestSchema = z.object({
+  path: z.string().describe("Absolute path to the codebase root to index"),
+  output_dir: z
+    .string()
+    .describe("Absolute directory where the graph will be stored"),
+  language: z
+    .enum([
+      "auto",
+      "rust",
+      "python",
+      "typescript",
+      "java",
+      "kotlin",
+      "swift",
+      "objc",
+      "c",
+      "cpp",
+      "go",
+    ])
+    .default("auto"),
+  dependency_scope: z.enum(["none", "public_api", "full"]).default("none"),
+});
+export type AnalyzeCodebaseRequest = z.infer<
+  typeof AnalyzeCodebaseRequestSchema
+>;
+
+/**
+ * source: automatised-pipeline/src/main.rs do_analyze_codebase — response
+ * shape verified 2026-07-13 (`graph_path` top-level plus `index`/`resolve`/
+ * `cluster` sub-objects). Only `graph_path` is required by downstream graph
+ * tools; the rest is opaque combined-stage statistics.
+ */
+export const AnalyzeCodebaseResponseSchema = z.object({
+  graph_path: z.string(),
+  index: z
+    .object({
+      node_count: z.number().int().nonnegative().optional(),
+      edge_count: z.number().int().nonnegative().optional(),
+      files_indexed: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+  resolve: z.record(z.string(), z.unknown()).optional(),
+  cluster: z
+    .object({
+      community_count: z.number().int().nonnegative().optional(),
+      process_count: z.number().int().nonnegative().optional(),
+      modularity: z.number().optional(),
+    })
+    .optional(),
+});
+export type AnalyzeCodebaseResponse = z.infer<
+  typeof AnalyzeCodebaseResponseSchema
+>;
+
 export const QueryGraphRequestSchema = z.object({
   graph_path: z
     .string()

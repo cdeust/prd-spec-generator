@@ -197,6 +197,26 @@ export function makeCannedDispatcher(
         },
       };
     }
+    if (action.tool_name === "analyze_codebase") {
+      // Stage 3 all-in-one (index + resolve + cluster). input-analysis.ts
+      // emits this instead of bare index_codebase so prepare_prd_input sees
+      // a resolved+clustered graph (bare index_codebase yields
+      // impacted_community_count=0 / impacted_process_count=0 — see
+      // input-analysis.ts module doc). Canned response mirrors the live
+      // binary's do_analyze_codebase shape (graph_path + index/resolve/
+      // cluster substats); tests only assert on graph_path today.
+      return {
+        kind: "tool_result",
+        correlation_id: action.correlation_id,
+        success: true,
+        data: {
+          graph_path,
+          index: { node_count: 0, edge_count: 0, files_indexed: 0 },
+          resolve: {},
+          cluster: { community_count: 0, process_count: 0, modularity: 0 },
+        },
+      };
+    }
     return {
       kind: "tool_result",
       correlation_id: action.correlation_id,

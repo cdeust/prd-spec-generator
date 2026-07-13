@@ -69,7 +69,7 @@ describe("jira_generation", () => {
 });
 
 describe("input_analysis", () => {
-  it("emits failed when index_codebase returns success:false", () => {
+  it("emits failed when analyze_codebase returns success:false", () => {
     const baseState = newPipelineState({
       run_id: "inj_index_failure",
       feature_description: "build a feature for OAuth login",
@@ -95,7 +95,7 @@ describe("input_analysis", () => {
     }
   });
 
-  it("emits failed when index_codebase returns no graph_path", () => {
+  it("emits failed when analyze_codebase returns no graph_path", () => {
     const baseState = newPipelineState({
       run_id: "inj_no_graph_path",
       feature_description: "build a feature for OAuth login",

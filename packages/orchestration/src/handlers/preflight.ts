@@ -4,7 +4,7 @@
  *
  * The pipeline relies on two ecosystem MCPs at runtime:
  *   - cortex            (call_cortex_tool: per-section memory recall)
- *   - ai-architect      (call_pipeline_tool: index_codebase, when a
+ *   - ai-architect      (call_pipeline_tool: analyze_codebase, when a
  *                        codebase path is supplied)
  *
  * Without preflight, a missing Cortex meant the host returned
@@ -60,7 +60,7 @@ function adviseAiArchitectInstall(): string {
     "automatised-pipeline (ai-architect) MCP not reachable.",
     "",
     "A codebase_path was supplied, which requires the automatised-pipeline",
-    "MCP for index_codebase + downstream graph queries.",
+    "MCP for analyze_codebase + downstream graph queries.",
     "",
     "To install:",
     "  /plugin marketplace add cdeust/automatised-pipeline",

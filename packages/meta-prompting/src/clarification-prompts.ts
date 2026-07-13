@@ -24,11 +24,15 @@ export function buildClarificationPrompt(
   input: ClarificationPromptInput,
 ): string {
   const ctx = PRD_CONTEXT_CONFIGS[input.prd_context];
+  // prior_qa is the full chronological clarification history (round 1 first,
+  // no gaps, no sliding window — see handlers/clarification.ts where each
+  // turn's round is assigned as `state.clarifications.length + 1` at append
+  // time). The round label for the entry at index `idx` is therefore `idx + 1`.
   const priorBlock = input.prior_qa.length
     ? input.prior_qa
         .map(
-          (qa) =>
-            `Round ${input.round - input.prior_qa.length + 1}:\nQ: ${qa.question}\nA: ${qa.answer ?? "(no answer)"}`,
+          (qa, idx) =>
+            `Round ${idx + 1}:\nQ: ${qa.question}\nA: ${qa.answer ?? "(no answer)"}`,
         )
         .join("\n\n")
     : "(no prior questions)";

@@ -30220,6 +30220,16 @@ var PipelineStateSchema = external_exports.object({
   codebase_output_dir: external_exports.string().nullable(),
   codebase_indexed: external_exports.boolean(),
   /**
+   * Idempotency flag for the `.prd-gen/.gitignore` self-ignore guard write
+   * (input_analysis.ts), set true once the corresponding `file_written`
+   * result is processed. Deliberately NOT tracked in `written_files` — that
+   * array is the PRD-deliverable ledger file-export.ts builds and
+   * pipeline-kpis.ts counts (`written_files_count` KPI expects exactly the
+   * 9 PRD output files); folding an infrastructure guard file into it would
+   * silently inflate that count. source: git-hygiene defect, memory 4263670.
+   */
+  codebase_gitignore_written: external_exports.boolean().default(false),
+  /**
    * Code-graph grounding for the feature, returned by automatised-pipeline
    * `prepare_prd_input` in FEATURE MODE (response field `prd_context`):
    *   { matched_symbols, impacted_communities, impacted_processes,
@@ -30445,6 +30455,7 @@ function newPipelineState(input) {
     codebase_graph_path: null,
     codebase_output_dir: null,
     codebase_indexed: false,
+    codebase_gitignore_written: false,
     preflight_status: input.skip_preflight ? "skipped" : null,
     sections: [],
     clarifications: [],
@@ -30773,7 +30784,7 @@ function adviseAiArchitectInstall() {
     "automatised-pipeline (ai-architect) MCP not reachable.",
     "",
     "A codebase_path was supplied, which requires the automatised-pipeline",
-    "MCP for index_codebase + downstream graph queries.",
+    "MCP for analyze_codebase + downstream graph queries.",
     "",
     "To install:",
     "  /plugin marketplace add cdeust/automatised-pipeline",
@@ -30967,8 +30978,12 @@ var handleContextDetection = ({ state, result }) => {
 import { join as join3 } from "node:path";
 var CORRELATION_ID = "input_analysis_index";
 var PREPARE_CORRELATION_ID = "input_analysis_prepare_prd_input";
+var GITIGNORE_CONTENT = "*\n";
 function deriveOutputDir(codebasePath, runId) {
   return join3(codebasePath, ".prd-gen", "graphs", runId);
+}
+function deriveGitignorePath(codebasePath) {
+  return join3(codebasePath, ".prd-gen", ".gitignore");
 }
 function emitPrepare(state) {
   const featureDescription = state.feature_description.trim();
@@ -30999,6 +31014,22 @@ function emitPrepare(state) {
         graph_path: graphPath
       },
       correlation_id: PREPARE_CORRELATION_ID
+    }
+  };
+}
+function emitAnalyze(state) {
+  const outputDir = state.codebase_output_dir ?? deriveOutputDir(state.codebase_path, state.run_id);
+  return {
+    state: { ...state, codebase_output_dir: outputDir },
+    action: {
+      kind: "call_pipeline_tool",
+      tool_name: "analyze_codebase",
+      arguments: {
+        path: state.codebase_path,
+        output_dir: outputDir,
+        language: "auto"
+      },
+      correlation_id: CORRELATION_ID
     }
   };
 }
@@ -31056,14 +31087,14 @@ var handleInputAnalysis = ({ state, result }) => {
       return {
         state: appendError(
           state,
-          `index_codebase failed: ${result.error ?? "unknown"}`,
+          `analyze_codebase failed: ${result.error ?? "unknown"}`,
           // External tool failure — the pipeline gives up but it's not a
           // handler bug. Cross-audit curie H1 (Phase 3+4 follow-up).
           "upstream_failure"
         ),
         action: {
           kind: "failed",
-          reason: `index_codebase failed: ${result.error ?? "unknown"}`,
+          reason: `analyze_codebase failed: ${result.error ?? "unknown"}`,
           step: "input_analysis"
         }
       };
@@ -31074,7 +31105,7 @@ var handleInputAnalysis = ({ state, result }) => {
       return {
         state: appendError(
           state,
-          `index_codebase succeeded but returned no graph_path`,
+          `analyze_codebase succeeded but returned no graph_path`,
           // The upstream tool advertised success but violated its own
           // contract. From the orchestration layer's perspective this
           // is the SAME class as the explicit-failure case above —
@@ -31084,7 +31115,7 @@ var handleInputAnalysis = ({ state, result }) => {
         ),
         action: {
           kind: "failed",
-          reason: "index_codebase returned no graph_path",
+          reason: "analyze_codebase returned no graph_path",
           step: "input_analysis"
         }
       };
@@ -31098,20 +31129,20 @@ var handleInputAnalysis = ({ state, result }) => {
   if (state.codebase_indexed && state.codebase_graph_path && !state.prd_input_prepared) {
     return emitPrepare(state);
   }
-  const outputDir = state.codebase_output_dir ?? deriveOutputDir(state.codebase_path, state.run_id);
-  return {
-    state: { ...state, codebase_output_dir: outputDir },
-    action: {
-      kind: "call_pipeline_tool",
-      tool_name: "index_codebase",
-      arguments: {
-        path: state.codebase_path,
-        output_dir: outputDir,
-        language: "auto"
-      },
-      correlation_id: CORRELATION_ID
-    }
-  };
+  if (result?.kind === "file_written" && result.path === deriveGitignorePath(state.codebase_path) && !state.codebase_gitignore_written) {
+    return emitAnalyze({ ...state, codebase_gitignore_written: true });
+  }
+  if (!state.codebase_gitignore_written) {
+    return {
+      state,
+      action: {
+        kind: "write_file",
+        path: deriveGitignorePath(state.codebase_path),
+        content: GITIGNORE_CONTENT
+      }
+    };
+  }
+  return emitAnalyze(state);
 };
 
 // packages/orchestration/dist/handlers/feasibility-gate.js
@@ -31322,7 +31353,7 @@ ${clarificationLines}
 // packages/meta-prompting/dist/clarification-prompts.js
 function buildClarificationPrompt(input) {
   const ctx = PRD_CONTEXT_CONFIGS[input.prd_context];
-  const priorBlock = input.prior_qa.length ? input.prior_qa.map((qa) => `Round ${input.round - input.prior_qa.length + 1}:
+  const priorBlock = input.prior_qa.length ? input.prior_qa.map((qa, idx) => `Round ${idx + 1}:
 Q: ${qa.question}
 A: ${qa.answer ?? "(no answer)"}`).join("\n\n") : "(no prior questions)";
   return [
@@ -33465,6 +33496,19 @@ function makeCannedDispatcher(opts = {}) {
           symbols_indexed: 0,
           files_parsed: 0,
           duration_ms: 1
+        }
+      };
+    }
+    if (action.tool_name === "analyze_codebase") {
+      return {
+        kind: "tool_result",
+        correlation_id: action.correlation_id,
+        success: true,
+        data: {
+          graph_path,
+          index: { node_count: 0, edge_count: 0, files_indexed: 0 },
+          resolve: {},
+          cluster: { community_count: 0, process_count: 0, modularity: 0 }
         }
       };
     }

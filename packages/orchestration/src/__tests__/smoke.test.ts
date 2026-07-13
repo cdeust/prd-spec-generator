@@ -384,15 +384,17 @@ describe("end-to-end smoke run", () => {
     // grown an unexpected phase; if it is far below 30 a clarification phase
     // is being skipped.
     //
-    // Derivation (see test-engineer audit, 2026-04):
-    //   i=0:      call_pipeline_tool (index_codebase)
-    //   i=1..17:  8 clarification compose+answer rounds + proceed prompt
-    //   i=18..39: 11 sections × 2 (recall + draft)
-    //   i=40:     spawn_subagents (jira)
-    //   i=41..49: 9 write_file calls
-    //   i=50:     spawn_subagents (self_check judges)
-    //   i=51:     done
-    // Total = 52 (safety cap = 200, headroom = 148).
+    // Derivation (see test-engineer audit, 2026-04; updated for the
+    // .prd-gen/.gitignore write hop added ahead of analyze_codebase, 2026-07):
+    //   i=0:      write_file (.prd-gen/.gitignore guard)
+    //   i=1:      call_pipeline_tool (analyze_codebase)
+    //   i=2..18:  8 clarification compose+answer rounds + proceed prompt
+    //   i=19..40: 11 sections × 2 (recall + draft)
+    //   i=41:     spawn_subagents (jira)
+    //   i=42..50: 9 write_file calls
+    //   i=51:     spawn_subagents (self_check judges)
+    //   i=52:     done
+    // Total = 53 (safety cap = 200, headroom = 147).
     const seed = newPipelineState({
       run_id: "smoke_iteration_headroom",
       feature_description: "build a feature for OAuth login",

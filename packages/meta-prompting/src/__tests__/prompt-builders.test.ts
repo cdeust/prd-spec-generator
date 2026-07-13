@@ -61,6 +61,27 @@ describe("buildClarificationPrompt", () => {
     expect(out).toContain("p95 latency under 250ms");
   });
 
+  it("labels each prior_qa entry with its chronological round (1..N, not all identical)", () => {
+    // Regression test: the round label must be derived from the entry's
+    // position in prior_qa (round 1 first, chronological, no gaps — see
+    // handlers/clarification.ts), never from a round-independent expression.
+    const out = buildClarificationPrompt({
+      feature_description: "x",
+      prd_context: "feature",
+      round: 4,
+      prior_qa: [
+        { question: "Q1?", answer: "A1" },
+        { question: "Q2?", answer: "A2" },
+        { question: "Q3?", answer: "A3" },
+      ],
+      recall_summary: "",
+    });
+    expect(out).toContain("Round 1:\nQ: Q1?\nA: A1");
+    expect(out).toContain("Round 2:\nQ: Q2?\nA: A2");
+    expect(out).toContain("Round 3:\nQ: Q3?\nA: A3");
+    expect(out).not.toContain("Round 4:");
+  });
+
   it("renders '(no prior questions)' when prior_qa is empty", () => {
     const out = buildClarificationPrompt({
       feature_description: "x",

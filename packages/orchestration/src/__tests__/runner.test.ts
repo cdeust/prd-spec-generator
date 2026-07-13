@@ -33,18 +33,53 @@ describe("pipeline runner — emit_message coalescing", () => {
     expect(out.action.kind).toBe("spawn_subagents");
   });
 
-  it("input_analysis with codebase yields a call_pipeline_tool action with index_codebase", () => {
+  it("input_analysis with codebase first writes the .prd-gen/.gitignore guard", () => {
     const out = step({ state: seed("/some/path") });
+    expect(out.action.kind).toBe("write_file");
+    if (out.action.kind === "write_file") {
+      expect(out.action.path).toBe("/some/path/.prd-gen/.gitignore");
+      expect(out.action.content).toBe("*\n");
+    }
+  });
+
+  it("input_analysis: after the gitignore write, yields a call_pipeline_tool action with analyze_codebase", () => {
+    const written = step({ state: seed("/some/path") });
+    const gitignorePath =
+      written.action.kind === "write_file" ? written.action.path : "";
+    const out = step({
+      state: written.state,
+      result: { kind: "file_written", path: gitignorePath, bytes: 2 },
+    });
+    expect(out.state.codebase_gitignore_written).toBe(true);
+    // The gitignore guard is NOT a PRD deliverable — must not pollute the
+    // written_files ledger pipeline-kpis.ts counts as written_files_count.
+    expect(out.state.written_files).not.toContain(gitignorePath);
     expect(out.action.kind).toBe("call_pipeline_tool");
     if (out.action.kind === "call_pipeline_tool") {
-      expect(out.action.tool_name).toBe("index_codebase");
+      expect(out.action.tool_name).toBe("analyze_codebase");
       expect(out.action.arguments).toHaveProperty("path", "/some/path");
       expect(out.action.arguments).toHaveProperty("output_dir");
     }
   });
 
-  it("input_analysis: index_codebase success emits prepare_prd_input (feature mode) before advancing", () => {
-    const issued = step({ state: seed("/x") });
+  /**
+   * Drive input_analysis past the gitignore-write step and return the
+   * resulting {state, action} where action is the analyze_codebase
+   * call_pipeline_tool. Shared by the tests below so each one only asserts
+   * on the behaviour it's named for.
+   */
+  function issueAnalyze(codebasePath: string) {
+    const written = step({ state: seed(codebasePath) });
+    const gitignorePath =
+      written.action.kind === "write_file" ? written.action.path : "";
+    return step({
+      state: written.state,
+      result: { kind: "file_written", path: gitignorePath, bytes: 2 },
+    });
+  }
+
+  it("input_analysis: analyze_codebase success emits prepare_prd_input (feature mode) before advancing", () => {
+    const issued = issueAnalyze("/x");
     expect(issued.state.codebase_output_dir).not.toBeNull();
     const correlation_id =
       issued.action.kind === "call_pipeline_tool"
@@ -81,7 +116,7 @@ describe("pipeline runner — emit_message coalescing", () => {
   });
 
   it("input_analysis: prepare_prd_input result stores grounding then advances to clarification compose", () => {
-    const issued = step({ state: seed("/x") });
+    const issued = issueAnalyze("/x");
     const indexCid =
       issued.action.kind === "call_pipeline_tool"
         ? issued.action.correlation_id
@@ -125,7 +160,7 @@ describe("pipeline runner — emit_message coalescing", () => {
   });
 
   it("input_analysis: prepare_prd_input failure is advisory — advances without grounding", () => {
-    const issued = step({ state: seed("/x") });
+    const issued = issueAnalyze("/x");
     const indexCid =
       issued.action.kind === "call_pipeline_tool"
         ? issued.action.correlation_id

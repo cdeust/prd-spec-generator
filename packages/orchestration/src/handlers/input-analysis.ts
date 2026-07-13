@@ -1,26 +1,61 @@
 /**
- * Input analysis — call automatised-pipeline `index_codebase`, then
+ * Input analysis — call automatised-pipeline `analyze_codebase`, then
  * `prepare_prd_input` (FEATURE MODE) to ground the feature on the code graph.
  *
- * Tool contracts (source of truth: ai-automatised-pipeline/src/tool_schemas.rs):
- *   index_codebase:
- *     inputs:  { path, output_dir, language? }
- *     output:  { graph_path }                ← graph tools take this
+ * Tool contracts (source of truth: automatised-pipeline/src/tool_schemas.rs,
+ * verified against automatised-pipeline/src/main.rs do_analyze_codebase,
+ * 2026-07-13):
+ *   analyze_codebase (Stage 3 — all-in-one: index_codebase + resolve_graph +
+ *   cluster_graph in one call; tool_schemas.rs:522 analyze_codebase_schema):
+ *     inputs:  { path, output_dir, language?, dependency_scope? }
+ *     output:  { graph_path, index, resolve, cluster:{community_count,
+ *                process_count, modularity} }   ← graph tools take graph_path
  *   prepare_prd_input (feature mode — no finding_id):
  *     inputs:  { feature_description, output_dir, graph_path }
  *     output:  prd_context { matched_symbols, impacted_communities,
  *                            impacted_processes, graph_stats, mode:"feature" }
  *
+ * We deliberately call `analyze_codebase` rather than bare `index_codebase`:
+ * `index_codebase` alone is Stage 3a ONLY (parse + build graph nodes/edges) —
+ * it does NOT resolve call/import edges (Stage 3b) or detect communities/
+ * processes (Stage 3c). Grounding via `prepare_prd_input` on an
+ * index-only graph therefore returns impacted_community_count=0 and
+ * impacted_process_count=0 regardless of the real codebase (measured
+ * 2026-07-13, e2e run_mrjlmfh6_3tq3d4, cobaye repo graphify: 0/0 via
+ * index_codebase vs 9 communities / 162 processes via analyze_codebase on
+ * the same repo — see Cortex memory 4263670). `analyze_codebase` performs
+ * index+resolve+cluster in one host round trip, which is also fewer
+ * `call_pipeline_tool` hops than doing the three stages piecemeal.
+ *
  * Two sequential host-driven calls, each following the established reducer
  * protocol (emit call_pipeline_tool → host runs it → result fed back via
  * tool_result → handler processes result.data):
- *   1. index_codebase          → sets codebase_graph_path / codebase_indexed
+ *   1. analyze_codebase        → sets codebase_graph_path / codebase_indexed
  *   2. prepare_prd_input        → sets codebase_grounding / prd_input_prepared
  * Only after BOTH complete does the step advance to feasibility_gate.
  *
  * The output_dir is derived from run_id so retries are idempotent and runs
  * do not collide. We write under <codebase_path>/.prd-gen/graphs/<run_id>/
  * by default; a real deployment may want to override via env var.
+ *
+ * Git hygiene (defect found in the same e2e run, memory 4263670): a run
+ * writes ~39MB of graph artifacts under <codebase_path>/.prd-gen/. That path
+ * lives INSIDE the user's target repo and is not git-ignored by default —
+ * left unaddressed it would pollute the user's `git status`/commits. This
+ * handler is a pure reducer (StepHandler: state → {state, action}, no direct
+ * fs access — see the module's layer contract in runner.ts) so it cannot
+ * write the guard file itself; it emits a `write_file` action for
+ * `.prd-gen/.gitignore` (content: `*`, the standard self-ignore pattern used
+ * by `.next/`/`.turbo/`) THE SAME WAY file-export.ts writes PRD output files
+ * — through the existing write_file/file_written port, executed by the host
+ * (or canned-dispatcher.ts in tests). Idempotency is tracked in its own
+ * `state.codebase_gitignore_written` flag rather than `state.written_files`:
+ * that array is the PRD-deliverable ledger (pipeline-kpis.ts counts it as
+ * `written_files_count`, expected to land on exactly the 9 PRD output
+ * files) — folding an infrastructure guard file into it would silently
+ * inflate that KPI. This write is emitted once, before the first
+ * `analyze_codebase` call that would otherwise be the first thing to
+ * populate `.prd-gen/`.
  */
 
 import { join } from "node:path";
@@ -31,8 +66,22 @@ import type { HandlerAction } from "../types/actions.js";
 const CORRELATION_ID = "input_analysis_index";
 const PREPARE_CORRELATION_ID = "input_analysis_prepare_prd_input";
 
+/**
+ * Self-ignore pattern for the `.prd-gen/` artifact directory. `*` inside
+ * `.prd-gen/.gitignore` ignores every file in that directory, including the
+ * `.gitignore` file itself (mirrors the `.next/`/`.turbo/` convention) — so
+ * the ~39MB of graph artifacts a run produces never shows up in the user's
+ * `git status`. source: standard build-tool self-ignore idiom (Next.js
+ * `.next/`, Turborepo `.turbo/`); no numeric constant to cite.
+ */
+const GITIGNORE_CONTENT = "*\n";
+
 function deriveOutputDir(codebasePath: string, runId: string): string {
   return join(codebasePath, ".prd-gen", "graphs", runId);
+}
+
+function deriveGitignorePath(codebasePath: string): string {
+  return join(codebasePath, ".prd-gen", ".gitignore");
 }
 
 /**
@@ -88,6 +137,43 @@ function emitPrepare(state: PipelineState): {
         graph_path: graphPath,
       },
       correlation_id: PREPARE_CORRELATION_ID,
+    },
+  };
+}
+
+/**
+ * Emit the `analyze_codebase` call (index + resolve + cluster in one host
+ * round trip — see the module doc for why this replaces bare
+ * `index_codebase`).
+ *
+ * precondition:  state.codebase_path is set; the `.prd-gen/.gitignore`
+ *                write has already been recorded
+ *                (state.codebase_gitignore_written === true — callers must
+ *                check that before invoking this).
+ * postcondition: a call_pipeline_tool[analyze_codebase] action with
+ *                { path, output_dir, language: "auto" }, correlation_id
+ *                CORRELATION_ID. state.codebase_output_dir is set (computed
+ *                once, reused on retries so runs are idempotent).
+ */
+function emitAnalyze(state: PipelineState): {
+  state: PipelineState;
+  action: HandlerAction;
+} {
+  const outputDir =
+    state.codebase_output_dir ??
+    deriveOutputDir(state.codebase_path!, state.run_id);
+
+  return {
+    state: { ...state, codebase_output_dir: outputDir },
+    action: {
+      kind: "call_pipeline_tool",
+      tool_name: "analyze_codebase",
+      arguments: {
+        path: state.codebase_path,
+        output_dir: outputDir,
+        language: "auto",
+      },
+      correlation_id: CORRELATION_ID,
     },
   };
 }
@@ -170,20 +256,20 @@ export const handleInputAnalysis: StepHandler = ({ state, result }) => {
     };
   }
 
-  // Result of an index_codebase call.
+  // Result of an analyze_codebase call.
   if (result?.kind === "tool_result" && result.correlation_id === CORRELATION_ID) {
     if (!result.success) {
       return {
         state: appendError(
           state,
-          `index_codebase failed: ${result.error ?? "unknown"}`,
+          `analyze_codebase failed: ${result.error ?? "unknown"}`,
           // External tool failure — the pipeline gives up but it's not a
           // handler bug. Cross-audit curie H1 (Phase 3+4 follow-up).
           "upstream_failure",
         ),
         action: {
           kind: "failed",
-          reason: `index_codebase failed: ${result.error ?? "unknown"}`,
+          reason: `analyze_codebase failed: ${result.error ?? "unknown"}`,
           step: "input_analysis",
         },
       };
@@ -194,7 +280,7 @@ export const handleInputAnalysis: StepHandler = ({ state, result }) => {
       return {
         state: appendError(
           state,
-          `index_codebase succeeded but returned no graph_path`,
+          `analyze_codebase succeeded but returned no graph_path`,
           // The upstream tool advertised success but violated its own
           // contract. From the orchestration layer's perspective this
           // is the SAME class as the explicit-failure case above —
@@ -204,14 +290,15 @@ export const handleInputAnalysis: StepHandler = ({ state, result }) => {
         ),
         action: {
           kind: "failed",
-          reason: "index_codebase returned no graph_path",
+          reason: "analyze_codebase returned no graph_path",
           step: "input_analysis",
         },
       };
     }
-    // Indexed — do NOT advance yet. Record the graph, then fall through to the
-    // prepare_prd_input emission below (state.codebase_graph_path is now set,
-    // state.prd_input_prepared is still false).
+    // Indexed+resolved+clustered — do NOT advance yet. Record the graph,
+    // then fall through to the prepare_prd_input emission below
+    // (state.codebase_graph_path is now set, state.prd_input_prepared is
+    // still false).
     return emitPrepare({
       ...state,
       codebase_indexed: true,
@@ -229,23 +316,32 @@ export const handleInputAnalysis: StepHandler = ({ state, result }) => {
     return emitPrepare(state);
   }
 
-  // Trigger the indexing call. Compute output_dir if not yet set so it
-  // survives retries.
-  const outputDir =
-    state.codebase_output_dir ??
-    deriveOutputDir(state.codebase_path, state.run_id);
+  // Result of the `.prd-gen/.gitignore` write. Record it in its own
+  // idempotency flag (NOT written_files — see module doc) and fall through
+  // to trigger analyze_codebase now that the artifact directory is guarded.
+  if (
+    result?.kind === "file_written" &&
+    result.path === deriveGitignorePath(state.codebase_path) &&
+    !state.codebase_gitignore_written
+  ) {
+    return emitAnalyze({ ...state, codebase_gitignore_written: true });
+  }
 
-  return {
-    state: { ...state, codebase_output_dir: outputDir },
-    action: {
-      kind: "call_pipeline_tool",
-      tool_name: "index_codebase",
-      arguments: {
-        path: state.codebase_path,
-        output_dir: outputDir,
-        language: "auto",
+  // Not yet indexed and the gitignore guard hasn't been written this run —
+  // write it FIRST so `.prd-gen/` never has a window where it could show up
+  // untracked in the user's `git status` before analyze_codebase populates it.
+  if (!state.codebase_gitignore_written) {
+    return {
+      state,
+      action: {
+        kind: "write_file",
+        path: deriveGitignorePath(state.codebase_path),
+        content: GITIGNORE_CONTENT,
       },
-      correlation_id: CORRELATION_ID,
-    },
-  };
+    };
+  }
+
+  // Guard already written this run (e.g. replay after a analyze_codebase
+  // failure was retried) — trigger the analyze_codebase call directly.
+  return emitAnalyze(state);
 };
