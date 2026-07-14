@@ -73,15 +73,73 @@ export const ImplementationStateSchema = z.object({
 export type ImplementationState = z.infer<typeof ImplementationStateSchema>;
 
 /**
- * `post_impl_verification` step's outcome (Phase 3c/4a — NOT wired in 3b).
+ * `post_impl_verification`'s 4-call sequence cursor (PR 3c, design-phases-3-5.md
+ * §1, §3): `index_codebase`(worktree) → `detect_changes` → `verify_semantic_diff`
+ * → `check_security_gates`, strictly linear (unlike `pre_impl_grounding`'s
+ * variable-length per-symbol loop, so a step enum is sufficient — no index
+ * counter needed). `"done"` is the terminal value once all 4 calls have been
+ * dispatched (successfully or degraded).
+ */
+export const VerificationStepSchema = z.enum([
+  "index_codebase",
+  "detect_changes",
+  "verify_semantic_diff",
+  "check_security_gates",
+  "done",
+]);
+export type VerificationStep = z.infer<typeof VerificationStepSchema>;
+
+/**
+ * `post_impl_verification` step's outcome (Phase 3c — wired by
+ * post-impl-verification.ts; Phase 4a still owns `implementation`, the
+ * precondition for this step ever running).
  */
 export const VerificationStateSchema = z.object({
+  /** Cursor — see VerificationStepSchema. */
+  step: VerificationStepSchema.default("index_codebase"),
+  /**
+   * The "after" graph produced by the worktree re-index (call 1). Needed by
+   * calls 2-4 (`detect_changes`, `verify_semantic_diff`,
+   * `check_security_gates` all take a graph_path). Null until call 1
+   * succeeds; stays null (verification degrades) if call 1 fails.
+   */
+  after_graph_path: z.string().nullable().default(null),
+  /**
+   * Qualified names from `detect_changes`'s `symbols_affected[].qualified_name`
+   * (automatised-pipeline/src/git_diff.rs ChangedSymbol), carried forward so
+   * `check_security_gates` (call 4) can consume them as its required
+   * `changed_symbols` argument — design §1: "check_security_gates ... its own
+   * schema *requires* changed_symbols (from detect_changes)". Empty array
+   * (not null) when detect_changes was skipped or failed — check_security_gates'
+   * schema accepts `minItems: 0`, so an empty list is a valid degrade, not a
+   * blocked call.
+   */
+  changed_symbols: z.array(z.string()).default([]),
   detect_changes: z.record(z.string(), z.unknown()).nullable().default(null),
   verify_semantic_diff: z.record(z.string(), z.unknown()).nullable().default(null),
   check_security_gates: z.record(z.string(), z.unknown()).nullable().default(null),
+  /**
+   * Fail-closed on the boolean (design §4): default false, and stays false
+   * unless `check_security_gates` returns success with
+   * `data.gates_passed === true`. Any degrade along the sequence (index
+   * failure, security-gates call failure, or the call never running) leaves
+   * this false rather than defaulting to "passed".
+   */
   gates_passed: z.boolean().default(false),
 });
 export type VerificationState = z.infer<typeof VerificationStateSchema>;
+
+/**
+ * precondition:  none.
+ * postcondition: a fresh VerificationState at the start of the 4-call
+ *                sequence (step:"index_codebase", every result null,
+ *                gates_passed false). Used by post-impl-verification.ts the
+ *                first time a run reaches the step (post_specs.verification
+ *                is null until then).
+ */
+export function initialVerification(): VerificationState {
+  return VerificationStateSchema.parse({});
+}
 
 /** `testing` step's outcome (Phase 4b — NOT wired in 3b). */
 export const TestingStateSchema = z.object({

@@ -244,6 +244,48 @@ export function makeCannedDispatcher(
         },
       };
     }
+    if (action.tool_name === "detect_changes") {
+      // post-impl-verification.ts call 2 (PR 3c). Shape mirrors the live AP
+      // do_detect_changes envelope (main.rs:3406) — tests assert on
+      // symbols_affected[].qualified_name, which post-impl-verification.ts
+      // extracts into post_specs.verification.changed_symbols.
+      return {
+        kind: "tool_result",
+        correlation_id: action.correlation_id,
+        success: true,
+        data: {
+          files_changed: [],
+          symbols_affected: [],
+          symbols_affected_count: 0,
+          communities_affected: [],
+          processes_affected: [],
+          risk_score: "0.0000",
+        },
+      };
+    }
+    if (action.tool_name === "verify_semantic_diff") {
+      // post-impl-verification.ts call 3 (PR 3c). Shape mirrors the live AP
+      // regression-report envelope (tool_schemas.rs:671); tests only assert
+      // it is stored opaquely.
+      return {
+        kind: "tool_result",
+        correlation_id: action.correlation_id,
+        success: true,
+        data: { regression_score: 0.0, status: "clean" },
+      };
+    }
+    if (action.tool_name === "check_security_gates") {
+      // post-impl-verification.ts call 4 (PR 3c). Shape mirrors the live AP
+      // SecurityReport envelope (security_gates.rs:42, main.rs:3788) —
+      // tests assert on gates_passed, which post-impl-verification.ts
+      // extracts into post_specs.verification.gates_passed.
+      return {
+        kind: "tool_result",
+        correlation_id: action.correlation_id,
+        success: true,
+        data: { gates_passed: true, flags: [] },
+      };
+    }
     if (action.tool_name === "get_impact") {
       // pre_impl_grounding.ts's per-symbol blast-radius query (PR 3b). Shape
       // mirrors the live AP get_impact response envelope (callers/importers/

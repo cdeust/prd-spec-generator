@@ -74,3 +74,21 @@ export const PRE_IMPL_GROUNDING_IMPACT_PREFIX = "pre_impl_grounding_impact_";
 export function preImplGroundingImpactCorrelationId(index: number): string {
   return `${PRE_IMPL_GROUNDING_IMPACT_PREFIX}${index}`;
 }
+
+/**
+ * post-impl-verification.ts — correlation ids for the 4-call POST-
+ * implementation verification sequence (design-phases-3-5.md §1, §3):
+ * `index_codebase`(worktree) → `detect_changes` → `verify_semantic_diff` →
+ * `check_security_gates`. Unlike `pre_impl_grounding`'s per-symbol loop
+ * (variable-length list, needs an index-parameterized producer function),
+ * this sequence has exactly one call per stage — plain constants are
+ * sufficient.
+ */
+export const POST_IMPL_INDEX_CODEBASE_CORRELATION_ID =
+  "post_impl_verification_index_codebase";
+export const POST_IMPL_DETECT_CHANGES_CORRELATION_ID =
+  "post_impl_verification_detect_changes";
+export const POST_IMPL_VERIFY_SEMANTIC_DIFF_CORRELATION_ID =
+  "post_impl_verification_verify_semantic_diff";
+export const POST_IMPL_CHECK_SECURITY_GATES_CORRELATION_ID =
+  "post_impl_verification_check_security_gates";

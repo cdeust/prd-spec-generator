@@ -29478,13 +29478,30 @@ var PipelineStepSchema = external_exports.enum([
   "implementation_gate",
   "pre_impl_grounding",
   /**
+   * `post_impl_verification` (PR 3c, design-phases-3-5.md §1, §3, §5): the
+   * 4-call POST-implementation verification sequence (index_codebase(worktree)
+   * → detect_changes → verify_semantic_diff → check_security_gates). The
+   * handler is registered in runner.ts's HANDLERS and independently
+   * unit-tested (post-impl-verification.test.ts), but this PR does NOT wire
+   * any transition INTO this step — `implementation` (PR 4a), the only
+   * handler that would hand off here, does not exist yet. Reachable today
+   * only by directly constructing a state with
+   * `current_step: "post_impl_verification"` (as the unit tests do); no
+   * runner-driven smoke path can reach it (see
+   * smoke-implementation-gate.test.ts's "never reaches post_impl_verification"
+   * assertion). The step must still be a member of this enum: HANDLERS is a
+   * `Record<PipelineState["current_step"], StepHandler>` in runner.ts, so the
+   * TypeScript compiler enforces the handler's presence.
+   */
+  "post_impl_verification",
+  /**
    * Relocated Phase C (Cortex `remember` → `done`) — the only step that
    * advances `current_step` to `complete`. PR 3b dead-ends both
    * `implementation_gate` ("prd_only") and `pre_impl_grounding` (grounding
-   * gathered or skipped) straight here; the `implementation` /
-   * `post_impl_verification` / `testing` / `review` / `pr_gate` /
-   * `pr_creation` steps named in the design doc are NOT yet in this enum —
-   * they land in PRs 3c/4a/4b/5.
+   * gathered or skipped) straight here; `post_impl_verification` (PR 3c) is
+   * registered but unreachable (see above). The `implementation` / `testing`
+   * / `review` / `pr_gate` / `pr_creation` steps named in the design doc are
+   * NOT yet in this enum — they land in PRs 4a/4b/5.
    */
   "finalize",
   "complete"
@@ -30297,12 +30314,49 @@ var ImplementationStateSchema = external_exports.object({
   changed_files: external_exports.array(external_exports.string()).default([]),
   raw_report: external_exports.string()
 });
+var VerificationStepSchema = external_exports.enum([
+  "index_codebase",
+  "detect_changes",
+  "verify_semantic_diff",
+  "check_security_gates",
+  "done"
+]);
 var VerificationStateSchema = external_exports.object({
+  /** Cursor — see VerificationStepSchema. */
+  step: VerificationStepSchema.default("index_codebase"),
+  /**
+   * The "after" graph produced by the worktree re-index (call 1). Needed by
+   * calls 2-4 (`detect_changes`, `verify_semantic_diff`,
+   * `check_security_gates` all take a graph_path). Null until call 1
+   * succeeds; stays null (verification degrades) if call 1 fails.
+   */
+  after_graph_path: external_exports.string().nullable().default(null),
+  /**
+   * Qualified names from `detect_changes`'s `symbols_affected[].qualified_name`
+   * (automatised-pipeline/src/git_diff.rs ChangedSymbol), carried forward so
+   * `check_security_gates` (call 4) can consume them as its required
+   * `changed_symbols` argument — design §1: "check_security_gates ... its own
+   * schema *requires* changed_symbols (from detect_changes)". Empty array
+   * (not null) when detect_changes was skipped or failed — check_security_gates'
+   * schema accepts `minItems: 0`, so an empty list is a valid degrade, not a
+   * blocked call.
+   */
+  changed_symbols: external_exports.array(external_exports.string()).default([]),
   detect_changes: external_exports.record(external_exports.string(), external_exports.unknown()).nullable().default(null),
   verify_semantic_diff: external_exports.record(external_exports.string(), external_exports.unknown()).nullable().default(null),
   check_security_gates: external_exports.record(external_exports.string(), external_exports.unknown()).nullable().default(null),
+  /**
+   * Fail-closed on the boolean (design §4): default false, and stays false
+   * unless `check_security_gates` returns success with
+   * `data.gates_passed === true`. Any degrade along the sequence (index
+   * failure, security-gates call failure, or the call never running) leaves
+   * this false rather than defaulting to "passed".
+   */
   gates_passed: external_exports.boolean().default(false)
 });
+function initialVerification() {
+  return VerificationStateSchema.parse({});
+}
 var TestingStateSchema = external_exports.object({
   raw_report: external_exports.string()
 });
@@ -31577,6 +31631,10 @@ var PRE_IMPL_GROUNDING_IMPACT_PREFIX = "pre_impl_grounding_impact_";
 function preImplGroundingImpactCorrelationId(index2) {
   return `${PRE_IMPL_GROUNDING_IMPACT_PREFIX}${index2}`;
 }
+var POST_IMPL_INDEX_CODEBASE_CORRELATION_ID = "post_impl_verification_index_codebase";
+var POST_IMPL_DETECT_CHANGES_CORRELATION_ID = "post_impl_verification_detect_changes";
+var POST_IMPL_VERIFY_SEMANTIC_DIFF_CORRELATION_ID = "post_impl_verification_verify_semantic_diff";
+var POST_IMPL_CHECK_SECURITY_GATES_CORRELATION_ID = "post_impl_verification_check_security_gates";
 
 // packages/orchestration/dist/handlers/input-analysis/git-history.js
 var GIT_HISTORY_BATCH_ID = GIT_HISTORY_INV_ID;
@@ -33795,6 +33853,220 @@ function emitImpactCall(state, postSpecs, symbols) {
   };
 }
 
+// packages/orchestration/dist/handlers/post-impl-verification.js
+function ensurePostSpecs3(state) {
+  return state.post_specs ?? initialPostSpecs();
+}
+function ensureVerification(postSpecs) {
+  return postSpecs.verification ?? initialVerification();
+}
+function worktreePath(postSpecs) {
+  return postSpecs.implementation?.worktree_path ?? null;
+}
+function extractChangedSymbols(data) {
+  if (!data || typeof data !== "object")
+    return [];
+  const symbolsAffected = data.symbols_affected;
+  if (!Array.isArray(symbolsAffected))
+    return [];
+  const names = symbolsAffected.map((entry) => entry && typeof entry === "object" ? entry.qualified_name : void 0).filter((n) => typeof n === "string");
+  return Array.from(new Set(names));
+}
+function extractGatesPassed(data) {
+  if (!data || typeof data !== "object")
+    return false;
+  return data.gates_passed === true;
+}
+function asRecord(data) {
+  return data ?? {};
+}
+function advanceToFinalize(state, postSpecs, verification, message) {
+  return {
+    state: {
+      ...state,
+      current_step: "finalize",
+      post_specs: { ...postSpecs, verification: { ...verification, step: "done" } }
+    },
+    action: { kind: "emit_message", message, level: "info" }
+  };
+}
+function withVerification(state, postSpecs, verification, message) {
+  return {
+    state: { ...state, post_specs: { ...postSpecs, verification } },
+    action: { kind: "emit_message", message }
+  };
+}
+function deriveVerificationOutputDir(worktree, runId) {
+  return `${worktree}/.prd-gen/graphs/${runId}-post-impl`;
+}
+function processIndexCodebaseResult(state, postSpecs, verification, result) {
+  if (!result.success) {
+    const nextState = appendError(state, `index_codebase (post-impl) failed: ${result.error ?? "unknown"}; skipping post-impl verification`, "upstream_failure");
+    return advanceToFinalize(nextState, postSpecs, { ...verification, after_graph_path: null, gates_passed: false }, "Post-implementation verification degraded: could not index the implementation worktree.");
+  }
+  const afterGraphPath = asRecord(result.data).graph_path;
+  const nextVerification = {
+    ...verification,
+    step: "detect_changes",
+    after_graph_path: afterGraphPath ?? null
+  };
+  return withVerification(state, postSpecs, nextVerification, "Post-implementation graph indexed.");
+}
+function processDetectChangesResult(state, postSpecs, verification, result) {
+  let nextState = state;
+  let changedSymbols = [];
+  let detectChangesData = null;
+  if (result.success) {
+    detectChangesData = asRecord(result.data);
+    changedSymbols = extractChangedSymbols(result.data);
+  } else {
+    nextState = appendError(nextState, `detect_changes failed: ${result.error ?? "unknown"}; continuing with no changed_symbols`, "upstream_failure");
+  }
+  const nextVerification = {
+    ...verification,
+    step: "verify_semantic_diff",
+    detect_changes: detectChangesData,
+    changed_symbols: changedSymbols
+  };
+  return withVerification(nextState, postSpecs, nextVerification, "Change detection complete.");
+}
+function processVerifySemanticDiffResult(state, postSpecs, verification, result) {
+  let nextState = state;
+  let verifyDiffData = null;
+  if (result.success) {
+    verifyDiffData = asRecord(result.data);
+  } else {
+    nextState = appendError(nextState, `verify_semantic_diff failed: ${result.error ?? "unknown"}; continuing without regression data`, "upstream_failure");
+  }
+  const nextVerification = {
+    ...verification,
+    step: "check_security_gates",
+    verify_semantic_diff: verifyDiffData
+  };
+  return withVerification(nextState, postSpecs, nextVerification, "Semantic-diff verification complete.");
+}
+function processCheckSecurityGatesResult(state, postSpecs, verification, result) {
+  let nextState = state;
+  let securityGatesData = null;
+  let gatesPassed = false;
+  if (result.success) {
+    securityGatesData = asRecord(result.data);
+    gatesPassed = extractGatesPassed(result.data);
+  } else {
+    nextState = appendError(nextState, `check_security_gates failed: ${result.error ?? "unknown"}; gates_passed defaults to false (fail-closed)`, "upstream_failure");
+  }
+  const nextVerification = {
+    ...verification,
+    check_security_gates: securityGatesData,
+    gates_passed: gatesPassed
+  };
+  return advanceToFinalize(nextState, postSpecs, nextVerification, `Post-implementation verification complete: gates_passed=${gatesPassed}.`);
+}
+function processResult(state, postSpecs, verification, result) {
+  if (verification.step === "index_codebase" && result.correlation_id === POST_IMPL_INDEX_CODEBASE_CORRELATION_ID) {
+    return processIndexCodebaseResult(state, postSpecs, verification, result);
+  }
+  if (verification.step === "detect_changes" && result.correlation_id === POST_IMPL_DETECT_CHANGES_CORRELATION_ID) {
+    return processDetectChangesResult(state, postSpecs, verification, result);
+  }
+  if (verification.step === "verify_semantic_diff" && result.correlation_id === POST_IMPL_VERIFY_SEMANTIC_DIFF_CORRELATION_ID) {
+    return processVerifySemanticDiffResult(state, postSpecs, verification, result);
+  }
+  if (verification.step === "check_security_gates" && result.correlation_id === POST_IMPL_CHECK_SECURITY_GATES_CORRELATION_ID) {
+    return processCheckSecurityGatesResult(state, postSpecs, verification, result);
+  }
+  return null;
+}
+function emitIndexCodebaseCall(state, postSpecs, verification, worktree) {
+  return {
+    state: { ...state, post_specs: { ...postSpecs, verification } },
+    action: {
+      kind: "call_pipeline_tool",
+      tool_name: "index_codebase",
+      arguments: {
+        path: worktree,
+        output_dir: deriveVerificationOutputDir(worktree, state.run_id)
+      },
+      correlation_id: POST_IMPL_INDEX_CODEBASE_CORRELATION_ID
+    }
+  };
+}
+function emitDetectChangesCall(state, postSpecs, verification, worktree) {
+  const args = {
+    graph_path: verification.after_graph_path,
+    codebase_path: worktree
+  };
+  if (postSpecs.implementation?.branch) {
+    args.head_ref = postSpecs.implementation.branch;
+  }
+  return {
+    state: { ...state, post_specs: { ...postSpecs, verification } },
+    action: {
+      kind: "call_pipeline_tool",
+      tool_name: "detect_changes",
+      arguments: args,
+      correlation_id: POST_IMPL_DETECT_CHANGES_CORRELATION_ID
+    }
+  };
+}
+function emitVerifySemanticDiffCall(state, postSpecs, verification, beforeGraphPath) {
+  return {
+    state: { ...state, post_specs: { ...postSpecs, verification } },
+    action: {
+      kind: "call_pipeline_tool",
+      tool_name: "verify_semantic_diff",
+      arguments: {
+        before_graph_path: beforeGraphPath,
+        after_graph_path: verification.after_graph_path
+      },
+      correlation_id: POST_IMPL_VERIFY_SEMANTIC_DIFF_CORRELATION_ID
+    }
+  };
+}
+function emitCheckSecurityGatesCall(state, postSpecs, verification) {
+  return {
+    state: { ...state, post_specs: { ...postSpecs, verification } },
+    action: {
+      kind: "call_pipeline_tool",
+      tool_name: "check_security_gates",
+      arguments: {
+        graph_path: verification.after_graph_path,
+        changed_symbols: verification.changed_symbols
+      },
+      correlation_id: POST_IMPL_CHECK_SECURITY_GATES_CORRELATION_ID
+    }
+  };
+}
+function emitCallForStep(state, postSpecs, verification, worktree, beforeGraphPath) {
+  switch (verification.step) {
+    case "index_codebase":
+      return emitIndexCodebaseCall(state, postSpecs, verification, worktree);
+    case "detect_changes":
+      return emitDetectChangesCall(state, postSpecs, verification, worktree);
+    case "verify_semantic_diff":
+      return emitVerifySemanticDiffCall(state, postSpecs, verification, beforeGraphPath);
+    case "check_security_gates":
+      return emitCheckSecurityGatesCall(state, postSpecs, verification);
+    case "done":
+      return advanceToFinalize(state, postSpecs, verification, `Post-implementation verification complete: gates_passed=${verification.gates_passed}.`);
+  }
+}
+var handlePostImplVerification = ({ state, result }) => {
+  const postSpecs = ensurePostSpecs3(state);
+  const verification = ensureVerification(postSpecs);
+  const worktree = worktreePath(postSpecs);
+  const beforeGraphPath = state.codebase_graph_path;
+  if (result?.kind === "tool_result") {
+    const processed = processResult(state, postSpecs, verification, result);
+    if (processed)
+      return processed;
+  }
+  if (!beforeGraphPath || !worktree) {
+    return advanceToFinalize(state, postSpecs, verification, "No implementation worktree available; skipping post-implementation verification.");
+  }
+  return emitCallForStep(state, postSpecs, verification, worktree, beforeGraphPath);
+};
+
 // packages/orchestration/dist/handlers/finalize.js
 var REMEMBER_CORRELATION_ID = "self_check_remember";
 var REMEMBER_TAGS = ["prd-gen", "prd-run"];
@@ -33889,6 +34161,14 @@ var HANDLERS = {
   self_check: handleSelfCheck,
   implementation_gate: handleImplementationGate,
   pre_impl_grounding: handlePreImplGrounding,
+  /**
+   * Registered for TypeScript's Record<PipelineState["current_step"], ...>
+   * completeness (see pipeline-step.ts's post_impl_verification doc) — NOT
+   * reachable from any other handler's transition in this PR (3c). Only
+   * exercised by tests that construct current_step:"post_impl_verification"
+   * directly.
+   */
+  post_impl_verification: handlePostImplVerification,
   finalize: handleFinalize,
   complete: ({ state }) => ({
     state,
@@ -34230,6 +34510,37 @@ function makeCannedDispatcher(opts = {}) {
           resolve: {},
           cluster: { community_count: 0, process_count: 0, modularity: 0 }
         }
+      };
+    }
+    if (action.tool_name === "detect_changes") {
+      return {
+        kind: "tool_result",
+        correlation_id: action.correlation_id,
+        success: true,
+        data: {
+          files_changed: [],
+          symbols_affected: [],
+          symbols_affected_count: 0,
+          communities_affected: [],
+          processes_affected: [],
+          risk_score: "0.0000"
+        }
+      };
+    }
+    if (action.tool_name === "verify_semantic_diff") {
+      return {
+        kind: "tool_result",
+        correlation_id: action.correlation_id,
+        success: true,
+        data: { regression_score: 0, status: "clean" }
+      };
+    }
+    if (action.tool_name === "check_security_gates") {
+      return {
+        kind: "tool_result",
+        correlation_id: action.correlation_id,
+        success: true,
+        data: { gates_passed: true, flags: [] }
       };
     }
     if (action.tool_name === "get_impact") {
