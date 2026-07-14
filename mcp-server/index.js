@@ -30646,6 +30646,39 @@ var PipelineStateSchema = external_exports.object({
    */
   global_recall_done: external_exports.boolean().default(false),
   /**
+   * git-historian investigation report for the feature's zone (provenance,
+   * abandoned-approach recovery, churn hotspots, discovered constraints),
+   * fetched ONCE per run in input_analysis AFTER code-graph grounding
+   * (`prd_input_prepared`) settles — success or advisory failure — so the
+   * investigation prompt can be scoped with the matched-symbol/impacted-
+   * community hint from `codebase_grounding` when available. Only fires when
+   * `codebase_path` is set (git history requires a codebase; mirrors why
+   * `codebase_indexed`/`prd_input_prepared` are also codebase-gated).
+   * Distinct from `global_recall_summary` (Cortex prior-run memory) and
+   * `codebase_grounding` (code-graph symbols/communities): this is
+   * version-control provenance, not memory or structure.
+   *
+   * Empty string when the subagent reported nothing usable (including "this
+   * is not a git repository" — the subagent determines that, not this pure
+   * reducer) or failed; `null` only before the investigation has run for a
+   * codebase-bearing run, and permanently `null` when no codebase_path exists
+   * (skip path, mirrors `codebase_grounding`'s null-forever no-codebase case).
+   *
+   * source: Phase 2 (2026-07-14) — git-historian stage.
+   */
+  git_history_summary: external_exports.string().nullable().default(null),
+  /**
+   * Idempotency flag for the git-historian investigation emission in
+   * input_analysis. Mirrors `prd_input_prepared`/`global_recall_done`: set
+   * true once the investigation has been processed (success OR failure) so
+   * the step advances exactly once per run and replayed state does not
+   * re-issue the spawn. Stays permanently false (never checked) on the
+   * no-codebase skip path — see `git_history_summary` doc.
+   *
+   * source: Phase 2 (2026-07-14) — git-historian stage.
+   */
+  git_history_done: external_exports.boolean().default(false),
+  /**
    * Terminal `done` action payload computed by self-check's finalize once
    * verdicts are aggregated, held here while Phase C (Cortex `remember`)
    * runs. The reducer cannot emit `done` and also wait for a host round
@@ -31126,271 +31159,6 @@ function summarizeCortexRecall(data) {
   return results.slice(0, RECALL_MAX_RESULTS_INCLUDED).map((r) => r.content).filter((c) => typeof c === "string" && c.length > 0).map((c) => c.length > RECALL_RESULT_TRUNCATE_CHARS ? c.slice(0, RECALL_RESULT_TRUNCATE_CHARS) + RECALL_TRUNCATION_MARKER : c).join("\n---\n");
 }
 
-// packages/orchestration/dist/handlers/input-analysis.js
-var CORRELATION_ID = "input_analysis_index";
-var PREPARE_CORRELATION_ID = "input_analysis_prepare_prd_input";
-var GLOBAL_RECALL_CORRELATION_ID = "input_analysis_global_recall";
-var GLOBAL_RECALL_MAX_RESULTS = 8;
-function handleGlobalRecall(state, result) {
-  if (result?.kind === "tool_result" && result.correlation_id === GLOBAL_RECALL_CORRELATION_ID) {
-    if (!result.success) {
-      const nextState2 = appendError({
-        ...state,
-        global_recall_done: true,
-        global_recall_summary: "",
-        cortex_recall_empty_count: state.cortex_recall_empty_count + 1
-      }, `global recall failed: ${result.error ?? "unknown"}; continuing without prior-run memory context`, "upstream_failure");
-      return continueAfterGlobalRecall(nextState2);
-    }
-    const summary = summarizeCortexRecall(result.data);
-    const nextState = {
-      ...state,
-      global_recall_done: true,
-      global_recall_summary: summary,
-      cortex_recall_empty_count: summary.length === 0 ? state.cortex_recall_empty_count + 1 : state.cortex_recall_empty_count
-    };
-    return continueAfterGlobalRecall(nextState);
-  }
-  return {
-    state,
-    action: {
-      kind: "call_cortex_tool",
-      tool_name: "recall",
-      arguments: {
-        query: state.feature_description,
-        max_results: GLOBAL_RECALL_MAX_RESULTS
-      },
-      correlation_id: GLOBAL_RECALL_CORRELATION_ID
-    }
-  };
-}
-function continueAfterGlobalRecall(state) {
-  return handleCodebaseAnalysis(state, void 0);
-}
-var GITIGNORE_CONTENT = "*\n";
-function deriveOutputDir(codebasePath, runId) {
-  return join3(codebasePath, ".prd-gen", "graphs", runId);
-}
-function deriveGitignorePath(codebasePath) {
-  return join3(codebasePath, ".prd-gen", ".gitignore");
-}
-function emitPrepare(state) {
-  const featureDescription = state.feature_description.trim();
-  const graphPath = state.codebase_graph_path;
-  if (!featureDescription || !graphPath) {
-    return {
-      state: {
-        ...state,
-        prd_input_prepared: true,
-        current_step: "feasibility_gate"
-      },
-      action: {
-        kind: "emit_message",
-        message: "No feature description to ground; skipping code-graph grounding."
-      }
-    };
-  }
-  const outputDir = state.codebase_output_dir ?? deriveOutputDir(state.codebase_path, state.run_id);
-  return {
-    state: { ...state, codebase_output_dir: outputDir },
-    action: {
-      kind: "call_pipeline_tool",
-      tool_name: "prepare_prd_input",
-      // Feature mode: no finding_id. AP grounds the free text on the graph.
-      arguments: {
-        feature_description: featureDescription,
-        output_dir: outputDir,
-        graph_path: graphPath
-      },
-      correlation_id: PREPARE_CORRELATION_ID
-    }
-  };
-}
-function emitAnalyze(state) {
-  const outputDir = state.codebase_output_dir ?? deriveOutputDir(state.codebase_path, state.run_id);
-  return {
-    state: { ...state, codebase_output_dir: outputDir },
-    action: {
-      kind: "call_pipeline_tool",
-      tool_name: "analyze_codebase",
-      arguments: {
-        path: state.codebase_path,
-        output_dir: outputDir,
-        language: "auto"
-      },
-      correlation_id: CORRELATION_ID
-    }
-  };
-}
-var handleInputAnalysis = ({ state, result }) => {
-  if (!state.global_recall_done) {
-    return handleGlobalRecall(state, result);
-  }
-  return handleCodebaseAnalysis(state, result);
-};
-function handleCodebaseAnalysis(state, result) {
-  if (!state.codebase_path) {
-    return {
-      state: { ...state, current_step: "feasibility_gate" },
-      action: {
-        kind: "emit_message",
-        message: "No codebase provided. Skipping codebase analysis."
-      }
-    };
-  }
-  if (state.codebase_indexed && state.codebase_graph_path && state.prd_input_prepared) {
-    return {
-      state: { ...state, current_step: "feasibility_gate" },
-      action: {
-        kind: "emit_message",
-        message: `Codebase analysis ready (graph: ${state.codebase_graph_path}).`
-      }
-    };
-  }
-  if (result?.kind === "tool_result" && result.correlation_id === PREPARE_CORRELATION_ID) {
-    if (!result.success) {
-      return {
-        state: {
-          ...appendError(state, `prepare_prd_input failed: ${result.error ?? "unknown"}; continuing without code-graph grounding`, "upstream_failure"),
-          prd_input_prepared: true,
-          current_step: "feasibility_gate"
-        },
-        action: {
-          kind: "emit_message",
-          message: "Code-graph grounding unavailable; proceeding without it.",
-          level: "warn"
-        }
-      };
-    }
-    const data = result.data ?? {};
-    const grounding = data.prd_context ?? result.data ?? {};
-    return {
-      state: {
-        ...state,
-        codebase_grounding: grounding,
-        prd_input_prepared: true,
-        current_step: "feasibility_gate"
-      },
-      action: {
-        kind: "emit_message",
-        message: "Feature grounded on code graph."
-      }
-    };
-  }
-  if (result?.kind === "tool_result" && result.correlation_id === CORRELATION_ID) {
-    if (!result.success) {
-      return {
-        state: appendError(
-          state,
-          `analyze_codebase failed: ${result.error ?? "unknown"}`,
-          // External tool failure — the pipeline gives up but it's not a
-          // handler bug. Cross-audit curie H1 (Phase 3+4 follow-up).
-          "upstream_failure"
-        ),
-        action: {
-          kind: "failed",
-          reason: `analyze_codebase failed: ${result.error ?? "unknown"}`,
-          step: "input_analysis"
-        }
-      };
-    }
-    const data = result.data ?? {};
-    const graphPath = data.graph_path ?? null;
-    if (!graphPath) {
-      return {
-        state: appendError(
-          state,
-          `analyze_codebase succeeded but returned no graph_path`,
-          // The upstream tool advertised success but violated its own
-          // contract. From the orchestration layer's perspective this
-          // is the SAME class as the explicit-failure case above —
-          // a tool we can't act on. Tag it as upstream_failure so the
-          // structural gate doesn't conflate this with a handler bug.
-          "upstream_failure"
-        ),
-        action: {
-          kind: "failed",
-          reason: "analyze_codebase returned no graph_path",
-          step: "input_analysis"
-        }
-      };
-    }
-    return emitPrepare({
-      ...state,
-      codebase_indexed: true,
-      codebase_graph_path: graphPath
-    });
-  }
-  if (state.codebase_indexed && state.codebase_graph_path && !state.prd_input_prepared) {
-    return emitPrepare(state);
-  }
-  if (result?.kind === "file_written" && result.path === deriveGitignorePath(state.codebase_path) && !state.codebase_gitignore_written) {
-    return emitAnalyze({ ...state, codebase_gitignore_written: true });
-  }
-  if (!state.codebase_gitignore_written) {
-    return {
-      state,
-      action: {
-        kind: "write_file",
-        path: deriveGitignorePath(state.codebase_path),
-        content: GITIGNORE_CONTENT
-      }
-    };
-  }
-  return emitAnalyze(state);
-}
-
-// packages/orchestration/dist/handlers/feasibility-gate.js
-var QUESTION_ID2 = "feasibility_focus";
-var EPIC_SIGNALS = [
-  / and /i,
-  / & /,
-  /,\s*\w+\s*,/,
-  // multiple comma-separated items
-  /\bplus\b/i,
-  /\balso\b/i
-];
-function looksEpic(text) {
-  const matches = EPIC_SIGNALS.filter((re2) => re2.test(text)).length;
-  return matches >= 2;
-}
-var handleFeasibilityGate = ({ state, result }) => {
-  if (result?.kind === "user_answer" && result.question_id === QUESTION_ID2) {
-    const focus = result.freeform ?? result.selected[0] ?? state.feature_description;
-    return {
-      state: {
-        ...state,
-        feature_description: focus,
-        current_step: "clarification"
-      },
-      action: {
-        kind: "emit_message",
-        message: `Focused scope: ${focus}`
-      }
-    };
-  }
-  if (looksEpic(state.feature_description)) {
-    return {
-      state,
-      action: {
-        kind: "ask_user",
-        question_id: QUESTION_ID2,
-        header: "This looks like an epic. Pick one focus.",
-        description: "Generating one PRD for multiple features at once produces shallow output. Which single piece should this PRD cover? Type a focused description.",
-        options: null,
-        multi_select: false
-      }
-    };
-  }
-  return {
-    state: { ...state, current_step: "clarification" },
-    action: {
-      kind: "emit_message",
-      message: "Scope acceptable. Proceeding to clarification."
-    }
-  };
-};
-
 // packages/meta-prompting/dist/section-prompts.js
 var COMMON_RULES = [
   "1. Output ONLY the section body. No surrounding prose, no JSON, no fences.",
@@ -31554,6 +31322,10 @@ A: ${c.answer}`).join("\n\n");
 ${input.global_recall_summary}
 </project_memory>
 ` : "",
+    input.git_history_summary ? `<git_history>
+${input.git_history_summary}
+</git_history>
+` : "",
     input.recall_summary ? `<codebase_context>
 ${input.recall_summary}
 </codebase_context>
@@ -31598,6 +31370,9 @@ A: ${qa.answer ?? "(no answer)"}`).join("\n\n") : "(no prior questions)";
     input.recall_summary ? `<codebase_context>
 ${input.recall_summary.slice(0, 2e3)}
 </codebase_context>` : "",
+    input.git_history_summary ? `<git_history>
+${input.git_history_summary.slice(0, 2e3)}
+</git_history>` : "",
     "",
     `<task>`,
     `Generate ONE clarification question that:`,
@@ -31650,15 +31425,352 @@ ${s.content}`).join("\n\n");
   ].join("\n");
 }
 
+// packages/meta-prompting/dist/git-history-prompts.js
+var REPORT_WORD_LIMIT = 400;
+function buildGitHistoryPrompt(input) {
+  return [
+    `<role>You are git-historian. Investigate the repository history at the given codebase path for context relevant to an upcoming PRD, before any spec is drafted.</role>`,
+    "",
+    `<codebase_path>${input.codebase_path}</codebase_path>`,
+    "",
+    `<feature>${input.feature_description}</feature>`,
+    "",
+    input.grounding_summary ? `<code_graph_hint>
+${input.grounding_summary}
+</code_graph_hint>
+` : "",
+    `<task>`,
+    `Investigate the git history of the zone this feature touches and report:`,
+    `- Relevant commits/PRs that shaped this area`,
+    `- Prior attempts visible in history (branches, reverts) and, where recorded, why they stopped`,
+    `- Churn hotspots among the affected files`,
+    `- Constraints discovered from commit messages / PR discussion`,
+    "",
+    `If <codebase_path> is not inside a git repository, or git history is`,
+    `otherwise unavailable, state that plainly as your entire report and stop`,
+    `\u2014 do not speculate or fabricate history that cannot be verified.`,
+    `</task>`,
+    "",
+    `<output_format>`,
+    `Plain prose, at most ${REPORT_WORD_LIMIT} words. No JSON, no code fences.`,
+    `One optional leading line as a heading; no further markdown structure`,
+    `required.`,
+    `</output_format>`
+  ].filter((line) => line !== "").join("\n");
+}
+
 // packages/orchestration/dist/handlers/protocol-ids.js
 var QUESTION_ID_CONTINUE = "clarification_continue";
 var CLARIFICATION_COMPOSE_INV_PREFIX = "clarification_compose_inv_";
 var SECTION_GENERATE_INV_PREFIX = "section_generate_";
 var SELF_CHECK_JUDGE_INV_PREFIX = "self_check_judge_";
 var JIRA_GENERATION_INV_ID = "jira_generation_engineer";
+var GIT_HISTORY_INV_ID = "input_analysis_git_history";
 function clarificationComposeInvocationId(round3) {
   return `${CLARIFICATION_COMPOSE_INV_PREFIX}${round3}`;
 }
+
+// packages/orchestration/dist/handlers/input-analysis/git-history.js
+var GIT_HISTORY_BATCH_ID = GIT_HISTORY_INV_ID;
+var GIT_HISTORY_TRUNCATE_CHARS = 2400;
+var GIT_HISTORY_TRUNCATION_MARKER = "...";
+function truncateGitHistoryReport(text) {
+  return text.length > GIT_HISTORY_TRUNCATE_CHARS ? text.slice(0, GIT_HISTORY_TRUNCATE_CHARS) + GIT_HISTORY_TRUNCATION_MARKER : text;
+}
+function summarizeGroundingForGitHistory(raw) {
+  if (!raw)
+    return "";
+  const nested = raw.prd_context;
+  const grounding = nested && typeof nested === "object" ? nested : raw;
+  const symbolCount = Array.isArray(grounding.matched_symbols) ? grounding.matched_symbols.length : 0;
+  const communityCount = Array.isArray(grounding.impacted_communities) ? grounding.impacted_communities.length : 0;
+  if (symbolCount === 0 && communityCount === 0)
+    return "";
+  const communityNoun = communityCount === 1 ? "community" : "communities";
+  return `Code-graph grounding found ${symbolCount} matched symbol(s) across ${communityCount} impacted ${communityNoun}.`;
+}
+function emitGitHistorySpawn(state) {
+  return {
+    state,
+    action: {
+      kind: "spawn_subagents",
+      // Purpose is an observability label only (SpawnSubagentsActionSchema
+      // doc — host dispatch MUST NOT branch on it); the enum is
+      // judge|draft|review. git-historian investigates and reports, closest
+      // to "review" (auditing history) among the three — it neither drafts
+      // PRD content nor renders a verdict on a claim.
+      purpose: "review",
+      batch_id: GIT_HISTORY_BATCH_ID,
+      invocations: [
+        {
+          invocation_id: GIT_HISTORY_INV_ID,
+          subagent_type: "zetetic-team-subagents:git-historian",
+          description: "Investigate git history for the feature's zone",
+          prompt: buildGitHistoryPrompt({
+            feature_description: state.feature_description,
+            codebase_path: state.codebase_path,
+            grounding_summary: summarizeGroundingForGitHistory(state.codebase_grounding)
+          }),
+          isolation: "none"
+        }
+      ]
+    }
+  };
+}
+function completeCodebaseAnalysis(state, advanceMessage, advanceLevel = "info") {
+  if (state.git_history_done) {
+    return {
+      state: { ...state, current_step: "feasibility_gate" },
+      action: { kind: "emit_message", message: advanceMessage, level: advanceLevel }
+    };
+  }
+  return emitGitHistorySpawn(state);
+}
+function isGitHistoryResult(result) {
+  return result?.kind === "subagent_batch_result" && result.batch_id === GIT_HISTORY_BATCH_ID;
+}
+function handleGitHistoryResult(state, result) {
+  const response = result.responses.find((r) => r.invocation_id === GIT_HISTORY_INV_ID);
+  if (!response || response.error || !response.raw_text?.trim()) {
+    const withError = appendError({ ...state, git_history_summary: "", git_history_done: true }, `git-historian investigation failed: ${response?.error ?? "no response"}; continuing without git history context`, "upstream_failure");
+    return completeCodebaseAnalysis(withError, "Git history investigation unavailable; proceeding without it.", "warn");
+  }
+  const summary = truncateGitHistoryReport(response.raw_text.trim());
+  return completeCodebaseAnalysis({ ...state, git_history_summary: summary, git_history_done: true }, "Git history context gathered.");
+}
+
+// packages/orchestration/dist/handlers/input-analysis.js
+var CORRELATION_ID = "input_analysis_index";
+var PREPARE_CORRELATION_ID = "input_analysis_prepare_prd_input";
+var GLOBAL_RECALL_CORRELATION_ID = "input_analysis_global_recall";
+var GLOBAL_RECALL_MAX_RESULTS = 8;
+function handleGlobalRecall(state, result) {
+  if (result?.kind === "tool_result" && result.correlation_id === GLOBAL_RECALL_CORRELATION_ID) {
+    if (!result.success) {
+      const nextState2 = appendError({
+        ...state,
+        global_recall_done: true,
+        global_recall_summary: "",
+        cortex_recall_empty_count: state.cortex_recall_empty_count + 1
+      }, `global recall failed: ${result.error ?? "unknown"}; continuing without prior-run memory context`, "upstream_failure");
+      return continueAfterGlobalRecall(nextState2);
+    }
+    const summary = summarizeCortexRecall(result.data);
+    const nextState = {
+      ...state,
+      global_recall_done: true,
+      global_recall_summary: summary,
+      cortex_recall_empty_count: summary.length === 0 ? state.cortex_recall_empty_count + 1 : state.cortex_recall_empty_count
+    };
+    return continueAfterGlobalRecall(nextState);
+  }
+  return {
+    state,
+    action: {
+      kind: "call_cortex_tool",
+      tool_name: "recall",
+      arguments: {
+        query: state.feature_description,
+        max_results: GLOBAL_RECALL_MAX_RESULTS
+      },
+      correlation_id: GLOBAL_RECALL_CORRELATION_ID
+    }
+  };
+}
+function continueAfterGlobalRecall(state) {
+  return handleCodebaseAnalysis(state, void 0);
+}
+var GITIGNORE_CONTENT = "*\n";
+function deriveOutputDir(codebasePath, runId) {
+  return join3(codebasePath, ".prd-gen", "graphs", runId);
+}
+function deriveGitignorePath(codebasePath) {
+  return join3(codebasePath, ".prd-gen", ".gitignore");
+}
+function emitPrepare(state) {
+  const featureDescription = state.feature_description.trim();
+  const graphPath = state.codebase_graph_path;
+  if (!featureDescription || !graphPath) {
+    return completeCodebaseAnalysis({ ...state, prd_input_prepared: true }, "No feature description to ground; skipping code-graph grounding.");
+  }
+  const outputDir = state.codebase_output_dir ?? deriveOutputDir(state.codebase_path, state.run_id);
+  return {
+    state: { ...state, codebase_output_dir: outputDir },
+    action: {
+      kind: "call_pipeline_tool",
+      tool_name: "prepare_prd_input",
+      // Feature mode: no finding_id. AP grounds the free text on the graph.
+      arguments: {
+        feature_description: featureDescription,
+        output_dir: outputDir,
+        graph_path: graphPath
+      },
+      correlation_id: PREPARE_CORRELATION_ID
+    }
+  };
+}
+function emitAnalyze(state) {
+  const outputDir = state.codebase_output_dir ?? deriveOutputDir(state.codebase_path, state.run_id);
+  return {
+    state: { ...state, codebase_output_dir: outputDir },
+    action: {
+      kind: "call_pipeline_tool",
+      tool_name: "analyze_codebase",
+      arguments: {
+        path: state.codebase_path,
+        output_dir: outputDir,
+        language: "auto"
+      },
+      correlation_id: CORRELATION_ID
+    }
+  };
+}
+var handleInputAnalysis = ({ state, result }) => {
+  if (!state.global_recall_done) {
+    return handleGlobalRecall(state, result);
+  }
+  return handleCodebaseAnalysis(state, result);
+};
+function handleCodebaseAnalysis(state, result) {
+  if (!state.codebase_path) {
+    return {
+      state: { ...state, current_step: "feasibility_gate" },
+      action: {
+        kind: "emit_message",
+        message: "No codebase provided. Skipping codebase analysis."
+      }
+    };
+  }
+  if (isGitHistoryResult(result)) {
+    return handleGitHistoryResult(state, result);
+  }
+  if (state.codebase_indexed && state.codebase_graph_path && state.prd_input_prepared) {
+    return completeCodebaseAnalysis(state, `Codebase analysis ready (graph: ${state.codebase_graph_path}).`);
+  }
+  if (result?.kind === "tool_result" && result.correlation_id === PREPARE_CORRELATION_ID) {
+    if (!result.success) {
+      return completeCodebaseAnalysis({
+        ...appendError(state, `prepare_prd_input failed: ${result.error ?? "unknown"}; continuing without code-graph grounding`, "upstream_failure"),
+        prd_input_prepared: true
+      }, "Code-graph grounding unavailable; proceeding without it.", "warn");
+    }
+    const data = result.data ?? {};
+    const grounding = data.prd_context ?? result.data ?? {};
+    return completeCodebaseAnalysis({ ...state, codebase_grounding: grounding, prd_input_prepared: true }, "Feature grounded on code graph.");
+  }
+  if (result?.kind === "tool_result" && result.correlation_id === CORRELATION_ID) {
+    if (!result.success) {
+      return {
+        state: appendError(
+          state,
+          `analyze_codebase failed: ${result.error ?? "unknown"}`,
+          // External tool failure — the pipeline gives up but it's not a
+          // handler bug. Cross-audit curie H1 (Phase 3+4 follow-up).
+          "upstream_failure"
+        ),
+        action: {
+          kind: "failed",
+          reason: `analyze_codebase failed: ${result.error ?? "unknown"}`,
+          step: "input_analysis"
+        }
+      };
+    }
+    const data = result.data ?? {};
+    const graphPath = data.graph_path ?? null;
+    if (!graphPath) {
+      return {
+        state: appendError(
+          state,
+          `analyze_codebase succeeded but returned no graph_path`,
+          // The upstream tool advertised success but violated its own
+          // contract. From the orchestration layer's perspective this
+          // is the SAME class as the explicit-failure case above —
+          // a tool we can't act on. Tag it as upstream_failure so the
+          // structural gate doesn't conflate this with a handler bug.
+          "upstream_failure"
+        ),
+        action: {
+          kind: "failed",
+          reason: "analyze_codebase returned no graph_path",
+          step: "input_analysis"
+        }
+      };
+    }
+    return emitPrepare({
+      ...state,
+      codebase_indexed: true,
+      codebase_graph_path: graphPath
+    });
+  }
+  if (state.codebase_indexed && state.codebase_graph_path && !state.prd_input_prepared) {
+    return emitPrepare(state);
+  }
+  if (result?.kind === "file_written" && result.path === deriveGitignorePath(state.codebase_path) && !state.codebase_gitignore_written) {
+    return emitAnalyze({ ...state, codebase_gitignore_written: true });
+  }
+  if (!state.codebase_gitignore_written) {
+    return {
+      state,
+      action: {
+        kind: "write_file",
+        path: deriveGitignorePath(state.codebase_path),
+        content: GITIGNORE_CONTENT
+      }
+    };
+  }
+  return emitAnalyze(state);
+}
+
+// packages/orchestration/dist/handlers/feasibility-gate.js
+var QUESTION_ID2 = "feasibility_focus";
+var EPIC_SIGNALS = [
+  / and /i,
+  / & /,
+  /,\s*\w+\s*,/,
+  // multiple comma-separated items
+  /\bplus\b/i,
+  /\balso\b/i
+];
+function looksEpic(text) {
+  const matches = EPIC_SIGNALS.filter((re2) => re2.test(text)).length;
+  return matches >= 2;
+}
+var handleFeasibilityGate = ({ state, result }) => {
+  if (result?.kind === "user_answer" && result.question_id === QUESTION_ID2) {
+    const focus = result.freeform ?? result.selected[0] ?? state.feature_description;
+    return {
+      state: {
+        ...state,
+        feature_description: focus,
+        current_step: "clarification"
+      },
+      action: {
+        kind: "emit_message",
+        message: `Focused scope: ${focus}`
+      }
+    };
+  }
+  if (looksEpic(state.feature_description)) {
+    return {
+      state,
+      action: {
+        kind: "ask_user",
+        question_id: QUESTION_ID2,
+        header: "This looks like an epic. Pick one focus.",
+        description: "Generating one PRD for multiple features at once produces shallow output. Which single piece should this PRD cover? Type a focused description.",
+        options: null,
+        multi_select: false
+      }
+    };
+  }
+  return {
+    state: { ...state, current_step: "clarification" },
+    action: {
+      kind: "emit_message",
+      message: "Scope acceptable. Proceeding to clarification."
+    }
+  };
+};
 
 // packages/orchestration/dist/handlers/clarification.js
 var QUESTION_ID_ANSWER = "clarification_answer";
@@ -31691,7 +31803,12 @@ function composeAction(state, round3) {
       question: c.question,
       answer: c.answer
     })),
-    recall_summary: ""
+    recall_summary: "",
+    // git-historian investigation report (Phase 2), threaded so clarification
+    // questions can be informed by provenance/prior-attempt context without
+    // re-asking something history already answers. "" when no codebase or
+    // the investigation returned nothing.
+    git_history_summary: state.git_history_summary ?? ""
   });
   return {
     kind: "spawn_subagents",
@@ -32063,7 +32180,12 @@ function draftAction(state, section, recall_summary, prior_violations) {
     // above (per-section, template-driven). `undefined`/"" when Cortex
     // returned nothing or the run predates the field → prompt is
     // byte-identical to before.
-    global_recall_summary: state.global_recall_summary ?? void 0
+    global_recall_summary: state.global_recall_summary ?? void 0,
+    // git-historian investigation report (Phase 2, fetched once in
+    // input_analysis after code-graph grounding settles). `undefined`/""
+    // when no codebase, the investigation returned nothing, or the run
+    // predates the field → prompt is byte-identical to before.
+    git_history_summary: state.git_history_summary ?? void 0
   });
   return {
     kind: "spawn_subagents",
@@ -33768,6 +33890,9 @@ function makeCannedDispatcher(opts = {}) {
     }
     if (invocation_id === JIRA_GENERATION_INV_ID) {
       return "## JIRA Tickets\n\nCanned JIRA placeholder.";
+    }
+    if (invocation_id === GIT_HISTORY_INV_ID) {
+      return "History is silent within the searched space (canned git-historian response).";
     }
     return "Canned synthetic response.";
   }

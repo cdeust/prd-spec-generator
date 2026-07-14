@@ -18,6 +18,7 @@ import {
   buildClarificationPrompt,
   buildSectionPrompt,
   buildJiraPrompt,
+  buildGitHistoryPrompt,
 } from "../index.js";
 
 describe("buildClarificationPrompt", () => {
@@ -126,6 +127,39 @@ describe("buildClarificationPrompt", () => {
       recall_summary: "",
     });
     expect(out).not.toContain("<codebase_context>");
+  });
+
+  it("includes git_history_summary in a bounded git_history block", () => {
+    const out = buildClarificationPrompt({
+      feature_description: "x",
+      prd_context: "feature",
+      round: 1,
+      prior_qa: [],
+      recall_summary: "",
+      git_history_summary: "PR #409 tried an LRU cache here; reverted.",
+    });
+    expect(out).toContain("PR #409 tried an LRU cache here; reverted.");
+    expect(out).toContain("<git_history>");
+  });
+
+  it("omits the git_history block when git_history_summary is absent/empty", () => {
+    const withoutField = buildClarificationPrompt({
+      feature_description: "x",
+      prd_context: "feature",
+      round: 1,
+      prior_qa: [],
+      recall_summary: "",
+    });
+    const withEmpty = buildClarificationPrompt({
+      feature_description: "x",
+      prd_context: "feature",
+      round: 1,
+      prior_qa: [],
+      recall_summary: "",
+      git_history_summary: "",
+    });
+    expect(withoutField).not.toContain("<git_history>");
+    expect(withEmpty).not.toContain("<git_history>");
   });
 });
 
@@ -338,6 +372,40 @@ describe("buildSectionPrompt", () => {
     expect(out).not.toContain("sym15 —");
   });
 
+  it("includes the <git_history> block when git_history_summary is present", () => {
+    const out = buildSectionPrompt({
+      section_type: "requirements",
+      feature_description: "x",
+      prd_context: "feature",
+      recall_summary: "",
+      clarification_qa: [],
+      prior_violations: [],
+      attempt: 1,
+      git_history_summary: "Commit a1b2c3d introduced the auth module.",
+    });
+    expect(out).toContain("<git_history>");
+    expect(out).toContain("Commit a1b2c3d introduced the auth module.");
+  });
+
+  it("omits the <git_history> block when git_history_summary is absent (back-compat, byte-identical)", () => {
+    const base = {
+      section_type: "overview" as const,
+      feature_description: "x",
+      prd_context: "feature" as const,
+      recall_summary: "",
+      clarification_qa: [],
+      prior_violations: [],
+      attempt: 1,
+    };
+    const withoutField = buildSectionPrompt(base);
+    const withUndefined = buildSectionPrompt({
+      ...base,
+      git_history_summary: undefined,
+    });
+    expect(withoutField).not.toContain("<git_history>");
+    expect(withUndefined).toBe(withoutField);
+  });
+
   it("omits the <codebase_grounding> block when grounding is absent (back-compat, byte-identical)", () => {
     const base = {
       section_type: "overview" as const,
@@ -469,5 +537,39 @@ describe("buildJiraPrompt", () => {
     expect(out).toContain("AC IDs MUST match");
     expect(out).toContain("SP totals");
     expect(out.toLowerCase()).toContain("self-dependency");
+  });
+});
+
+describe("buildGitHistoryPrompt", () => {
+  it("includes codebase_path, feature description, and the not-a-git-repo instruction", () => {
+    const out = buildGitHistoryPrompt({
+      feature_description: "build OAuth login",
+      codebase_path: "/repo/target",
+    });
+    expect(out).toContain("/repo/target");
+    expect(out).toContain("build OAuth login");
+    expect(out).toContain("not inside a git repository");
+    expect(out).not.toContain("code_graph_hint");
+  });
+
+  it("includes the grounding_summary hint when provided", () => {
+    const out = buildGitHistoryPrompt({
+      feature_description: "x",
+      codebase_path: "/repo",
+      grounding_summary: "Code-graph grounding found 3 matched symbol(s).",
+    });
+    expect(out).toContain("<code_graph_hint>");
+    expect(out).toContain("3 matched symbol(s)");
+  });
+
+  it("omits the code_graph_hint block when grounding_summary is absent (back-compat, byte-identical)", () => {
+    const base = { feature_description: "x", codebase_path: "/repo" };
+    const withoutField = buildGitHistoryPrompt(base);
+    const withUndefined = buildGitHistoryPrompt({
+      ...base,
+      grounding_summary: undefined,
+    });
+    expect(withoutField).not.toContain("<code_graph_hint>");
+    expect(withUndefined).toBe(withoutField);
   });
 });

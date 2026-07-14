@@ -461,6 +461,39 @@ export const PipelineStateSchema = z.object({
    */
   global_recall_done: z.boolean().default(false),
   /**
+   * git-historian investigation report for the feature's zone (provenance,
+   * abandoned-approach recovery, churn hotspots, discovered constraints),
+   * fetched ONCE per run in input_analysis AFTER code-graph grounding
+   * (`prd_input_prepared`) settles — success or advisory failure — so the
+   * investigation prompt can be scoped with the matched-symbol/impacted-
+   * community hint from `codebase_grounding` when available. Only fires when
+   * `codebase_path` is set (git history requires a codebase; mirrors why
+   * `codebase_indexed`/`prd_input_prepared` are also codebase-gated).
+   * Distinct from `global_recall_summary` (Cortex prior-run memory) and
+   * `codebase_grounding` (code-graph symbols/communities): this is
+   * version-control provenance, not memory or structure.
+   *
+   * Empty string when the subagent reported nothing usable (including "this
+   * is not a git repository" — the subagent determines that, not this pure
+   * reducer) or failed; `null` only before the investigation has run for a
+   * codebase-bearing run, and permanently `null` when no codebase_path exists
+   * (skip path, mirrors `codebase_grounding`'s null-forever no-codebase case).
+   *
+   * source: Phase 2 (2026-07-14) — git-historian stage.
+   */
+  git_history_summary: z.string().nullable().default(null),
+  /**
+   * Idempotency flag for the git-historian investigation emission in
+   * input_analysis. Mirrors `prd_input_prepared`/`global_recall_done`: set
+   * true once the investigation has been processed (success OR failure) so
+   * the step advances exactly once per run and replayed state does not
+   * re-issue the spawn. Stays permanently false (never checked) on the
+   * no-codebase skip path — see `git_history_summary` doc.
+   *
+   * source: Phase 2 (2026-07-14) — git-historian stage.
+   */
+  git_history_done: z.boolean().default(false),
+  /**
    * Terminal `done` action payload computed by self-check's finalize once
    * verdicts are aggregated, held here while Phase C (Cortex `remember`)
    * runs. The reducer cannot emit `done` and also wait for a host round

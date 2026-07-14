@@ -38,6 +38,15 @@
  * do not collide. We write under <codebase_path>/.prd-gen/graphs/<run_id>/
  * by default; a real deployment may want to override via env var.
  *
+ * Phase 2 (git-historian, 2026-07-14): once `prd_input_prepared` settles
+ * (success OR advisory failure), and only when `state.codebase_path` is set,
+ * this handler spawns `zetetic-team-subagents:git-historian` to mine the
+ * codebase's version-control history BEFORE advancing to feasibility_gate.
+ * The gate logic (completeCodebaseAnalysis / handleGitHistoryResult) is
+ * extracted to ./input-analysis/git-history.ts — see that module's doc for
+ * the full sequencing rationale and why it lives after grounding rather than
+ * before/in-parallel with global recall or analyze_codebase.
+ *
  * Git hygiene (defect found in the same e2e run, memory 4263670): a run
  * writes ~39MB of graph artifacts under <codebase_path>/.prd-gen/. That path
  * lives INSIDE the user's target repo and is not git-ignored by default —
@@ -63,6 +72,11 @@ import type { StepHandler } from "../runner.js";
 import { appendError, type PipelineState } from "../types/state.js";
 import type { ActionResult, HandlerAction } from "../types/actions.js";
 import { summarizeCortexRecall } from "./cortex-recall-summary.js";
+import {
+  completeCodebaseAnalysis,
+  handleGitHistoryResult,
+  isGitHistoryResult,
+} from "./input-analysis/git-history.js";
 
 const CORRELATION_ID = "input_analysis_index";
 const PREPARE_CORRELATION_ID = "input_analysis_prepare_prd_input";
@@ -208,21 +222,14 @@ function emitPrepare(state: PipelineState): {
   const featureDescription = state.feature_description.trim();
   const graphPath = state.codebase_graph_path;
 
-  // No feature text to ground, or graph missing → skip grounding, advance.
+  // No feature text to ground, or graph missing → skip grounding, advance
+  // (subject to the git-historian gate — see completeCodebaseAnalysis).
   // (graphPath is non-null by precondition; the guard keeps the type narrow.)
   if (!featureDescription || !graphPath) {
-    return {
-      state: {
-        ...state,
-        prd_input_prepared: true,
-        current_step: "feasibility_gate",
-      },
-      action: {
-        kind: "emit_message",
-        message:
-          "No feature description to ground; skipping code-graph grounding.",
-      },
-    };
+    return completeCodebaseAnalysis(
+      { ...state, prd_input_prepared: true },
+      "No feature description to ground; skipping code-graph grounding.",
+    );
   }
 
   const outputDir =
@@ -306,21 +313,31 @@ function handleCodebaseAnalysis(
     };
   }
 
-  // Both phases done (index + grounding) → move on. Guard placed BEFORE the
-  // result-routing blocks so a replayed terminal state advances idempotently
-  // without re-issuing either call.
+  // Result of the git-historian investigation spawn (Phase 2). MUST be
+  // checked BEFORE the state-only "both phases done" guard below — that
+  // guard fires whenever codebase_indexed/graph_path/prd_input_prepared are
+  // already true (which they are by the time this spawn's result comes
+  // back), and does not itself inspect `result`. Checking the result first
+  // ensures a returning subagent_batch_result is consumed exactly once
+  // rather than being ignored while the guard re-emits the same spawn
+  // forever. See ./input-analysis/git-history.ts for the gate logic.
+  if (isGitHistoryResult(result)) {
+    return handleGitHistoryResult(state, result);
+  }
+
+  // Both phases done (index + grounding) → move on, subject to the
+  // git-historian gate (completeCodebaseAnalysis). Guard placed BEFORE the
+  // remaining result-routing blocks so a replayed terminal state advances
+  // idempotently without re-issuing any of the three calls.
   if (
     state.codebase_indexed &&
     state.codebase_graph_path &&
     state.prd_input_prepared
   ) {
-    return {
-      state: { ...state, current_step: "feasibility_gate" },
-      action: {
-        kind: "emit_message",
-        message: `Codebase analysis ready (graph: ${state.codebase_graph_path}).`,
-      },
-    };
+    return completeCodebaseAnalysis(
+      state,
+      `Codebase analysis ready (graph: ${state.codebase_graph_path}).`,
+    );
   }
 
   // Result of a prepare_prd_input (feature-mode grounding) call. Process its
@@ -331,25 +348,21 @@ function handleCodebaseAnalysis(
   ) {
     if (!result.success) {
       // Grounding is best-effort: the PRD can still be generated without it.
-      // Treat AP failure as an upstream issue, flag prepared so we do not loop,
-      // and advance rather than failing the whole pipeline.
-      return {
-        state: {
+      // Treat AP failure as an upstream issue, flag prepared so we do not
+      // loop, and advance (subject to the git-historian gate) rather than
+      // failing the whole pipeline.
+      return completeCodebaseAnalysis(
+        {
           ...appendError(
             state,
             `prepare_prd_input failed: ${result.error ?? "unknown"}; continuing without code-graph grounding`,
             "upstream_failure",
           ),
           prd_input_prepared: true,
-          current_step: "feasibility_gate",
         },
-        action: {
-          kind: "emit_message",
-          message:
-            "Code-graph grounding unavailable; proceeding without it.",
-          level: "warn",
-        },
-      };
+        "Code-graph grounding unavailable; proceeding without it.",
+        "warn",
+      );
     }
     // AP feature mode wraps the grounding in `prd_context`; tolerate a flat
     // payload too (the orchestration layer does not parse the shape further).
@@ -358,18 +371,10 @@ function handleCodebaseAnalysis(
     };
     const grounding: Record<string, unknown> =
       data.prd_context ?? (result.data as Record<string, unknown>) ?? {};
-    return {
-      state: {
-        ...state,
-        codebase_grounding: grounding,
-        prd_input_prepared: true,
-        current_step: "feasibility_gate",
-      },
-      action: {
-        kind: "emit_message",
-        message: "Feature grounded on code graph.",
-      },
-    };
+    return completeCodebaseAnalysis(
+      { ...state, codebase_grounding: grounding, prd_input_prepared: true },
+      "Feature grounded on code graph.",
+    );
   }
 
   // Result of an analyze_codebase call.

@@ -30,6 +30,14 @@ export const SELF_CHECK_JUDGE_INV_PREFIX = "self_check_judge_";
 export const JIRA_GENERATION_INV_ID = "jira_generation_engineer";
 
 /**
+ * input-analysis.ts — single invocation_id AND batch_id for the
+ * git-historian investigation phase (single-invocation batch, mirrors
+ * JIRA_GENERATION_INV_ID's naming — one constant covers both since there is
+ * exactly one invocation per batch).
+ */
+export const GIT_HISTORY_INV_ID = "input_analysis_git_history";
+
+/**
  * clarification.ts — invocation_id producer for round N's compose phase.
  * Lives here so the canned dispatcher uses the SAME function the handler
  * does — preventing the handler and the dispatcher from drifting on the

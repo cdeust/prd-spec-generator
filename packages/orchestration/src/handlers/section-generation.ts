@@ -185,6 +185,11 @@ function draftAction(
     // returned nothing or the run predates the field → prompt is
     // byte-identical to before.
     global_recall_summary: state.global_recall_summary ?? undefined,
+    // git-historian investigation report (Phase 2, fetched once in
+    // input_analysis after code-graph grounding settles). `undefined`/""
+    // when no codebase, the investigation returned nothing, or the run
+    // predates the field → prompt is byte-identical to before.
+    git_history_summary: state.git_history_summary ?? undefined,
   });
 
   return {

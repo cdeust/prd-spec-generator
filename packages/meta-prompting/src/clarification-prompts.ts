@@ -18,6 +18,16 @@ export interface ClarificationPromptInput {
   readonly round: number;
   readonly prior_qa: ReadonlyArray<{ question: string; answer?: string }>;
   readonly recall_summary: string;
+  /**
+   * git-historian investigation report for the feature's zone
+   * (state.git_history_summary). Optional — absent/empty when no codebase,
+   * pre-Phase-2 callers, or the investigation returned nothing. Rendered
+   * truncated to 2000 chars, matching `recall_summary`'s existing
+   * `<codebase_context>` truncation below.
+   *
+   * source: Phase 2 (2026-07-14) — git-historian stage.
+   */
+  readonly git_history_summary?: string;
 }
 
 export function buildClarificationPrompt(
@@ -50,6 +60,9 @@ export function buildClarificationPrompt(
     "",
     input.recall_summary
       ? `<codebase_context>\n${input.recall_summary.slice(0, 2000)}\n</codebase_context>`
+      : "",
+    input.git_history_summary
+      ? `<git_history>\n${input.git_history_summary.slice(0, 2000)}\n</git_history>`
       : "",
     "",
     `<task>`,

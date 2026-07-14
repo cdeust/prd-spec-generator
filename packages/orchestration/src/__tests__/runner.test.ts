@@ -15,6 +15,35 @@ const seed = (codebasePath?: string) =>
 /** Must match input-analysis.ts:GLOBAL_RECALL_CORRELATION_ID. */
 const GLOBAL_RECALL_CORRELATION_ID = "input_analysis_global_recall";
 
+/** Must match protocol-ids.ts:GIT_HISTORY_INV_ID. */
+const GIT_HISTORY_INV_ID = "input_analysis_git_history";
+
+/**
+ * Drive a {state, action} pair where action is the git-historian
+ * spawn_subagents (Phase 2 — the gate on top of prd_input_prepared) through
+ * a canned successful investigation, returning the resulting {state, action}
+ * at the point input_analysis advances to feasibility_gate/clarification.
+ */
+function resolveGitHistory(out: ReturnType<typeof step>) {
+  expect(out.action.kind).toBe("spawn_subagents");
+  const batch_id =
+    out.action.kind === "spawn_subagents" ? out.action.batch_id : "";
+  expect(batch_id).toBe(GIT_HISTORY_INV_ID);
+  return step({
+    state: out.state,
+    result: {
+      kind: "subagent_batch_result",
+      batch_id,
+      responses: [
+        {
+          invocation_id: GIT_HISTORY_INV_ID,
+          raw_text: "History is silent within the searched space (canned).",
+        },
+      ],
+    },
+  });
+}
+
 /**
  * Drive a fresh state past input_analysis's Phase 1a global recall (the
  * FIRST substantive action input_analysis emits, before any codebase or
@@ -183,8 +212,13 @@ describe("pipeline runner — emit_message coalescing", () => {
     expect(after.state.codebase_grounding).toEqual(grounding);
     // prd_context (the PRD-kind enum) must NOT be clobbered by grounding.
     expect(after.state.prd_context).toBe("feature");
-    expect(after.state.current_step).toBe("clarification");
-    expect(after.action.kind).toBe("spawn_subagents");
+    // Grounding settled but git-historian gate has not yet been resolved —
+    // still on input_analysis, next action is the git-historian spawn.
+    expect(after.state.current_step).toBe("input_analysis");
+    const afterGitHistory = resolveGitHistory(after);
+    expect(afterGitHistory.state.git_history_done).toBe(true);
+    expect(afterGitHistory.state.current_step).toBe("clarification");
+    expect(afterGitHistory.action.kind).toBe("spawn_subagents");
   });
 
   it("input_analysis: prepare_prd_input failure is advisory — advances without grounding", () => {
@@ -218,8 +252,13 @@ describe("pipeline runner — emit_message coalescing", () => {
     });
     expect(after.state.prd_input_prepared).toBe(true);
     expect(after.state.codebase_grounding).toBeNull();
-    expect(after.state.current_step).toBe("clarification");
-    expect(after.action.kind).toBe("spawn_subagents");
+    // Advisory prepare_prd_input failure still routes through the
+    // git-historian gate before advancing — same as the success path.
+    expect(after.state.current_step).toBe("input_analysis");
+    const afterGitHistory = resolveGitHistory(after);
+    expect(afterGitHistory.state.git_history_done).toBe(true);
+    expect(afterGitHistory.state.current_step).toBe("clarification");
+    expect(afterGitHistory.action.kind).toBe("spawn_subagents");
   });
 
   it("section_generation fails fast if prd_context is null", () => {

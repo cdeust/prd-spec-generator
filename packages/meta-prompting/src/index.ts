@@ -15,3 +15,8 @@ export {
   buildJiraPrompt,
   type JiraPromptInput,
 } from "./jira-prompts.js";
+
+export {
+  buildGitHistoryPrompt,
+  type GitHistoryPromptInput,
+} from "./git-history-prompts.js";
