@@ -29456,6 +29456,29 @@ var safeLoad = renamed("safeLoad", "load");
 var safeLoadAll = renamed("safeLoadAll", "loadAll");
 var safeDump = renamed("safeDump", "dump");
 
+// packages/orchestration/dist/types/state/pipeline-step.js
+var PipelineStepSchema = external_exports.enum([
+  "banner",
+  "preflight",
+  "context_detection",
+  "input_analysis",
+  "feasibility_gate",
+  "clarification",
+  "budget",
+  "section_generation",
+  "jira_generation",
+  "file_export",
+  "self_check",
+  "complete"
+]);
+
+// packages/orchestration/dist/types/state/bounded-io.js
+var MAX_RESPONSE_CHARS = 1e5;
+var CLARIFICATION_TURN_CHARS = 1e3;
+var MAX_CLARIFICATION_TURNS = Math.floor(MAX_RESPONSE_CHARS / 2 / CLARIFICATION_TURN_CHARS);
+var ERROR_MESSAGE_CHARS = 500;
+var MAX_PIPELINE_ERRORS = Math.floor(MAX_RESPONSE_CHARS / 4 / ERROR_MESSAGE_CHARS);
+
 // packages/strategy/dist/research-evidence-database.js
 var TIER_1_EVIDENCE = [
   {
@@ -30165,6 +30188,79 @@ var EffectivenessTracker = class {
   }
 };
 
+// packages/orchestration/dist/types/state/section-status.js
+var SectionStatusSchema = external_exports.object({
+  section_type: SectionTypeSchema,
+  status: external_exports.enum([
+    "pending",
+    "retrieving",
+    "generating",
+    "passed",
+    "failed"
+  ]),
+  attempt: external_exports.number().int().nonnegative(),
+  violation_count: external_exports.number().int().nonnegative(),
+  last_violations: external_exports.array(external_exports.string()).default([]),
+  /** Markdown content of the section — populated after generation passes validation */
+  content: external_exports.string().optional(),
+  /**
+   * Strategy assignment chosen by `@prd-gen/strategy.selectStrategy` at the
+   * pending → retrieving transition. Persisted on the section so retries
+   * use the SAME strategies (not re-selecting per attempt) and so
+   * `EffectivenessTracker.recordExecution` has the assignment to attribute
+   * the outcome to.
+   *
+   * source: Phase 4 strategy-wiring (2026-04). Optional because the
+   * selection is gated by the orchestration layer; legacy state snapshots
+   * predating the wiring may be absent.
+   */
+  strategy_assignment: StrategyAssignmentSchema.optional(),
+  /**
+   * Per-attempt observation log. One entry per draft attempt, recording
+   * exactly which violations were fed into the prompt for that attempt.
+   *
+   * Invariant: attempt_log.length === section.attempt at any stable point
+   * (after each validateAndAdvance call). The log is written BEFORE the
+   * next draft action is emitted, so the benchmark extraction reads it
+   * synchronously rather than inferring from terminal state only.
+   *
+   * Field semantics:
+   *   attempt          — 1-indexed attempt number.
+   *   violations_fed   — the violation strings actually passed to the
+   *                      engineer subagent prompt for this attempt.
+   *                      Empty ([]) on attempt 1 (no prior violations exist).
+   *                      For attempt k≥2: the last_violations from the
+   *                      previous attempt — OR [] if the run is in the
+   *                      without_prior_violations ablation arm (D1.C).
+   *                      `violations_fed` is the OBSERVED value, not inferred
+   *                      from the arm; this closes the Curie A2 observability
+   *                      gap flagged in retry-observations.ts TODO(C1).
+   *
+   * Defaults to [] for backward compatibility with state snapshots predating
+   * Wave D1.B.
+   *
+   * source: Phase 4.2 ablation design (PHASE_4_PLAN.md §4.2) — per-attempt
+   * precision required for Schoenfeld N≈2,070 analysis (curie cross-audit
+   * A2: instrumentation must observe behavior, not infer it).
+   */
+  attempt_log: external_exports.array(external_exports.object({
+    attempt: external_exports.number().int().positive(),
+    violations_fed: external_exports.array(external_exports.string()).readonly()
+  })).readonly().default([])
+});
+
+// packages/orchestration/dist/types/state/verification-plan.js
+var VerificationPlanSnapshotSchema = external_exports.object({
+  batch_id: external_exports.string(),
+  /** Claim IDs in dispatch order — index = invocation slot. */
+  claim_ids: external_exports.array(external_exports.string()),
+  /** Judge identities, parallel to claim_ids by index. */
+  judges: external_exports.array(AgentIdentitySchema)
+}).refine((s) => s.claim_ids.length === s.judges.length, {
+  message: "VerificationPlanSnapshot: claim_ids and judges must have the same length (positional invariant \u2014 see self-check.ts:parseVerdictsFromSnapshot).",
+  path: ["judges"]
+});
+
 // packages/orchestration/dist/types/actions.js
 var AskUserActionSchema = external_exports.object({
   kind: external_exports.literal("ask_user"),
@@ -30309,101 +30405,13 @@ var ActionResultSchema = external_exports.discriminatedUnion("kind", [
   FileWrittenSchema
 ]);
 
-// packages/orchestration/dist/types/state.js
-var PipelineStepSchema = external_exports.enum([
-  "banner",
-  "preflight",
-  "context_detection",
-  "input_analysis",
-  "feasibility_gate",
-  "clarification",
-  "budget",
-  "section_generation",
-  "jira_generation",
-  "file_export",
-  "self_check",
-  "complete"
-]);
-var SectionStatusSchema = external_exports.object({
-  section_type: SectionTypeSchema,
-  status: external_exports.enum([
-    "pending",
-    "retrieving",
-    "generating",
-    "passed",
-    "failed"
-  ]),
-  attempt: external_exports.number().int().nonnegative(),
-  violation_count: external_exports.number().int().nonnegative(),
-  last_violations: external_exports.array(external_exports.string()).default([]),
-  /** Markdown content of the section — populated after generation passes validation */
-  content: external_exports.string().optional(),
-  /**
-   * Strategy assignment chosen by `@prd-gen/strategy.selectStrategy` at the
-   * pending → retrieving transition. Persisted on the section so retries
-   * use the SAME strategies (not re-selecting per attempt) and so
-   * `EffectivenessTracker.recordExecution` has the assignment to attribute
-   * the outcome to.
-   *
-   * source: Phase 4 strategy-wiring (2026-04). Optional because the
-   * selection is gated by the orchestration layer; legacy state snapshots
-   * predating the wiring may be absent.
-   */
-  strategy_assignment: StrategyAssignmentSchema.optional(),
-  /**
-   * Per-attempt observation log. One entry per draft attempt, recording
-   * exactly which violations were fed into the prompt for that attempt.
-   *
-   * Invariant: attempt_log.length === section.attempt at any stable point
-   * (after each validateAndAdvance call). The log is written BEFORE the
-   * next draft action is emitted, so the benchmark extraction reads it
-   * synchronously rather than inferring from terminal state only.
-   *
-   * Field semantics:
-   *   attempt          — 1-indexed attempt number.
-   *   violations_fed   — the violation strings actually passed to the
-   *                      engineer subagent prompt for this attempt.
-   *                      Empty ([]) on attempt 1 (no prior violations exist).
-   *                      For attempt k≥2: the last_violations from the
-   *                      previous attempt — OR [] if the run is in the
-   *                      without_prior_violations ablation arm (D1.C).
-   *                      `violations_fed` is the OBSERVED value, not inferred
-   *                      from the arm; this closes the Curie A2 observability
-   *                      gap flagged in retry-observations.ts TODO(C1).
-   *
-   * Defaults to [] for backward compatibility with state snapshots predating
-   * Wave D1.B.
-   *
-   * source: Phase 4.2 ablation design (PHASE_4_PLAN.md §4.2) — per-attempt
-   * precision required for Schoenfeld N≈2,070 analysis (curie cross-audit
-   * A2: instrumentation must observe behavior, not infer it).
-   */
-  attempt_log: external_exports.array(external_exports.object({
-    attempt: external_exports.number().int().positive(),
-    violations_fed: external_exports.array(external_exports.string()).readonly()
-  })).readonly().default([])
-});
-var MAX_RESPONSE_CHARS = 1e5;
-var CLARIFICATION_TURN_CHARS = 1e3;
-var MAX_CLARIFICATION_TURNS = Math.floor(MAX_RESPONSE_CHARS / 2 / CLARIFICATION_TURN_CHARS);
-var ERROR_MESSAGE_CHARS = 500;
-var MAX_PIPELINE_ERRORS = Math.floor(MAX_RESPONSE_CHARS / 4 / ERROR_MESSAGE_CHARS);
+// packages/orchestration/dist/types/state/core-state.js
 var ClarificationTurnSchema = external_exports.object({
   round: external_exports.number().int().min(1),
   question: external_exports.string(),
   answer: external_exports.string().optional(),
   asked_at: external_exports.string(),
   answered_at: external_exports.string().optional()
-});
-var VerificationPlanSnapshotSchema = external_exports.object({
-  batch_id: external_exports.string(),
-  /** Claim IDs in dispatch order — index = invocation slot. */
-  claim_ids: external_exports.array(external_exports.string()),
-  /** Judge identities, parallel to claim_ids by index. */
-  judges: external_exports.array(AgentIdentitySchema)
-}).refine((s) => s.claim_ids.length === s.judges.length, {
-  message: "VerificationPlanSnapshot: claim_ids and judges must have the same length (positional invariant \u2014 see self-check.ts:parseVerdictsFromSnapshot).",
-  path: ["judges"]
 });
 var PipelineStateSchema = external_exports.object({
   run_id: external_exports.string(),
@@ -30757,6 +30765,8 @@ var PipelineStateSchema = external_exports.object({
   message: "PipelineState: errors[] and error_kinds[] must have the same length (lockstep invariant \u2014 use appendError() to append, never spread directly).",
   path: ["error_kinds"]
 });
+
+// packages/orchestration/dist/types/state/helpers.js
 function newPipelineState(input) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   return PipelineStateSchema.parse({
