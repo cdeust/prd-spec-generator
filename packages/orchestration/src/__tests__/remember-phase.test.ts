@@ -1,14 +1,19 @@
 /**
- * self_check Phase C — Cortex `remember`, run once per pipeline immediately
- * before the terminal `done` action.
+ * finalize — Cortex `remember`, run once per pipeline immediately before the
+ * terminal `done` action. Relocated (PR 3b, design-phases-3-5.md §2.2) from
+ * self-check.ts's Phase C to handlers/finalize.ts — self_check's finalize()
+ * now only sets `pending_completion` and advances to `implementation_gate`;
+ * `finalize` (this module) performs the remember round trip once the
+ * implementation-gate/pre-impl-grounding path converges back to it.
  *
  * Proves:
- *   1. finalize() emits call_cortex_tool[remember] BEFORE `done`, with a
- *      self-contained content string (feature, PRD context, section counts,
- *      the self-check/judge summary, and every exported file path as a
- *      verifiable reference) plus tags + source.
+ *   1. Answering implementation_gate with "PRD only" advances straight to
+ *      `finalize`, which emits call_cortex_tool[remember] BEFORE `done`,
+ *      with a self-contained content string (feature, PRD context, section
+ *      counts, the self-check/judge summary, and every exported file path
+ *      as a verifiable reference) plus tags + source.
  *   2. A successful result sets run_remembered and returns the EXACT `done`
- *      action that would have been emitted directly pre-Phase-1b (same
+ *      action that self_check's finalize() computed (same
  *      summary/artifacts/verification).
  *   3. A failed result (Cortex unreachable) records an upstream_failure
  *      error but still returns `done` — remember is best-effort and must
@@ -16,13 +21,15 @@
  *   4. An empty-but-successful result (data: {}) behaves like any other
  *      success — run_remembered set, `done` returned.
  *
- * source: Phase 1b (2026-07-14) — Cortex memory-loop closure.
+ * source: Phase 1b (2026-07-14) — Cortex memory-loop closure (original Phase
+ * C). source: design-phases-3-5.md §2.2 — relocation (PR 3b).
  */
 
 import { describe, expect, it } from "vitest";
 import { newPipelineState, step, type PipelineState } from "../index.js";
+import { resolveImplementationGatePrdOnly } from "./helpers/resolve-completion.js";
 
-/** Must match self-check/remember-phase.ts:REMEMBER_CORRELATION_ID. */
+/** Must match handlers/finalize.ts:REMEMBER_CORRELATION_ID. */
 const REMEMBER_CORRELATION_ID = "self_check_remember";
 
 function stateAtSelfCheck(): PipelineState {
@@ -44,9 +51,18 @@ function stateAtSelfCheck(): PipelineState {
   };
 }
 
-describe("self_check Phase C — remember (nominal)", () => {
+/**
+ * Drives self_check's finalize() → implementation_gate → "PRD only" → the
+ * first `finalize` step() output (the call_cortex_tool[remember] emission).
+ */
+function issuedRemember(): ReturnType<typeof step> {
+  const afterSelfCheck = step({ state: stateAtSelfCheck() });
+  return resolveImplementationGatePrdOnly(afterSelfCheck);
+}
+
+describe("finalize — remember (nominal)", () => {
   it("emits call_cortex_tool[remember] with a self-contained content string, before done", () => {
-    const out = step({ state: stateAtSelfCheck() });
+    const out = issuedRemember();
 
     expect(out.action.kind).toBe("call_cortex_tool");
     if (out.action.kind !== "call_cortex_tool") return;
@@ -70,11 +86,12 @@ describe("self_check Phase C — remember (nominal)", () => {
     // Not yet complete — waiting on the remember round trip.
     expect(out.state.run_remembered).toBe(false);
     expect(out.state.pending_completion).not.toBeNull();
-    expect(out.state.current_step).toBe("self_check");
+    expect(out.state.current_step).toBe("finalize");
+    expect(out.state.post_specs?.decision).toBe("prd_only");
   });
 
   it("successful remember result returns the SAME done payload finalize computed, marks run_remembered", () => {
-    const issued = step({ state: stateAtSelfCheck() });
+    const issued = issuedRemember();
     const cid =
       issued.action.kind === "call_cortex_tool" ? issued.action.correlation_id : "";
     const pendingSummary = issued.state.pending_completion?.summary;
@@ -103,7 +120,7 @@ describe("self_check Phase C — remember (nominal)", () => {
     // reachable "waiting" state — emitRememberOrDone always clears
     // pending_completion in the SAME step that sets run_remembered=true, so
     // the two flags are never simultaneously true+non-null on real state).
-    const issued = step({ state: stateAtSelfCheck() });
+    const issued = issuedRemember();
     const replayed = step({ state: issued.state });
     expect(replayed.action.kind).toBe("call_cortex_tool");
     if (replayed.action.kind !== "call_cortex_tool") return;
@@ -112,9 +129,9 @@ describe("self_check Phase C — remember (nominal)", () => {
   });
 });
 
-describe("self_check Phase C — remember (Cortex unavailable)", () => {
+describe("finalize — remember (Cortex unavailable)", () => {
   it("failed remember: records upstream_failure but still returns done", () => {
-    const issued = step({ state: stateAtSelfCheck() });
+    const issued = issuedRemember();
     const cid =
       issued.action.kind === "call_cortex_tool" ? issued.action.correlation_id : "";
 
@@ -142,9 +159,9 @@ describe("self_check Phase C — remember (Cortex unavailable)", () => {
   });
 });
 
-describe("self_check Phase C — remember (empty/no-op result)", () => {
+describe("finalize — remember (empty/no-op result)", () => {
   it("success with empty data ({}) behaves like any other success", () => {
-    const issued = step({ state: stateAtSelfCheck() });
+    const issued = issuedRemember();
     const cid =
       issued.action.kind === "call_cortex_tool" ? issued.action.correlation_id : "";
 

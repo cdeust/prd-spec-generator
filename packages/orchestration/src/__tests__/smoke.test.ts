@@ -403,20 +403,26 @@ describe("end-to-end smoke run", () => {
 
     const result = runSmoke(seed);
 
-    // Tight regression bounds around the measured baseline of 61, plus two
-    // structural host round trips added by the Cortex memory-loop closure
-    // (Phase 1a/1b, 2026-07-14): input_analysis now opens with ONE
-    // call_cortex_tool[recall] round trip (global memory recall, before any
-    // codebase work) and self_check now closes with ONE
-    // call_cortex_tool[remember] round trip (Phase C, before `done`) instead
-    // of returning `done` directly from Phase A/B. Each round trip is
-    // exactly +1 iteration (the action-emitting step merges into what used
-    // to be the NEXT substantive action's step — see
+    // Tight regression bounds around the measured baseline of 61, plus
+    // structural host round trips added since (Phase 1a/1b Cortex
+    // memory-loop closure, 2026-07-14, then PR 3b's implementation_gate,
+    // 2026-07-14): input_analysis opens with ONE call_cortex_tool[recall]
+    // round trip (global memory recall); self_check's finalize() now hands
+    // off to `implementation_gate` (an ask_user/user_answer round trip —
+    // the canned dispatcher answers "PRD only", the zero-regression default,
+    // see canned-dispatcher.ts) instead of emitting `remember` directly;
+    // `finalize` (relocated, handlers/finalize.ts) then performs the ONE
+    // call_cortex_tool[remember] round trip before `done`. Each round trip
+    // is exactly +1 iteration (the action-emitting step merges into what
+    // used to be the NEXT substantive action's step — see
     // packages/orchestration/src/handlers/input-analysis.ts:handleGlobalRecall
-    // and .../self-check/remember-phase.ts). Measured post-change: 69
-    // (verified against the pre-change worktree via a debug harness before
-    // this bound was updated; delta = exactly +2, matching the two new round
-    // trips with no unexplained growth).
+    // and .../handlers/finalize.ts). Measured post-PR-3b: 71 (was 69 after
+    // Phase 1a/1b; delta = +2, matching the ask_user + user_answer round
+    // trips the gate adds — self_check's own emit_message → implementation_gate
+    // → ask_user hop is coalesced into the SAME step() call that used to
+    // return call_cortex_tool[remember] directly, so it costs one NEW
+    // host-visible step; the user_answer round trip that follows costs the
+    // second).
     // ±7 slack is enough to absorb a single new emit_message hop in either
     // direction without re-audit, but not enough to hide a whole new phase
     // (which would add ≥9 hops, e.g. an additional clarification round-trip).
@@ -426,9 +432,14 @@ describe("end-to-end smoke run", () => {
     // source: per-phase trace by Dijkstra cross-audit, 2026-04
     // (license:1 + ctx:1 + input:2 + feasibility:1 + clar:8 + budget:1 +
     //  section:33 + jira:2 + export:9 + self_check:2 + done:1 = 61);
-    // + global_recall:1 + remember:1 = 63 (Phase 1a/1b, 2026-07-14).
+    // + global_recall:1 + remember:1 = 63 (Phase 1a/1b, 2026-07-14);
+    // + implementation_gate ask_user:1 + user_answer:1 = 65 expected delta,
+    // measured 71 (design-phases-3-5.md PR 3b, 2026-07-14) — the +6 gap vs.
+    // the hand-derived 65 pre-dates this change (same gap existed between
+    // the 63 hand-derivation and the 69 measured baseline above) and is not
+    // re-audited here; only the incremental +2 delta is attributed to 3b.
     const ITER_LOW = 55;
-    const ITER_HIGH = 70;
+    const ITER_HIGH = 77;
     expect(result.iterations).toBeGreaterThanOrEqual(ITER_LOW);
     expect(result.iterations).toBeLessThanOrEqual(ITER_HIGH);
   });

@@ -16,8 +16,14 @@ describe("pipeline KPIs", () => {
     expect(kpis.final_action_kind).toBe("done");
     expect(kpis.current_step).toBe("complete");
     expect(kpis.written_files_count).toBe(9);
+    // Upper bound raised from 70 to 77 by PR 3b (design-phases-3-5.md): the
+    // canned dispatcher answers the new `implementation_gate` ask_user with
+    // "PRD only" (zero-regression default), which costs one extra
+    // ask_user/user_answer round trip vs. the pre-3b direct-to-remember path
+    // — see orchestration smoke.test.ts's iteration-headroom derivation for
+    // the full accounting.
     expect(kpis.iteration_count).toBeGreaterThanOrEqual(50);
-    expect(kpis.iteration_count).toBeLessThanOrEqual(70);
+    expect(kpis.iteration_count).toBeLessThanOrEqual(77);
     expect(kpis.wall_time_ms).toBeLessThan(KPI_GATES.wall_time_ms_max);
 
     // is_canned_dispatcher=true suspends distribution_pass_rate gate (popper

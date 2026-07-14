@@ -39,6 +39,9 @@ import { handleSectionGeneration } from "./handlers/section-generation.js";
 import { handleJiraGeneration } from "./handlers/jira-generation.js";
 import { handleFileExport } from "./handlers/file-export.js";
 import { handleSelfCheck } from "./handlers/self-check.js";
+import { handleImplementationGate } from "./handlers/implementation-gate.js";
+import { handlePreImplGrounding } from "./handlers/pre-impl-grounding.js";
+import { handleFinalize } from "./handlers/finalize.js";
 
 export interface StepInput {
   readonly state: PipelineState;
@@ -76,6 +79,9 @@ const HANDLERS: Record<PipelineState["current_step"], StepHandler> = {
   jira_generation: handleJiraGeneration,
   file_export: handleFileExport,
   self_check: handleSelfCheck,
+  implementation_gate: handleImplementationGate,
+  pre_impl_grounding: handlePreImplGrounding,
+  finalize: handleFinalize,
   complete: ({ state }) => ({
     state,
     action: {
@@ -91,14 +97,17 @@ const HANDLERS: Record<PipelineState["current_step"], StepHandler> = {
  * infinite-loop bugs as a `failed` action instead of an OOM/hang.
  *
  * source: derived from the longest legitimate emit_message chain across all
- * handlers (verified by Dijkstra cross-audit, 2026-04). The longest chain
- * occurs on a fully-replayed state with all sections done, no JIRA source,
- * and all files written:
+ * handlers (verified by Dijkstra cross-audit, 2026-04; updated for the PR 3b
+ * post-specs gate, design-phases-3-5.md §2.2). The longest chain occurs on a
+ * fully-replayed state with all sections done, no JIRA source, all files
+ * written, and the "prd_only" gate answer already on file:
  *   banner → context_detection → input_analysis (already-indexed) →
  *   feasibility_gate → clarification (max-done) → budget → section_generation
  *   (all-done) → jira_generation (no-source) → file_export (all-written) →
- *   self_check (substantive)
- * = 9 emit_message hops before a substantive action. Cap of 16 gives ~1.78x
+ *   self_check (emit_message, hands off to implementation_gate) →
+ *   pre_impl_grounding's dead-end is NOT on this chain (implementation_gate
+ *   itself returns the substantive ask_user)
+ * = 10 emit_message hops before a substantive action. Cap of 16 gives ~1.6x
  * safety margin. Tune from production telemetry once we observe re-entry
  * depth.
  */

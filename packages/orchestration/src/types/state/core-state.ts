@@ -6,6 +6,7 @@ import { PipelineStepSchema } from "./pipeline-step.js";
 import { SectionStatusSchema } from "./section-status.js";
 import { VerificationPlanSnapshotSchema } from "./verification-plan.js";
 import { MAX_CLARIFICATION_TURNS, MAX_PIPELINE_ERRORS } from "./bounded-io.js";
+import { PostSpecsStateSchema } from "./post-specs-state.js";
 
 export const ClarificationTurnSchema = z.object({
   round: z.number().int().min(1),
@@ -380,6 +381,15 @@ export const PipelineStateSchema = z.object({
     })
     .nullable()
     .default(null),
+  /**
+   * Phases 3-5 post-specs implementation loop (design-phases-3-5.md).
+   * Nullable, default null — every existing run/test that never reaches the
+   * `implementation_gate` step is unaffected. Initialized (via
+   * `initialPostSpecs()`) the first time `implementation_gate` runs.
+   *
+   * source: design-phases-3-5.md §2.1.
+   */
+  post_specs: PostSpecsStateSchema.nullable().default(null),
 })
   .refine((s) => s.errors.length === s.error_kinds.length, {
     message:
