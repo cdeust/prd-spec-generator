@@ -56,6 +56,11 @@ const REMEMBER_SOURCE = "prd-gen:self_check";
  * Returns "" when state.post_specs is null (run never reached the gate —
  * cannot happen on the current step graph, but defensive for direct-inject
  * tests) so buildRememberContent can omit the block entirely.
+ *
+ * PR 4b addition: appends the implementation/verification/testing/review
+ * outcome when the run reached that far (design-phases-3-5.md §5 PR
+ * breakdown item 4: "finalize's remember content extended to include
+ * implementation/verification/PR outcome").
  */
 function buildPostSpecsSummary(state: PipelineState): string {
   const ps = state.post_specs;
@@ -70,6 +75,25 @@ function buildPostSpecsSummary(state: PipelineState): string {
       lines.push(
         `  - ${r.qualified_name}: ${r.success ? "ok" : `failed (${r.error ?? "unknown"})`}`,
       );
+    }
+  }
+  if (ps.implementation) {
+    lines.push(
+      `Implementation: branch '${ps.implementation.branch}' at ${ps.implementation.worktree_path ?? "(unknown worktree)"} (${ps.implementation.changed_files.length} file(s) changed).`,
+    );
+  }
+  if (ps.verification) {
+    lines.push(`Post-implementation verification: gates_passed=${ps.verification.gates_passed}.`);
+  }
+  if (ps.testing) {
+    lines.push(`Testing: report recorded (${ps.testing.raw_report.length} char(s)).`);
+  }
+  if (ps.review) {
+    lines.push(
+      `Review: verdict=${ps.review.verdict} (attempt ${ps.review.attempt}, ${ps.retry_count} retry/retries used).`,
+    );
+    if (ps.review.findings.length > 0) {
+      lines.push(`  Findings: ${ps.review.findings.join("; ")}`);
     }
   }
   return lines.join("\n");

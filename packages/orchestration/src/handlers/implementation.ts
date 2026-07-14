@@ -36,7 +36,24 @@
  * never dropped, and a replay after `post_specs.implementation` is already
  * set never re-spawns the engineer.
  *
- * source: design-phases-3-5.md §3, §4, §5 PR 4a.
+ * Retry mode (PR 4b, design-phases-3-5.md §3, §6 open question 5 — "review
+ * loop retries re-spawn the engineer on the SAME worktree"): `review.ts`
+ * signals a pending retry by leaving `post_specs.review.verdict === "fail"`
+ * on the state it hands back to `implementation` (it does NOT null out
+ * `post_specs.implementation` — the prior worktree_path/branch is exactly
+ * what the retry prompt needs to instruct continuation on the SAME
+ * worktree, per `buildImplementationPrompt`'s retry mode). The idempotency
+ * guard below therefore does not skip on `post_specs.implementation !==
+ * null` alone; it ALSO requires there is no pending fail-verdict retry to
+ * act on. Once a report is successfully parsed (first attempt OR retry),
+ * `review` is reset to `null` — this is the loop-guard's termination proof:
+ * without it, every future replay of this step would still see
+ * `review.verdict === "fail"` from the stale prior attempt and re-spawn the
+ * engineer forever (the exact class of infinite-respawn bug caught in Phase
+ * 2's git-historian regression — see
+ * __tests__/testing-review-loop.test.ts's explicit regression test).
+ *
+ * source: design-phases-3-5.md §3, §4, §5 PR 4a; §3, §6 PR 4b (retry mode).
  */
 
 import type { HandlerAction } from "../types/actions.js";
@@ -159,10 +176,23 @@ function parseImplementationReport(rawText: string): ParsedImplementationReport 
   };
 }
 
+/**
+ * precondition:  none.
+ * postcondition: true iff `post_specs.review.verdict === "fail"` — a
+ *                pending retry review.ts handed back that this step owes a
+ *                re-spawn for, regardless of whether `implementation` is
+ *                already recorded from the attempt being retried.
+ */
+function isPendingRetry(postSpecs: PostSpecsState): boolean {
+  return postSpecs.review?.verdict === "fail";
+}
+
 function emitImplementationSpawn(
   state: PipelineState,
   postSpecs: PostSpecsState,
 ): HandlerStep {
+  const pendingRetry = isPendingRetry(postSpecs);
+  const priorImplementation = pendingRetry ? postSpecs.implementation : null;
   return {
     state: { ...state, post_specs: postSpecs },
     action: {
@@ -173,13 +203,18 @@ function emitImplementationSpawn(
         {
           invocation_id: IMPLEMENTATION_INV_ID,
           subagent_type: "engineer",
-          description: "Implement the validated PRD/specs",
+          description: pendingRetry
+            ? "Fix the validated PRD/specs implementation per review findings"
+            : "Implement the validated PRD/specs",
           prompt: buildImplementationPrompt({
             feature_description: state.feature_description,
             codebase_path: state.codebase_path ?? "",
             spec_files: state.written_files,
             blast_radius_summary: summarizeBlastRadius(postSpecs),
             git_history_summary: state.git_history_summary ?? undefined,
+            review_findings: pendingRetry ? postSpecs.review?.findings : undefined,
+            existing_worktree_path: priorImplementation?.worktree_path ?? undefined,
+            existing_branch: priorImplementation?.branch,
           }),
           isolation: "worktree",
         },
@@ -245,7 +280,12 @@ function processImplementationResult(
     state: {
       ...state,
       current_step: "post_impl_verification",
-      post_specs: { ...postSpecs, implementation },
+      // review reset to null: clears the pending-retry signal
+      // (isPendingRetry) this attempt was answering — the loop-guard
+      // termination proof documented in this file's module doc. Without
+      // this reset, review.verdict would still read "fail" on every future
+      // replay of "implementation", re-spawning the engineer forever.
+      post_specs: { ...postSpecs, implementation, review: null },
     },
     action: {
       kind: "emit_message",
@@ -263,8 +303,10 @@ export const handleImplementation: StepHandler = ({ state, result }) => {
   }
 
   // Idempotency guard AFTER result-processing (Phase 2 lesson): a replay
-  // after implementation already recorded must not re-spawn the engineer.
-  if (postSpecs.implementation) {
+  // after implementation already recorded must not re-spawn the engineer —
+  // UNLESS review.ts left a pending fail-verdict retry to act on (retry
+  // mode, PR 4b; see isPendingRetry's doc above).
+  if (postSpecs.implementation && !isPendingRetry(postSpecs)) {
     return {
       state: {
         ...state,

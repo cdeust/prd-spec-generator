@@ -25,3 +25,13 @@ export {
   buildImplementationPrompt,
   type ImplementationPromptInput,
 } from "./implementation-prompts.js";
+
+export {
+  buildTestingPrompt,
+  type TestingPromptInput,
+} from "./testing-prompts.js";
+
+export {
+  buildReviewPrompt,
+  type ReviewPromptInput,
+} from "./review-prompts.js";
