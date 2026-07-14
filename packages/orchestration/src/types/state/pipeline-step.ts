@@ -57,17 +57,36 @@ export const PipelineStepSchema = z.enum([
    * testing verdicts. A parsed FAIL verdict retries `implementation` on the
    * SAME worktree with the findings injected into the prompt, bounded by
    * `REVIEW_RETRY_CAP` (review.ts). PASS, or cap exhaustion (degrade to
-   * advisory FAIL), advances to `finalize` — `pr_gate`/`pr_creation` are NOT
-   * yet in this enum (PR 5).
+   * advisory FAIL), advances to `pr_gate` (PR 5 — replaces the PR-4b
+   * dead-end to `finalize`).
    */
   "review",
+  /**
+   * `pr_gate` (PR 5, design-phases-3-5.md §3): the trust-seam human gate —
+   * `ask_user` ("Push + open PR" / "No"), MANDATORY and non-skippable,
+   * always fires when reached regardless of the `review` verdict (including
+   * an advisory FAIL). "No" is a valid TERMINAL path (not a failure):
+   * advances straight to `finalize` with `post_specs.pr = {pushed:false,
+   * url:null}`. "Push + open PR" advances to `pr_creation`.
+   */
+  "pr_gate",
+  /**
+   * `pr_creation` (PR 5, design-phases-3-5.md §3): one `spawn_subagents`
+   * (purpose "pr", subagent_type "engineer", isolation "none" — SAME
+   * branch/worktree as `implementation`) instructing the engineer to push
+   * the branch and run `gh pr create`, returning the PR URL via a
+   * machine-readable `PR_URL:` footer. Push/`gh` failure or a missing
+   * footer DEGRADES (`appendError("upstream_failure")`,
+   * `post_specs.pr.pushed = false`) — `finalize` is still reached, never a
+   * hard abort.
+   */
+  "pr_creation",
   /**
    * Relocated Phase C (Cortex `remember` → `done`) — the only step that
    * advances `current_step` to `complete`. `implementation_gate`
    * ("prd_only") and every failure/degrade/terminal path in
    * `pre_impl_grounding` / `implementation` / `post_impl_verification` /
-   * `testing` / `review` dead-ends here (PR 4b: `pr_gate` / `pr_creation`
-   * named in the design doc are NOT yet in this enum — they land in PR 5).
+   * `testing` / `review` / `pr_gate` / `pr_creation` dead-ends here.
    */
   "finalize",
   "complete",

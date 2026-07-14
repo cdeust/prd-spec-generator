@@ -81,10 +81,10 @@ export { MAX_ATTEMPTS } from "./handlers/section-generation.js";
 // Canned dispatcher (test/benchmark utility — not for production host wiring)
 export {
   makeCannedDispatcher,
-  defaultFakeSectionDraft,
   type CannedDispatcher,
   type CannedDispatcherOptions,
 } from "./canned-dispatcher.js";
+export { defaultFakeSectionDraft } from "./canned-responses.js";
 
 // Wave F2 — production-mode dispatcher (real subagents via AgentInvoker).
 // Companion to makeCannedDispatcher; consumed by

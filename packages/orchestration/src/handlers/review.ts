@@ -29,9 +29,13 @@
  * Both share ONE retry budget (`REVIEW_RETRY_CAP`, `post_specs.retry_count`)
  * — a single, simple, exhaustible counter rather than two independent caps.
  * Cap exhausted (either failure mode) → DEGRADE TO ADVISORY: `post_specs
- * .review` is set to a FAIL verdict visible to the human, `finalize` is
- * still reached (never a hard abort — design §4 "jamais de blocage de
- * finalize/remember/done").
+ * .review` is set to a FAIL verdict visible to the human, `pr_gate` is
+ * still reached (PR 5 — replaces the PR-4b dead-end to `finalize`; never a
+ * hard abort — design §4 "jamais de blocage de finalize/remember/done").
+ * A PASS verdict advances to `pr_gate` the same way — EVERY review exit
+ * (PASS or advisory-degraded FAIL) reaches the trust-seam gate, which
+ * decides for itself whether a FAIL verdict is acceptable to push (design
+ * §3: "pr_gate ... always fires ... regardless of review verdict").
  *
  * Attempt-indexed invocation_id/batch_id (protocol-ids.ts's
  * `reviewInvocationId`, mirroring `preImplGroundingImpactCorrelationId`):
@@ -129,7 +133,7 @@ function emitReviewSpawn(state: PipelineState, postSpecs: PostSpecsState): Handl
   };
 }
 
-function advanceToFinalize(
+function advanceToPrGate(
   state: PipelineState,
   postSpecs: PostSpecsState,
   review: ReviewState,
@@ -139,7 +143,7 @@ function advanceToFinalize(
   return {
     state: {
       ...state,
-      current_step: "finalize",
+      current_step: "pr_gate",
       post_specs: { ...postSpecs, review },
     },
     action: { kind: "emit_message", message, level },
@@ -193,7 +197,7 @@ function retryReviewer(
  *                itself for an infrastructure failure) when
  *                `post_specs.retry_count < REVIEW_RETRY_CAP`; otherwise
  *                degrades to an advisory FAIL visible in `post_specs.review`
- *                and advances to `finalize` — never a hard abort.
+ *                and advances to `pr_gate` — never a hard abort.
  */
 function handleReviewOutcomeFailure(
   state: PipelineState,
@@ -225,11 +229,11 @@ function handleReviewOutcomeFailure(
 
   const advisoryFindings =
     mode === "retry_implementation" ? findings : [`Review cap exhausted: ${message}`];
-  return advanceToFinalize(
+  return advanceToPrGate(
     nextState,
     postSpecs,
     { verdict: "fail", findings: [...advisoryFindings], attempt: currentAttempt(postSpecs) },
-    `Review retry cap (${REVIEW_RETRY_CAP}) exhausted; degrading to advisory FAIL, proceeding to finalize.`,
+    `Review retry cap (${REVIEW_RETRY_CAP}) exhausted; degrading to advisory FAIL, proceeding to the PR gate.`,
     "warn",
   );
 }
@@ -303,11 +307,11 @@ function processReviewResult(
   }
 
   if (parsed.verdict === "pass") {
-    return advanceToFinalize(
+    return advanceToPrGate(
       state,
       postSpecs,
       { verdict: "pass", findings: [], attempt },
-      "Review PASSED; proceeding to finalize.",
+      "Review PASSED; proceeding to the PR gate.",
     );
   }
 
@@ -332,15 +336,15 @@ export const handleReview: StepHandler = ({ state, result }) => {
   // Idempotency guard AFTER result-processing: only a PASS verdict is a
   // terminal, replay-safe state for this step (a FAIL verdict always
   // transitions current_step away from "review" in the SAME call that
-  // determined it — see retryImplementation/advanceToFinalize — so this
+  // determined it — see retryImplementation/advanceToPrGate — so this
   // handler is never re-entered with a stale FAIL verdict still attached to
   // current_step "review").
   if (postSpecs.review?.verdict === "pass") {
     return {
-      state: { ...state, current_step: "finalize", post_specs: postSpecs },
+      state: { ...state, current_step: "pr_gate", post_specs: postSpecs },
       action: {
         kind: "emit_message",
-        message: "Review already passed; proceeding to finalize.",
+        message: "Review already passed; proceeding to the PR gate.",
       },
     };
   }

@@ -29514,17 +29514,36 @@ var PipelineStepSchema = external_exports.enum([
    * testing verdicts. A parsed FAIL verdict retries `implementation` on the
    * SAME worktree with the findings injected into the prompt, bounded by
    * `REVIEW_RETRY_CAP` (review.ts). PASS, or cap exhaustion (degrade to
-   * advisory FAIL), advances to `finalize` — `pr_gate`/`pr_creation` are NOT
-   * yet in this enum (PR 5).
+   * advisory FAIL), advances to `pr_gate` (PR 5 — replaces the PR-4b
+   * dead-end to `finalize`).
    */
   "review",
+  /**
+   * `pr_gate` (PR 5, design-phases-3-5.md §3): the trust-seam human gate —
+   * `ask_user` ("Push + open PR" / "No"), MANDATORY and non-skippable,
+   * always fires when reached regardless of the `review` verdict (including
+   * an advisory FAIL). "No" is a valid TERMINAL path (not a failure):
+   * advances straight to `finalize` with `post_specs.pr = {pushed:false,
+   * url:null}`. "Push + open PR" advances to `pr_creation`.
+   */
+  "pr_gate",
+  /**
+   * `pr_creation` (PR 5, design-phases-3-5.md §3): one `spawn_subagents`
+   * (purpose "pr", subagent_type "engineer", isolation "none" — SAME
+   * branch/worktree as `implementation`) instructing the engineer to push
+   * the branch and run `gh pr create`, returning the PR URL via a
+   * machine-readable `PR_URL:` footer. Push/`gh` failure or a missing
+   * footer DEGRADES (`appendError("upstream_failure")`,
+   * `post_specs.pr.pushed = false`) — `finalize` is still reached, never a
+   * hard abort.
+   */
+  "pr_creation",
   /**
    * Relocated Phase C (Cortex `remember` → `done`) — the only step that
    * advances `current_step` to `complete`. `implementation_gate`
    * ("prd_only") and every failure/degrade/terminal path in
    * `pre_impl_grounding` / `implementation` / `post_impl_verification` /
-   * `testing` / `review` dead-ends here (PR 4b: `pr_gate` / `pr_creation`
-   * named in the design doc are NOT yet in this enum — they land in PR 5).
+   * `testing` / `review` / `pr_gate` / `pr_creation` dead-ends here.
    */
   "finalize",
   "complete"
@@ -30472,9 +30491,11 @@ var SpawnSubagentsActionSchema = external_exports.object({
    * unaffected. "test" added additively (design-phases-3-5.md §3, PR 4b) for
    * the `testing` step's test-engineer spawn — "review" already existed
    * (unused until PR 4b's `review` step wires it) so no addition was needed
-   * there.
+   * there. "pr" added additively (design-phases-3-5.md §3, PR 5) for the
+   * `pr_creation` step's engineer spawn (branch push + `gh pr create`) — no
+   * existing purpose value was removed or repurposed.
    */
-  purpose: external_exports.enum(["judge", "draft", "review", "implement", "test"])
+  purpose: external_exports.enum(["judge", "draft", "review", "implement", "test", "pr"])
 });
 var WriteFileActionSchema = external_exports.object({
   kind: external_exports.literal("write_file"),
@@ -31826,6 +31847,65 @@ ${input.prior_findings.map((f) => `- ${f}`).join("\n")}
   ].filter((line) => line !== "").join("\n");
 }
 
+// packages/meta-prompting/dist/pr-creation-prompts.js
+function buildPrCreationPrompt(input) {
+  const specFilesBlock = input.spec_files.length > 0 ? input.spec_files.map((p) => `- ${p}`).join("\n") : "(no spec files were exported for this run)";
+  return [
+    `<role>You are an engineer. Push the branch below and open a pull request for it. A human has ALREADY approved this push \u2014 you are executing an explicitly authorized action, not requesting one.</role>`,
+    "",
+    `<worktree_path>${input.worktree_path}</worktree_path>`,
+    `<branch>${input.branch}</branch>`,
+    "",
+    `<feature>${input.feature_description}</feature>`,
+    "",
+    `<spec_files>`,
+    specFilesBlock,
+    `</spec_files>`,
+    "",
+    `<implementation_report>`,
+    input.implementation_summary || "(no implementation summary available)",
+    `</implementation_report>`,
+    "",
+    `<post_impl_verification>`,
+    input.verification_summary || "(no post-implementation verification available)",
+    `</post_impl_verification>`,
+    "",
+    `<testing_report>`,
+    input.testing_summary || "(no testing report available)",
+    `</testing_report>`,
+    "",
+    `<review_verdict>`,
+    input.review_summary || "(no review verdict available)",
+    `</review_verdict>`,
+    "",
+    `<task>`,
+    `On <worktree_path>/<branch>: push the branch to its remote`,
+    `(\`git push -u origin <branch>\`), then open a pull request`,
+    `(\`gh pr create\`) with a conventional title and a body summarizing`,
+    `<feature>, <implementation_report>, <post_impl_verification>,`,
+    `<testing_report>, and <review_verdict> \u2014 including an HONEST report of`,
+    `the review verdict even if it is an advisory FAIL. Link <spec_files>`,
+    `in the body.`,
+    `</task>`,
+    "",
+    `<prohibited>`,
+    `Do NOT merge the pull request. Do NOT use \`--admin\`. Do NOT`,
+    `force-push. Do NOT run \`gh pr merge\` under any circumstance. Your job`,
+    `ends when the PR is opened \u2014 a human reviews and merges it.`,
+    `</prohibited>`,
+    "",
+    `<report_format>`,
+    `End your final response with a short prose summary (a few sentences),`,
+    `followed by EXACTLY this footer, on its own line, value filled in (no`,
+    `placeholders, no surrounding markdown/code fences):`,
+    "",
+    `PR_URL: <the full URL of the pull request you opened>`,
+    "",
+    `PR_URL is mandatory \u2014 the caller cannot proceed without it.`,
+    `</report_format>`
+  ].filter((line) => line !== "").join("\n");
+}
+
 // packages/orchestration/dist/handlers/protocol-ids.js
 var QUESTION_ID_CONTINUE = "clarification_continue";
 var CLARIFICATION_COMPOSE_INV_PREFIX = "clarification_compose_inv_";
@@ -31851,6 +31931,8 @@ var REVIEW_INV_PREFIX = "review_code_reviewer_";
 function reviewInvocationId(attempt) {
   return `${REVIEW_INV_PREFIX}${attempt}`;
 }
+var PR_GATE_QUESTION_ID = "pr_gate";
+var PR_CREATION_INV_ID = "pr_creation_engineer";
 
 // packages/orchestration/dist/handlers/input-analysis/git-history.js
 var GIT_HISTORY_BATCH_ID = GIT_HISTORY_INV_ID;
@@ -34569,11 +34651,11 @@ function emitReviewSpawn(state, postSpecs) {
     }
   };
 }
-function advanceToFinalize(state, postSpecs, review, message, level = "info") {
+function advanceToPrGate(state, postSpecs, review, message, level = "info") {
   return {
     state: {
       ...state,
-      current_step: "finalize",
+      current_step: "pr_gate",
       post_specs: { ...postSpecs, review }
     },
     action: { kind: "emit_message", message, level }
@@ -34616,7 +34698,7 @@ function handleReviewOutcomeFailure(state, postSpecs, message, mode2, findings) 
     return retryReviewer(nextState, postSpecs, nextRetryCount, `Review attempt ${postSpecs.retry_count + 1} failed to produce a verdict (${message}); retrying review (attempt ${nextRetryCount}/${REVIEW_RETRY_CAP}).`);
   }
   const advisoryFindings = mode2 === "retry_implementation" ? findings : [`Review cap exhausted: ${message}`];
-  return advanceToFinalize(nextState, postSpecs, { verdict: "fail", findings: [...advisoryFindings], attempt: currentAttempt(postSpecs) }, `Review retry cap (${REVIEW_RETRY_CAP}) exhausted; degrading to advisory FAIL, proceeding to finalize.`, "warn");
+  return advanceToPrGate(nextState, postSpecs, { verdict: "fail", findings: [...advisoryFindings], attempt: currentAttempt(postSpecs) }, `Review retry cap (${REVIEW_RETRY_CAP}) exhausted; degrading to advisory FAIL, proceeding to the PR gate.`, "warn");
 }
 var VERDICT_FOOTER_RE = /^\s*VERDICT:\s*(PASS|FAIL)\s*$/im;
 var FINDINGS_HEADER_RE = /^\s*FINDINGS:\s*$/im;
@@ -34653,7 +34735,7 @@ function processReviewResult(state, postSpecs, result) {
     return handleReviewOutcomeFailure(state, postSpecs, "reviewer report did not include a parsable VERDICT: footer", "retry_reviewer", []);
   }
   if (parsed.verdict === "pass") {
-    return advanceToFinalize(state, postSpecs, { verdict: "pass", findings: [], attempt }, "Review PASSED; proceeding to finalize.");
+    return advanceToPrGate(state, postSpecs, { verdict: "pass", findings: [], attempt }, "Review PASSED; proceeding to the PR gate.");
   }
   return handleReviewOutcomeFailure(state, postSpecs, `review FAILED: ${parsed.findings.join("; ") || "no findings given"}`, "retry_implementation", parsed.findings);
 }
@@ -34665,14 +34747,180 @@ var handleReview = ({ state, result }) => {
   }
   if (postSpecs.review?.verdict === "pass") {
     return {
-      state: { ...state, current_step: "finalize", post_specs: postSpecs },
+      state: { ...state, current_step: "pr_gate", post_specs: postSpecs },
       action: {
         kind: "emit_message",
-        message: "Review already passed; proceeding to finalize."
+        message: "Review already passed; proceeding to the PR gate."
       }
     };
   }
   return emitReviewSpawn(state, postSpecs);
+};
+
+// packages/orchestration/dist/handlers/pr-gate.js
+function ensurePostSpecs7(state) {
+  return state.post_specs ?? initialPostSpecs();
+}
+function buildGateSummary(postSpecs) {
+  const review = postSpecs.review;
+  const verdictLine = review ? `Review verdict: ${review.verdict.toUpperCase()}${review.findings.length > 0 ? ` \u2014 ${review.findings.join("; ")}` : ""} (attempt ${review.attempt}, ${postSpecs.retry_count} retry/retries used).` : "Review verdict: unavailable.";
+  const gatesLine = postSpecs.verification ? `Post-implementation gates passed: ${postSpecs.verification.gates_passed}.` : "Post-implementation gates: not run.";
+  const filesLine = `Files changed: ${postSpecs.implementation?.changed_files.length ?? 0}.`;
+  const branchLine = `Branch: ${postSpecs.implementation?.branch ?? "(unknown)"}.`;
+  return [verdictLine, gatesLine, filesLine, branchLine].join("\n");
+}
+function wantsPush(result) {
+  const chosen = (result.selected[0] ?? result.freeform ?? "").toLowerCase();
+  return chosen.includes("push");
+}
+var handlePrGate = ({ state, result }) => {
+  const postSpecs = ensurePostSpecs7(state);
+  if (result?.kind === "user_answer" && result.question_id === PR_GATE_QUESTION_ID) {
+    if (wantsPush(result)) {
+      return {
+        state: { ...state, current_step: "pr_creation", post_specs: postSpecs },
+        action: {
+          kind: "emit_message",
+          message: "Push approved. Opening a pull request."
+        }
+      };
+    }
+    return {
+      state: {
+        ...state,
+        current_step: "finalize",
+        post_specs: { ...postSpecs, pr: { pushed: false, url: null } }
+      },
+      action: {
+        kind: "emit_message",
+        message: "Push declined. Proceeding to finalize without a PR."
+      }
+    };
+  }
+  return {
+    state: { ...state, post_specs: postSpecs },
+    action: {
+      kind: "ask_user",
+      question_id: PR_GATE_QUESTION_ID,
+      header: "Push the branch and open a pull request?",
+      description: `${buildGateSummary(postSpecs)}
+
+A pull request is opened for human review \u2014 it is never self-merged.`,
+      options: [
+        {
+          label: "Push + open PR",
+          description: "Push the branch and open a pull request for human review."
+        },
+        {
+          label: "No",
+          description: "Stop here. No branch is pushed and no PR is opened."
+        }
+      ],
+      multi_select: false
+    }
+  };
+};
+
+// packages/orchestration/dist/handlers/pr-creation.js
+var PR_CREATION_BATCH_ID = PR_CREATION_INV_ID;
+function ensurePostSpecs8(state) {
+  return state.post_specs ?? initialPostSpecs();
+}
+function summarizeReview(postSpecs) {
+  const r = postSpecs.review;
+  if (!r)
+    return "";
+  const lines = [`verdict: ${r.verdict}`];
+  if (r.findings.length > 0) {
+    lines.push(`findings: ${r.findings.join("; ")}`);
+  }
+  return lines.join("\n");
+}
+function summarizeVerification3(postSpecs) {
+  const v = postSpecs.verification;
+  if (!v)
+    return "";
+  return `gates_passed: ${v.gates_passed}`;
+}
+function emitPrCreationSpawn(state, postSpecs) {
+  const worktree = postSpecs.implementation?.worktree_path ?? "";
+  const branch = postSpecs.implementation?.branch ?? "";
+  return {
+    state: { ...state, post_specs: postSpecs },
+    action: {
+      kind: "spawn_subagents",
+      purpose: "pr",
+      batch_id: PR_CREATION_BATCH_ID,
+      invocations: [
+        {
+          invocation_id: PR_CREATION_INV_ID,
+          subagent_type: "engineer",
+          description: "Push the branch and open a pull request",
+          prompt: buildPrCreationPrompt({
+            feature_description: state.feature_description,
+            worktree_path: worktree,
+            branch,
+            spec_files: state.written_files,
+            implementation_summary: postSpecs.implementation?.raw_report ?? "",
+            verification_summary: summarizeVerification3(postSpecs),
+            testing_summary: postSpecs.testing?.raw_report ?? "",
+            review_summary: summarizeReview(postSpecs)
+          }),
+          isolation: "none"
+        }
+      ]
+    }
+  };
+}
+function degradeToFinalize(state, postSpecs, message) {
+  const pr = { pushed: false, url: null };
+  return {
+    state: appendError({ ...state, current_step: "finalize", post_specs: { ...postSpecs, pr } }, message, "upstream_failure"),
+    action: { kind: "emit_message", message, level: "warn" }
+  };
+}
+var PR_URL_FOOTER_RE = /^\s*PR_URL:\s*(\S+)\s*$/im;
+function parsePrCreationReport(rawText) {
+  const match = PR_URL_FOOTER_RE.exec(rawText);
+  return match?.[1] ?? null;
+}
+function processPrCreationResult(state, postSpecs, result) {
+  const response = result.responses.find((r) => r.invocation_id === PR_CREATION_INV_ID);
+  if (!response || response.error || !response.raw_text?.trim()) {
+    return degradeToFinalize(state, postSpecs, `pr_creation subagent failed: ${response?.error ?? "no response"}; degrading \u2014 proceeding to finalize without a PR`);
+  }
+  const url = parsePrCreationReport(response.raw_text);
+  if (!url) {
+    return degradeToFinalize(state, postSpecs, "pr_creation subagent report did not include a parsable PR_URL: footer; degrading \u2014 proceeding to finalize without a PR");
+  }
+  const pr = { pushed: true, url };
+  return {
+    state: {
+      ...state,
+      current_step: "finalize",
+      post_specs: { ...postSpecs, pr }
+    },
+    action: {
+      kind: "emit_message",
+      message: `Pull request opened: ${url}`
+    }
+  };
+}
+var handlePrCreation = ({ state, result }) => {
+  const postSpecs = ensurePostSpecs8(state);
+  if (result?.kind === "subagent_batch_result" && result.batch_id === PR_CREATION_BATCH_ID) {
+    return processPrCreationResult(state, postSpecs, result);
+  }
+  if (postSpecs.pr) {
+    return {
+      state: { ...state, current_step: "finalize", post_specs: postSpecs },
+      action: {
+        kind: "emit_message",
+        message: "PR outcome already recorded; proceeding to finalize."
+      }
+    };
+  }
+  return emitPrCreationSpawn(state, postSpecs);
 };
 
 // packages/orchestration/dist/handlers/finalize.js
@@ -34705,6 +34953,9 @@ function buildPostSpecsSummary(state) {
     if (ps.review.findings.length > 0) {
       lines.push(`  Findings: ${ps.review.findings.join("; ")}`);
     }
+  }
+  if (ps.pr) {
+    lines.push(ps.pr.pushed ? `PR: opened at ${ps.pr.url ?? "(unknown url)"}.` : "PR: not opened (declined at the gate, or push/gh pr create failed).");
   }
   return lines.join("\n");
 }
@@ -34788,6 +35039,8 @@ var HANDLERS = {
   post_impl_verification: handlePostImplVerification,
   testing: handleTesting,
   review: handleReview,
+  pr_gate: handlePrGate,
+  pr_creation: handlePrCreation,
   finalize: handleFinalize,
   complete: ({ state }) => ({
     state,
@@ -34995,7 +35248,7 @@ var InMemoryRunStore = class {
   }
 };
 
-// packages/orchestration/dist/canned-dispatcher.js
+// packages/orchestration/dist/canned-responses.js
 function defaultFakeSectionDraft(section_type) {
   const heading = `## ${section_type}`;
   switch (section_type) {
@@ -35071,6 +35324,16 @@ function fakeReviewReport(verdict) {
     "- Canned synthetic finding: address the gap and resubmit."
   ].join("\n");
 }
+function fakePrCreationReport(footerPresent) {
+  const lines = [
+    "Pushed the branch and opened a pull request, per protocol.",
+    "No merge, no --admin, no force-push."
+  ];
+  if (footerPresent) {
+    lines.push("", "PR_URL: https://github.com/example/canned/pull/1");
+  }
+  return lines.join("\n");
+}
 function fakeJudgeVerdict() {
   return JSON.stringify({
     verdict: "PASS",
@@ -35086,12 +35349,16 @@ function fakeClarificationQuestion() {
     rationale: "Canned placeholder."
   });
 }
+
+// packages/orchestration/dist/canned-dispatcher.js
 function makeCannedDispatcher(opts = {}) {
   const freeform_answer = opts.freeform_answer ?? "canned-answer";
   const graph_path = opts.graph_path ?? "/tmp/canned/graph";
   const fake_section_draft = opts.fake_section_draft ?? defaultFakeSectionDraft;
   const implementation_gate_answer = opts.implementation_gate_answer ?? "PRD only";
   const review_verdict_for_attempt = opts.review_verdict_for_attempt ?? (() => "pass");
+  const pr_gate_answer = opts.pr_gate_answer ?? "No";
+  const pr_creation_footer_present = opts.pr_creation_footer_present ?? true;
   function pickFakeAgentResponse(invocation_id) {
     if (invocation_id.startsWith(SELF_CHECK_JUDGE_INV_PREFIX)) {
       return fakeJudgeVerdict();
@@ -35119,6 +35386,9 @@ function makeCannedDispatcher(opts = {}) {
       const attempt = Number(invocation_id.slice(REVIEW_INV_PREFIX.length));
       return fakeReviewReport(review_verdict_for_attempt(attempt));
     }
+    if (invocation_id === PR_CREATION_INV_ID) {
+      return fakePrCreationReport(pr_creation_footer_present);
+    }
     return "Canned synthetic response.";
   }
   function craftUserAnswer(action) {
@@ -35134,6 +35404,13 @@ function makeCannedDispatcher(opts = {}) {
         kind: "user_answer",
         question_id: action.question_id,
         selected: [implementation_gate_answer]
+      };
+    }
+    if (action.question_id === PR_GATE_QUESTION_ID) {
+      return {
+        kind: "user_answer",
+        question_id: action.question_id,
+        selected: [pr_gate_answer]
       };
     }
     if (action.options && action.options.length > 0) {

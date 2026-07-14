@@ -234,7 +234,7 @@ describe("review — PASS direct", () => {
       },
     });
 
-    expect(out.state.current_step).toBe("finalize");
+    expect(out.state.current_step).toBe("pr_gate");
     expect(out.state.post_specs?.review).toEqual({ verdict: "pass", findings: [], attempt: 1 });
   });
 });
@@ -373,7 +373,7 @@ describe("review — FAIL retries implementation on the SAME worktree", () => {
         ],
       },
     });
-    expect(afterPass.state.current_step).toBe("finalize");
+    expect(afterPass.state.current_step).toBe("pr_gate");
     expect(afterPass.state.post_specs?.review?.verdict).toBe("pass");
     expect(afterPass.state.post_specs?.retry_count).toBe(1);
   });
@@ -405,7 +405,7 @@ describe("review — FAIL×(cap) degrades to advisory, reaches finalize (never a
     });
 
     // Cap exhausted: does NOT retry implementation again.
-    expect(out.state.current_step).toBe("finalize");
+    expect(out.state.current_step).toBe("pr_gate");
     expect(out.state.post_specs?.review?.verdict).toBe("fail");
     expect(out.state.post_specs?.review?.findings).toEqual(["still broken"]);
     // retry_count is NOT incremented past the cap on the advisory-degrade path.
@@ -428,7 +428,7 @@ describe("review — FAIL×(cap) degrades to advisory, reaches finalize (never a
       },
     });
 
-    expect(out.state.current_step).toBe("finalize");
+    expect(out.state.current_step).toBe("pr_gate");
     expect(out.state.post_specs?.review?.verdict).toBe("fail");
     expect(out.action.kind).not.toBe("failed");
   });
@@ -497,6 +497,6 @@ describe("review — idempotency", () => {
     const out = step({ state });
 
     expect(out.action.kind).not.toBe("spawn_subagents");
-    expect(out.state.current_step).toBe("finalize");
+    expect(out.state.current_step).toBe("pr_gate");
   });
 });

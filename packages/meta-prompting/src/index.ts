@@ -35,3 +35,8 @@ export {
   buildReviewPrompt,
   type ReviewPromptInput,
 } from "./review-prompts.js";
+
+export {
+  buildPrCreationPrompt,
+  type PrCreationPromptInput,
+} from "./pr-creation-prompts.js";
