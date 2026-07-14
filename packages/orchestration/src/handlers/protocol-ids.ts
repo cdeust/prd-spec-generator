@@ -101,3 +101,27 @@ export const POST_IMPL_CHECK_SECURITY_GATES_CORRELATION_ID =
  * invocation per batch.
  */
 export const IMPLEMENTATION_INV_ID = "implementation_engineer";
+
+/**
+ * testing.ts — single invocation AND batch_id for the `testing` step's
+ * test-engineer spawn (design-phases-3-5.md §3, PR 4b). Single-invocation
+ * batch, same naming convention as IMPLEMENTATION_INV_ID — runs exactly once
+ * per `testing` visit (no retry loop on this step; a test-engineer failure
+ * degrades to a finding surfaced at `review`, per design §4).
+ */
+export const TESTING_INV_ID = "testing_test_engineer";
+
+/**
+ * review.ts — invocation_id/batch_id producer for the `review` step's
+ * code-reviewer spawn (design-phases-3-5.md §3, PR 4b). Attempt-indexed
+ * (unlike TESTING_INV_ID/IMPLEMENTATION_INV_ID) because `review` is a
+ * bounded retry loop: each attempt gets its own invocation_id so a stale
+ * response from a prior attempt can never be mistaken for the current one
+ * (mirrors preImplGroundingImpactCorrelationId's index-parameterized
+ * producer — the handler and canned-dispatcher/tests share this exact
+ * format).
+ */
+export const REVIEW_INV_PREFIX = "review_code_reviewer_";
+export function reviewInvocationId(attempt: number): string {
+  return `${REVIEW_INV_PREFIX}${attempt}`;
+}

@@ -29495,15 +29495,36 @@ var PipelineStepSchema = external_exports.enum([
    * verification sequence (index_codebase(worktree) → detect_changes →
    * verify_semantic_diff → check_security_gates). Reached from
    * `implementation` once the engineer's report is parsed successfully.
+   * Always advances to `testing` (PR 4b) once the sequence settles —
+   * success and degrade both continue; there is nothing left to verify
+   * once all 4 calls have run or degraded.
    */
   "post_impl_verification",
   /**
+   * `testing` (PR 4b, design-phases-3-5.md §3): one `spawn_subagents`
+   * (purpose "test", subagent_type "test-engineer", isolation "none" — SAME
+   * branch/worktree `implementation` recorded, no second worktree). A
+   * test-engineer failure DEGRADES (surfaced to `review` as a finding, not
+   * an abort — design §4). Always advances to `review`.
+   */
+  "testing",
+  /**
+   * `review` (PR 4b, design-phases-3-5.md §3): one `spawn_subagents`
+   * (purpose "review", subagent_type "code-reviewer") fed the verification +
+   * testing verdicts. A parsed FAIL verdict retries `implementation` on the
+   * SAME worktree with the findings injected into the prompt, bounded by
+   * `REVIEW_RETRY_CAP` (review.ts). PASS, or cap exhaustion (degrade to
+   * advisory FAIL), advances to `finalize` — `pr_gate`/`pr_creation` are NOT
+   * yet in this enum (PR 5).
+   */
+  "review",
+  /**
    * Relocated Phase C (Cortex `remember` → `done`) — the only step that
    * advances `current_step` to `complete`. `implementation_gate`
-   * ("prd_only") and every failure/degrade path in `pre_impl_grounding` /
-   * `implementation` / `post_impl_verification` dead-end here (PR 4a: the
-   * `testing` / `review` / `pr_gate` / `pr_creation` steps named in the
-   * design doc are NOT yet in this enum — they land in PRs 4b/5).
+   * ("prd_only") and every failure/degrade/terminal path in
+   * `pre_impl_grounding` / `implementation` / `post_impl_verification` /
+   * `testing` / `review` dead-ends here (PR 4b: `pr_gate` / `pr_creation`
+   * named in the design doc are NOT yet in this enum — they land in PR 5).
    */
   "finalize",
   "complete"
@@ -30448,9 +30469,12 @@ var SpawnSubagentsActionSchema = external_exports.object({
    * "implement" added additively (design-phases-3-5.md §3, PR 4a) for the
    * `implementation` step's engineer spawn — no existing purpose value was
    * removed or repurposed, so every prior batch's observability label is
-   * unaffected.
+   * unaffected. "test" added additively (design-phases-3-5.md §3, PR 4b) for
+   * the `testing` step's test-engineer spawn — "review" already existed
+   * (unused until PR 4b's `review` step wires it) so no addition was needed
+   * there.
    */
-  purpose: external_exports.enum(["judge", "draft", "review", "implement"])
+  purpose: external_exports.enum(["judge", "draft", "review", "implement", "test"])
 });
 var WriteFileActionSchema = external_exports.object({
   kind: external_exports.literal("write_file"),
@@ -31624,6 +31648,28 @@ ${input.grounding_summary}
 }
 
 // packages/meta-prompting/dist/implementation-prompts.js
+function worktreeProtocolBlock(input) {
+  const isRetry = Boolean(input.review_findings?.length && input.existing_worktree_path && input.existing_branch);
+  if (isRetry) {
+    return [
+      `<worktree_protocol>`,
+      `Continue on your EXISTING worktree at ${input.existing_worktree_path}`,
+      `(branch ${input.existing_branch}) \u2014 do NOT create a new worktree.`,
+      `Commit the fixes with conventional commit messages. Do NOT push \u2014`,
+      `a later human-gated stage handles that. Stage only the files you`,
+      `modified.`,
+      `</worktree_protocol>`
+    ].join("\n");
+  }
+  return [
+    `<worktree_protocol>`,
+    `Create your own git worktree and branch for this change (do not work`,
+    `directly on the checked-out branch). Commit with conventional commit`,
+    `messages. Do NOT push \u2014 a later human-gated stage handles that. Stage`,
+    `only the files you modified.`,
+    `</worktree_protocol>`
+  ].join("\n");
+}
 function buildImplementationPrompt(input) {
   const specFilesBlock = input.spec_files.length > 0 ? input.spec_files.map((p) => `- ${p}`).join("\n") : "(no spec files were exported for this run)";
   return [
@@ -31645,12 +31691,15 @@ ${input.blast_radius_summary}
 ${input.git_history_summary}
 </git_history>
 ` : "",
-    `<worktree_protocol>`,
-    `Create your own git worktree and branch for this change (do not work`,
-    `directly on the checked-out branch). Commit with conventional commit`,
-    `messages. Do NOT push \u2014 a later human-gated stage handles that. Stage`,
-    `only the files you modified.`,
-    `</worktree_protocol>`,
+    input.review_findings && input.review_findings.length > 0 ? [
+      `<review_findings>`,
+      `This is a RETRY after a failed review. Fix EVERY finding below on`,
+      `the SAME worktree/branch before reporting again:`,
+      ...input.review_findings.map((f) => `- ${f}`),
+      `</review_findings>`,
+      ""
+    ].join("\n") : "",
+    worktreeProtocolBlock(input),
     "",
     `<task>`,
     `Implement the change specified in <spec_files>, grounded by`,
@@ -31675,6 +31724,108 @@ ${input.git_history_summary}
   ].filter((line) => line !== "").join("\n");
 }
 
+// packages/meta-prompting/dist/testing-prompts.js
+function buildTestingPrompt(input) {
+  const specFilesBlock = input.spec_files.length > 0 ? input.spec_files.map((p) => `- ${p}`).join("\n") : "(no spec files were exported for this run)";
+  return [
+    `<role>You are a test engineer. Write and run tests for the change described below, against the code already implemented on the given worktree/branch.</role>`,
+    "",
+    `<worktree_path>${input.worktree_path}</worktree_path>`,
+    `<branch>${input.branch}</branch>`,
+    "",
+    `<feature>${input.feature_description}</feature>`,
+    "",
+    `<spec_files>`,
+    specFilesBlock,
+    `</spec_files>`,
+    "",
+    `<implementation_report>`,
+    input.implementation_summary || "(no implementation summary available)",
+    `</implementation_report>`,
+    "",
+    input.verification_summary ? `<post_impl_verification>
+${input.verification_summary}
+</post_impl_verification>
+` : "",
+    `<worktree_protocol>`,
+    `Change into <worktree_path> \u2014 it already has <branch> checked out with the`,
+    `implementation committed. Do NOT create a new worktree. Add/update tests`,
+    `covering the change, run the project's test suite, and commit any test`,
+    `files you add with conventional commit messages. Do NOT push.`,
+    `</worktree_protocol>`,
+    "",
+    `<task>`,
+    `Verify the implementation in <implementation_report> against`,
+    `<spec_files>, grounded by <post_impl_verification> when present. Follow`,
+    `<worktree_protocol> exactly.`,
+    `</task>`,
+    "",
+    `<report_format>`,
+    `End your response with a prose summary covering: what tests you`,
+    `added/ran, whether they pass, and any failures or gaps found. This is`,
+    `read by a code reviewer next \u2014 be specific about pass/fail state.`,
+    `</report_format>`
+  ].filter((line) => line !== "").join("\n");
+}
+
+// packages/meta-prompting/dist/review-prompts.js
+function buildReviewPrompt(input) {
+  const specFilesBlock = input.spec_files.length > 0 ? input.spec_files.map((p) => `- ${p}`).join("\n") : "(no spec files were exported for this run)";
+  const priorFindingsBlock = input.prior_findings && input.prior_findings.length > 0 ? `<prior_findings>
+This is a RE-review after a fix attempt. The previous review raised:
+${input.prior_findings.map((f) => `- ${f}`).join("\n")}
+</prior_findings>
+` : "";
+  return [
+    `<role>You are a code reviewer. Evaluate the implementation below against the spec, the automated verification gates, and the test report, then render a PASS/FAIL verdict.</role>`,
+    "",
+    `<worktree_path>${input.worktree_path}</worktree_path>`,
+    `<branch>${input.branch}</branch>`,
+    "",
+    `<feature>${input.feature_description}</feature>`,
+    "",
+    `<spec_files>`,
+    specFilesBlock,
+    `</spec_files>`,
+    "",
+    `<implementation_report>`,
+    input.implementation_summary || "(no implementation summary available)",
+    `</implementation_report>`,
+    "",
+    `<post_impl_verification>`,
+    input.verification_summary || "(no post-implementation verification available)",
+    `</post_impl_verification>`,
+    "",
+    `<testing_report>`,
+    input.testing_summary || "(no testing report available)",
+    `</testing_report>`,
+    "",
+    priorFindingsBlock,
+    `<task>`,
+    `Review the change on <worktree_path>/<branch> against <spec_files>,`,
+    `<implementation_report>, <post_impl_verification>, and`,
+    `<testing_report>. Render FAIL if the implementation deviates from the`,
+    `spec, the verification gates did not pass, the tests are missing or`,
+    `failing, or any prior finding was not addressed.`,
+    `</task>`,
+    "",
+    `<report_format>`,
+    `End your final response with a short prose rationale, followed by`,
+    `EXACTLY this footer, each field on its own line, values filled in (no`,
+    `placeholders, no surrounding markdown/code fences):`,
+    "",
+    `VERDICT: PASS or FAIL (exactly one of these two words)`,
+    `FINDINGS:`,
+    `- <one specific, actionable finding per line>`,
+    "",
+    `Omit the FINDINGS: block entirely on a PASS verdict with no concerns.`,
+    `On FAIL, FINDINGS: is mandatory \u2014 at least one specific, actionable`,
+    `line the engineer can act on. VERDICT is mandatory \u2014 the caller cannot`,
+    `proceed without it.`,
+    `</report_format>`
+  ].filter((line) => line !== "").join("\n");
+}
+
 // packages/orchestration/dist/handlers/protocol-ids.js
 var QUESTION_ID_CONTINUE = "clarification_continue";
 var CLARIFICATION_COMPOSE_INV_PREFIX = "clarification_compose_inv_";
@@ -31695,6 +31846,11 @@ var POST_IMPL_DETECT_CHANGES_CORRELATION_ID = "post_impl_verification_detect_cha
 var POST_IMPL_VERIFY_SEMANTIC_DIFF_CORRELATION_ID = "post_impl_verification_verify_semantic_diff";
 var POST_IMPL_CHECK_SECURITY_GATES_CORRELATION_ID = "post_impl_verification_check_security_gates";
 var IMPLEMENTATION_INV_ID = "implementation_engineer";
+var TESTING_INV_ID = "testing_test_engineer";
+var REVIEW_INV_PREFIX = "review_code_reviewer_";
+function reviewInvocationId(attempt) {
+  return `${REVIEW_INV_PREFIX}${attempt}`;
+}
 
 // packages/orchestration/dist/handlers/input-analysis/git-history.js
 var GIT_HISTORY_BATCH_ID = GIT_HISTORY_INV_ID;
@@ -33968,7 +34124,12 @@ function parseImplementationReport(rawText) {
     changed_files
   };
 }
+function isPendingRetry(postSpecs) {
+  return postSpecs.review?.verdict === "fail";
+}
 function emitImplementationSpawn(state, postSpecs) {
+  const pendingRetry = isPendingRetry(postSpecs);
+  const priorImplementation = pendingRetry ? postSpecs.implementation : null;
   return {
     state: { ...state, post_specs: postSpecs },
     action: {
@@ -33979,13 +34140,16 @@ function emitImplementationSpawn(state, postSpecs) {
         {
           invocation_id: IMPLEMENTATION_INV_ID,
           subagent_type: "engineer",
-          description: "Implement the validated PRD/specs",
+          description: pendingRetry ? "Fix the validated PRD/specs implementation per review findings" : "Implement the validated PRD/specs",
           prompt: buildImplementationPrompt({
             feature_description: state.feature_description,
             codebase_path: state.codebase_path ?? "",
             spec_files: state.written_files,
             blast_radius_summary: summarizeBlastRadius(postSpecs),
-            git_history_summary: state.git_history_summary ?? void 0
+            git_history_summary: state.git_history_summary ?? void 0,
+            review_findings: pendingRetry ? postSpecs.review?.findings : void 0,
+            existing_worktree_path: priorImplementation?.worktree_path ?? void 0,
+            existing_branch: priorImplementation?.branch
           }),
           isolation: "worktree"
         }
@@ -34018,7 +34182,12 @@ function processImplementationResult(state, postSpecs, result) {
     state: {
       ...state,
       current_step: "post_impl_verification",
-      post_specs: { ...postSpecs, implementation }
+      // review reset to null: clears the pending-retry signal
+      // (isPendingRetry) this attempt was answering — the loop-guard
+      // termination proof documented in this file's module doc. Without
+      // this reset, review.verdict would still read "fail" on every future
+      // replay of "implementation", re-spawning the engineer forever.
+      post_specs: { ...postSpecs, implementation, review: null }
     },
     action: {
       kind: "emit_message",
@@ -34031,7 +34200,7 @@ var handleImplementation = ({ state, result }) => {
   if (result?.kind === "subagent_batch_result" && result.batch_id === IMPLEMENTATION_BATCH_ID) {
     return processImplementationResult(state, postSpecs, result);
   }
-  if (postSpecs.implementation) {
+  if (postSpecs.implementation && !isPendingRetry(postSpecs)) {
     return {
       state: {
         ...state,
@@ -34074,11 +34243,11 @@ function extractGatesPassed(data) {
 function asRecord(data) {
   return data ?? {};
 }
-function advanceToFinalize(state, postSpecs, verification, message) {
+function advanceToTesting(state, postSpecs, verification, message) {
   return {
     state: {
       ...state,
-      current_step: "finalize",
+      current_step: "testing",
       post_specs: { ...postSpecs, verification: { ...verification, step: "done" } }
     },
     action: { kind: "emit_message", message, level: "info" }
@@ -34096,7 +34265,7 @@ function deriveVerificationOutputDir(worktree, runId) {
 function processIndexCodebaseResult(state, postSpecs, verification, result) {
   if (!result.success) {
     const nextState = appendError(state, `index_codebase (post-impl) failed: ${result.error ?? "unknown"}; skipping post-impl verification`, "upstream_failure");
-    return advanceToFinalize(nextState, postSpecs, { ...verification, after_graph_path: null, gates_passed: false }, "Post-implementation verification degraded: could not index the implementation worktree.");
+    return advanceToTesting(nextState, postSpecs, { ...verification, after_graph_path: null, gates_passed: false }, "Post-implementation verification degraded: could not index the implementation worktree.");
   }
   const afterGraphPath = asRecord(result.data).graph_path;
   const nextVerification = {
@@ -34154,7 +34323,7 @@ function processCheckSecurityGatesResult(state, postSpecs, verification, result)
     check_security_gates: securityGatesData,
     gates_passed: gatesPassed
   };
-  return advanceToFinalize(nextState, postSpecs, nextVerification, `Post-implementation verification complete: gates_passed=${gatesPassed}.`);
+  return advanceToTesting(nextState, postSpecs, nextVerification, `Post-implementation verification complete: gates_passed=${gatesPassed}.`);
 }
 function processResult(state, postSpecs, verification, result) {
   if (verification.step === "index_codebase" && result.correlation_id === POST_IMPL_INDEX_CODEBASE_CORRELATION_ID) {
@@ -34242,7 +34411,7 @@ function emitCallForStep(state, postSpecs, verification, worktree, beforeGraphPa
     case "check_security_gates":
       return emitCheckSecurityGatesCall(state, postSpecs, verification);
     case "done":
-      return advanceToFinalize(state, postSpecs, verification, `Post-implementation verification complete: gates_passed=${verification.gates_passed}.`);
+      return advanceToTesting(state, postSpecs, verification, `Post-implementation verification complete: gates_passed=${verification.gates_passed}.`);
   }
 }
 var handlePostImplVerification = ({ state, result }) => {
@@ -34256,9 +34425,254 @@ var handlePostImplVerification = ({ state, result }) => {
       return processed;
   }
   if (!beforeGraphPath || !worktree) {
-    return advanceToFinalize(state, postSpecs, verification, "No implementation worktree available; skipping post-implementation verification.");
+    return advanceToTesting(state, postSpecs, verification, "No implementation worktree available; skipping post-implementation verification.");
   }
   return emitCallForStep(state, postSpecs, verification, worktree, beforeGraphPath);
+};
+
+// packages/orchestration/dist/handlers/testing.js
+var TESTING_BATCH_ID = TESTING_INV_ID;
+function ensurePostSpecs5(state) {
+  return state.post_specs ?? initialPostSpecs();
+}
+var RAW_REPORT_TRUNCATE_CHARS2 = 4e3;
+var RAW_REPORT_TRUNCATION_MARKER2 = "...";
+function truncateRawReport2(text) {
+  return text.length > RAW_REPORT_TRUNCATE_CHARS2 ? text.slice(0, RAW_REPORT_TRUNCATE_CHARS2) + RAW_REPORT_TRUNCATION_MARKER2 : text;
+}
+function summarizeVerification(postSpecs) {
+  const v = postSpecs.verification;
+  if (!v)
+    return "";
+  const lines = [`gates_passed: ${v.gates_passed}`];
+  if (v.changed_symbols.length > 0) {
+    lines.push(`changed symbols: ${v.changed_symbols.join(", ")}`);
+  }
+  return lines.join("\n");
+}
+function emitTestingSpawn(state, postSpecs) {
+  const worktree = postSpecs.implementation?.worktree_path ?? "";
+  const branch = postSpecs.implementation?.branch ?? "";
+  return {
+    state: { ...state, post_specs: postSpecs },
+    action: {
+      kind: "spawn_subagents",
+      purpose: "test",
+      batch_id: TESTING_BATCH_ID,
+      invocations: [
+        {
+          invocation_id: TESTING_INV_ID,
+          subagent_type: "test-engineer",
+          description: "Write and run tests for the implemented change",
+          prompt: buildTestingPrompt({
+            feature_description: state.feature_description,
+            worktree_path: worktree,
+            branch,
+            spec_files: state.written_files,
+            implementation_summary: postSpecs.implementation?.raw_report ?? "",
+            verification_summary: summarizeVerification(postSpecs)
+          }),
+          isolation: "none"
+        }
+      ]
+    }
+  };
+}
+function advanceToReview(state, postSpecs, testing, message, level = "info") {
+  return {
+    state: {
+      ...state,
+      current_step: "review",
+      post_specs: { ...postSpecs, testing }
+    },
+    action: { kind: "emit_message", message, level }
+  };
+}
+function processTestingResult(state, postSpecs, result) {
+  const response = result.responses.find((r) => r.invocation_id === TESTING_INV_ID);
+  if (!response || response.error || !response.raw_text?.trim()) {
+    const nextState = appendError(state, `testing subagent failed: ${response?.error ?? "no response"}; degrading \u2014 surfaced to review as a finding`, "upstream_failure");
+    const testing2 = {
+      raw_report: `[TEST-ENGINEER FAILURE] ${response?.error ?? "no response"}`
+    };
+    return advanceToReview(nextState, postSpecs, testing2, "Testing subagent failed; proceeding to review with a degraded testing report.", "warn");
+  }
+  const testing = {
+    raw_report: truncateRawReport2(response.raw_text.trim())
+  };
+  return advanceToReview(state, postSpecs, testing, "Testing complete; proceeding to review.");
+}
+var handleTesting = ({ state, result }) => {
+  const postSpecs = ensurePostSpecs5(state);
+  if (result?.kind === "subagent_batch_result" && result.batch_id === TESTING_BATCH_ID) {
+    return processTestingResult(state, postSpecs, result);
+  }
+  if (postSpecs.testing) {
+    return {
+      state: { ...state, current_step: "review", post_specs: postSpecs },
+      action: {
+        kind: "emit_message",
+        message: "Testing already recorded; proceeding to review."
+      }
+    };
+  }
+  return emitTestingSpawn(state, postSpecs);
+};
+
+// packages/orchestration/dist/handlers/review.js
+var REVIEW_RETRY_CAP = 3;
+function ensurePostSpecs6(state) {
+  return state.post_specs ?? initialPostSpecs();
+}
+function currentAttempt(postSpecs) {
+  return postSpecs.retry_count + 1;
+}
+function summarizeVerification2(postSpecs) {
+  const v = postSpecs.verification;
+  if (!v)
+    return "";
+  const lines = [`gates_passed: ${v.gates_passed}`];
+  if (v.changed_symbols.length > 0) {
+    lines.push(`changed symbols: ${v.changed_symbols.join(", ")}`);
+  }
+  return lines.join("\n");
+}
+function emitReviewSpawn(state, postSpecs) {
+  const attempt = currentAttempt(postSpecs);
+  const worktree = postSpecs.implementation?.worktree_path ?? "";
+  const branch = postSpecs.implementation?.branch ?? "";
+  const invocationId = reviewInvocationId(attempt);
+  return {
+    state: { ...state, post_specs: postSpecs },
+    action: {
+      kind: "spawn_subagents",
+      purpose: "review",
+      batch_id: invocationId,
+      invocations: [
+        {
+          invocation_id: invocationId,
+          subagent_type: "code-reviewer",
+          description: `Review the implementation (attempt ${attempt}/${REVIEW_RETRY_CAP})`,
+          prompt: buildReviewPrompt({
+            feature_description: state.feature_description,
+            worktree_path: worktree,
+            branch,
+            spec_files: state.written_files,
+            implementation_summary: postSpecs.implementation?.raw_report ?? "",
+            verification_summary: summarizeVerification2(postSpecs),
+            testing_summary: postSpecs.testing?.raw_report ?? "",
+            prior_findings: postSpecs.review?.findings
+          }),
+          isolation: "none"
+        }
+      ]
+    }
+  };
+}
+function advanceToFinalize(state, postSpecs, review, message, level = "info") {
+  return {
+    state: {
+      ...state,
+      current_step: "finalize",
+      post_specs: { ...postSpecs, review }
+    },
+    action: { kind: "emit_message", message, level }
+  };
+}
+function retryImplementation(state, postSpecs, nextRetryCount, findings, message) {
+  return {
+    state: {
+      ...state,
+      current_step: "implementation",
+      post_specs: {
+        ...postSpecs,
+        retry_count: nextRetryCount,
+        review: { verdict: "fail", findings: [...findings], attempt: nextRetryCount },
+        // The fix invalidates both — they measured the REJECTED code.
+        verification: null,
+        testing: null
+      }
+    },
+    action: { kind: "emit_message", message, level: "warn" }
+  };
+}
+function retryReviewer(state, postSpecs, nextRetryCount, message) {
+  return {
+    state: {
+      ...state,
+      current_step: "review",
+      post_specs: { ...postSpecs, retry_count: nextRetryCount }
+    },
+    action: { kind: "emit_message", message, level: "warn" }
+  };
+}
+function handleReviewOutcomeFailure(state, postSpecs, message, mode2, findings) {
+  const nextState = appendError(state, message, "upstream_failure");
+  const nextRetryCount = postSpecs.retry_count + 1;
+  if (postSpecs.retry_count < REVIEW_RETRY_CAP) {
+    if (mode2 === "retry_implementation") {
+      return retryImplementation(nextState, postSpecs, nextRetryCount, findings, `Review FAIL (attempt ${nextRetryCount}/${REVIEW_RETRY_CAP}): retrying implementation with findings.`);
+    }
+    return retryReviewer(nextState, postSpecs, nextRetryCount, `Review attempt ${postSpecs.retry_count + 1} failed to produce a verdict (${message}); retrying review (attempt ${nextRetryCount}/${REVIEW_RETRY_CAP}).`);
+  }
+  const advisoryFindings = mode2 === "retry_implementation" ? findings : [`Review cap exhausted: ${message}`];
+  return advanceToFinalize(nextState, postSpecs, { verdict: "fail", findings: [...advisoryFindings], attempt: currentAttempt(postSpecs) }, `Review retry cap (${REVIEW_RETRY_CAP}) exhausted; degrading to advisory FAIL, proceeding to finalize.`, "warn");
+}
+var VERDICT_FOOTER_RE = /^\s*VERDICT:\s*(PASS|FAIL)\s*$/im;
+var FINDINGS_HEADER_RE = /^\s*FINDINGS:\s*$/im;
+var FINDING_BULLET_RE = /^-\s+(\S.*)$/;
+function parseReviewReport(rawText) {
+  const verdictMatch = VERDICT_FOOTER_RE.exec(rawText);
+  if (!verdictMatch?.[1])
+    return null;
+  const findings = [];
+  const findingsHeaderMatch = FINDINGS_HEADER_RE.exec(rawText);
+  if (findingsHeaderMatch) {
+    const afterHeaderStart = findingsHeaderMatch.index + findingsHeaderMatch[0].length;
+    const body = rawText.slice(afterHeaderStart).split("\n");
+    for (const line of body) {
+      if (line.trim() === "")
+        continue;
+      const bulletMatch = FINDING_BULLET_RE.exec(line);
+      if (!bulletMatch)
+        break;
+      findings.push(bulletMatch[1].trim());
+    }
+  }
+  return { verdict: verdictMatch[1].toLowerCase(), findings };
+}
+function processReviewResult(state, postSpecs, result) {
+  const attempt = currentAttempt(postSpecs);
+  const invocationId = reviewInvocationId(attempt);
+  const response = result.responses.find((r) => r.invocation_id === invocationId);
+  if (!response || response.error || !response.raw_text?.trim()) {
+    return handleReviewOutcomeFailure(state, postSpecs, `reviewer subagent failed: ${response?.error ?? "no response"}`, "retry_reviewer", []);
+  }
+  const parsed = parseReviewReport(response.raw_text);
+  if (!parsed) {
+    return handleReviewOutcomeFailure(state, postSpecs, "reviewer report did not include a parsable VERDICT: footer", "retry_reviewer", []);
+  }
+  if (parsed.verdict === "pass") {
+    return advanceToFinalize(state, postSpecs, { verdict: "pass", findings: [], attempt }, "Review PASSED; proceeding to finalize.");
+  }
+  return handleReviewOutcomeFailure(state, postSpecs, `review FAILED: ${parsed.findings.join("; ") || "no findings given"}`, "retry_implementation", parsed.findings);
+}
+var handleReview = ({ state, result }) => {
+  const postSpecs = ensurePostSpecs6(state);
+  const expectedBatchId = reviewInvocationId(currentAttempt(postSpecs));
+  if (result?.kind === "subagent_batch_result" && result.batch_id === expectedBatchId) {
+    return processReviewResult(state, postSpecs, result);
+  }
+  if (postSpecs.review?.verdict === "pass") {
+    return {
+      state: { ...state, current_step: "finalize", post_specs: postSpecs },
+      action: {
+        kind: "emit_message",
+        message: "Review already passed; proceeding to finalize."
+      }
+    };
+  }
+  return emitReviewSpawn(state, postSpecs);
 };
 
 // packages/orchestration/dist/handlers/finalize.js
@@ -34275,6 +34689,21 @@ function buildPostSpecsSummary(state) {
     lines.push(`Pre-implementation grounding: ${ps.impact_queries.results.length} symbol(s) queried (${ok} succeeded).`);
     for (const r of ps.impact_queries.results) {
       lines.push(`  - ${r.qualified_name}: ${r.success ? "ok" : `failed (${r.error ?? "unknown"})`}`);
+    }
+  }
+  if (ps.implementation) {
+    lines.push(`Implementation: branch '${ps.implementation.branch}' at ${ps.implementation.worktree_path ?? "(unknown worktree)"} (${ps.implementation.changed_files.length} file(s) changed).`);
+  }
+  if (ps.verification) {
+    lines.push(`Post-implementation verification: gates_passed=${ps.verification.gates_passed}.`);
+  }
+  if (ps.testing) {
+    lines.push(`Testing: report recorded (${ps.testing.raw_report.length} char(s)).`);
+  }
+  if (ps.review) {
+    lines.push(`Review: verdict=${ps.review.verdict} (attempt ${ps.review.attempt}, ${ps.retry_count} retry/retries used).`);
+    if (ps.review.findings.length > 0) {
+      lines.push(`  Findings: ${ps.review.findings.join("; ")}`);
     }
   }
   return lines.join("\n");
@@ -34357,6 +34786,8 @@ var HANDLERS = {
   pre_impl_grounding: handlePreImplGrounding,
   implementation: handleImplementation,
   post_impl_verification: handlePostImplVerification,
+  testing: handleTesting,
+  review: handleReview,
   finalize: handleFinalize,
   complete: ({ state }) => ({
     state,
@@ -34616,6 +35047,30 @@ function fakeImplementationReport() {
     "- src/example.ts"
   ].join("\n");
 }
+function fakeTestingReport() {
+  return [
+    "Added unit tests for the change and ran the project's test suite on",
+    "the implementation worktree. All tests pass; no regressions found."
+  ].join(" ");
+}
+function fakeReviewReport(verdict) {
+  if (verdict === "pass") {
+    return [
+      "The implementation matches the spec, verification gates passed, and",
+      "the test report shows a clean run.",
+      "",
+      "VERDICT: PASS"
+    ].join("\n");
+  }
+  return [
+    "The implementation has a gap relative to the spec that must be fixed",
+    "before this can ship.",
+    "",
+    "VERDICT: FAIL",
+    "FINDINGS:",
+    "- Canned synthetic finding: address the gap and resubmit."
+  ].join("\n");
+}
 function fakeJudgeVerdict() {
   return JSON.stringify({
     verdict: "PASS",
@@ -34636,6 +35091,7 @@ function makeCannedDispatcher(opts = {}) {
   const graph_path = opts.graph_path ?? "/tmp/canned/graph";
   const fake_section_draft = opts.fake_section_draft ?? defaultFakeSectionDraft;
   const implementation_gate_answer = opts.implementation_gate_answer ?? "PRD only";
+  const review_verdict_for_attempt = opts.review_verdict_for_attempt ?? (() => "pass");
   function pickFakeAgentResponse(invocation_id) {
     if (invocation_id.startsWith(SELF_CHECK_JUDGE_INV_PREFIX)) {
       return fakeJudgeVerdict();
@@ -34655,6 +35111,13 @@ function makeCannedDispatcher(opts = {}) {
     }
     if (invocation_id === IMPLEMENTATION_INV_ID) {
       return fakeImplementationReport();
+    }
+    if (invocation_id === TESTING_INV_ID) {
+      return fakeTestingReport();
+    }
+    if (invocation_id.startsWith(REVIEW_INV_PREFIX)) {
+      const attempt = Number(invocation_id.slice(REVIEW_INV_PREFIX.length));
+      return fakeReviewReport(review_verdict_for_attempt(attempt));
     }
     return "Canned synthetic response.";
   }

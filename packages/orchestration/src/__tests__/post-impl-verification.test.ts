@@ -1,10 +1,11 @@
 /**
  * `post_impl_verification` — POST-implementation verification sequence
- * (design-phases-3-5.md §1, §3, §4, §5, PR 3c wiring, PR 4a reachability).
+ * (design-phases-3-5.md §1, §3, §4, §5, PR 3c wiring, PR 4a reachability,
+ * PR 4b re-target to `testing`).
  *
  * Proves:
  *   1. No `codebase_graph_path` or no `implementation.worktree_path` → skips
- *      cleanly, advances to `finalize` (no call_pipeline_tool).
+ *      cleanly, advances to `testing` (no call_pipeline_tool).
  *   2. Nominal sequence: exactly 4 call_pipeline_tool round trips, in order
  *      (index_codebase → detect_changes → verify_semantic_diff →
  *      check_security_gates), each with the exact argument shape the AP tool
@@ -16,14 +17,16 @@
  *      `verification.gates_passed`.
  *   5. A failure at each of the 4 calls DEGRADES: gates_passed stays
  *      fail-closed (false), an upstream_failure error is appended, and the
- *      run still reaches `finalize` (index_codebase failure short-circuits
+ *      run still reaches `testing` (index_codebase failure short-circuits
  *      calls 2-4; the other 3 failures degrade in place and continue the
- *      sequence).
+ *      sequence) — PR 4b: `testing`/`review` always run regardless of
+ *      `gates_passed`.
  *   6. This handler is registered AND (as of PR 4a) reachable via a full
  *      smoke run: `implementation_gate` → `pre_impl_grounding` →
- *      `implementation` → `post_impl_verification` → `finalize`. A full
- *      smoke run through the "Implement" branch with a nominal engineer
- *      report DOES emit index_codebase/detect_changes/verify_semantic_diff/
+ *      `implementation` → `post_impl_verification` → `testing` → `review` →
+ *      `finalize`. A full smoke run through the "Implement" branch with a
+ *      nominal engineer report DOES emit
+ *      index_codebase/detect_changes/verify_semantic_diff/
  *      check_security_gates and DOES set current_step to
  *      "post_impl_verification" along the way.
  *
@@ -88,12 +91,12 @@ function stateAtVerification(opts: {
 }
 
 describe("post_impl_verification — clean skip conditions", () => {
-  it("no codebase_graph_path → skips to finalize without a call_pipeline_tool", () => {
+  it("no codebase_graph_path → skips to testing without a call_pipeline_tool", () => {
     const out = step({
       state: stateAtVerification({ graphPath: null, worktreePath: "/tmp/worktree" }),
     });
     expect(out.action.kind).not.toBe("call_pipeline_tool");
-    expect(out.state.current_step).toBe("finalize");
+    expect(out.state.current_step).toBe("testing");
     expect(out.state.post_specs?.verification?.step).toBe("done");
   });
 
@@ -102,12 +105,12 @@ describe("post_impl_verification — clean skip conditions", () => {
       state: stateAtVerification({ graphPath: "/g/before", worktreePath: null }),
     });
     expect(out.action.kind).not.toBe("call_pipeline_tool");
-    expect(out.state.current_step).toBe("finalize");
+    expect(out.state.current_step).toBe("testing");
   });
 });
 
 describe("post_impl_verification — nominal 4-call sequence", () => {
-  it("emits index_codebase → detect_changes → verify_semantic_diff → check_security_gates, in order, then finalize", () => {
+  it("emits index_codebase → detect_changes → verify_semantic_diff → check_security_gates, in order, then testing", () => {
     let state = stateAtVerification({
       graphPath: "/g/before",
       worktreePath: "/tmp/wt",
@@ -212,7 +215,7 @@ describe("post_impl_verification — nominal 4-call sequence", () => {
       },
     });
 
-    expect(finalOut.state.current_step).toBe("finalize");
+    expect(finalOut.state.current_step).toBe("testing");
     expect(finalOut.state.post_specs?.verification?.step).toBe("done");
     expect(finalOut.state.post_specs?.verification?.gates_passed).toBe(true);
     expect(finalOut.state.post_specs?.verification?.check_security_gates).toEqual({
@@ -224,7 +227,7 @@ describe("post_impl_verification — nominal 4-call sequence", () => {
 });
 
 describe("post_impl_verification — failure policy per call (degrade, fail-closed)", () => {
-  it("index_codebase failure short-circuits calls 2-4, degrades to finalize, gates_passed stays false", () => {
+  it("index_codebase failure short-circuits calls 2-4, degrades to testing, gates_passed stays false", () => {
     const seed = stateAtVerification({ graphPath: "/g/before", worktreePath: "/tmp/wt" });
     const issued = step({ state: seed });
     if (issued.action.kind !== "call_pipeline_tool") throw new Error("expected call");
@@ -240,7 +243,7 @@ describe("post_impl_verification — failure policy per call (degrade, fail-clos
       },
     });
 
-    expect(out.state.current_step).toBe("finalize");
+    expect(out.state.current_step).toBe("testing");
     expect(out.state.post_specs?.verification?.step).toBe("done");
     expect(out.state.post_specs?.verification?.gates_passed).toBe(false);
     expect(out.state.post_specs?.verification?.after_graph_path).toBeNull();
@@ -317,7 +320,7 @@ describe("post_impl_verification — failure policy per call (degrade, fail-clos
     expect(out.action.tool_name).toBe("check_security_gates");
   });
 
-  it("check_security_gates failure degrades: gates_passed stays false (fail-closed), reaches finalize", () => {
+  it("check_security_gates failure degrades: gates_passed stays false (fail-closed), reaches testing", () => {
     let state = stateAtVerification({ graphPath: "/g/before", worktreePath: "/tmp/wt" });
     state = step({
       state: step({ state }).state,
@@ -345,7 +348,7 @@ describe("post_impl_verification — failure policy per call (degrade, fail-clos
       },
     });
 
-    expect(out.state.current_step).toBe("finalize");
+    expect(out.state.current_step).toBe("testing");
     expect(out.state.post_specs?.verification?.step).toBe("done");
     expect(out.state.post_specs?.verification?.gates_passed).toBe(false);
     expect(out.state.errors.some((e) => e.includes("check_security_gates failed"))).toBe(true);

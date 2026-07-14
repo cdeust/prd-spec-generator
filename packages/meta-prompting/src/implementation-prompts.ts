@@ -1,5 +1,6 @@
 /**
- * Implementation-stage prompt (design-phases-3-5.md §3, PR 4a).
+ * Implementation-stage prompt (design-phases-3-5.md §3, PR 4a; retry mode
+ * PR 4b).
  *
  * Composes a self-contained prompt for the `engineer` subagent, invoked once
  * per run (orchestration handlers/implementation.ts) to implement the
@@ -12,6 +13,14 @@
  * contract are owned by this PR, which is why a strict machine-readable
  * footer is a reasonable ask of a prose-reporting subagent rather than a
  * fragile inference over free text.
+ *
+ * Retry mode (PR 4b, design-phases-3-5.md §3 "review loop retries re-spawn
+ * the engineer on the SAME worktree"): when `review_findings` is non-empty,
+ * the `<worktree_protocol>` block switches from "create a new worktree" to
+ * "continue on the existing worktree/branch" — `existing_worktree_path` /
+ * `existing_branch` (orchestration handlers/review.ts reads them off
+ * `post_specs.implementation`, still on file from the attempt being
+ * retried) make that instruction concrete rather than a bare admonition.
  */
 
 export interface ImplementationPromptInput {
@@ -30,6 +39,46 @@ export interface ImplementationPromptInput {
    * one was gathered for this run. Empty/omitted when unavailable.
    */
   readonly git_history_summary?: string;
+  /**
+   * `review` step's FAIL findings (design-phases-3-5.md §3, PR 4b), present
+   * only when this invocation is a bounded retry after a failed review —
+   * see orchestration/handlers/review.ts. Empty/omitted on the first
+   * (non-retry) implementation attempt.
+   */
+  readonly review_findings?: readonly string[];
+  /**
+   * The worktree path / branch from the PRIOR implementation attempt being
+   * retried. Required (together with `review_findings`) to switch
+   * `<worktree_protocol>` into continuation mode. Omitted on a non-retry
+   * attempt.
+   */
+  readonly existing_worktree_path?: string;
+  readonly existing_branch?: string;
+}
+
+function worktreeProtocolBlock(input: ImplementationPromptInput): string {
+  const isRetry = Boolean(
+    input.review_findings?.length && input.existing_worktree_path && input.existing_branch,
+  );
+  if (isRetry) {
+    return [
+      `<worktree_protocol>`,
+      `Continue on your EXISTING worktree at ${input.existing_worktree_path}`,
+      `(branch ${input.existing_branch}) — do NOT create a new worktree.`,
+      `Commit the fixes with conventional commit messages. Do NOT push —`,
+      `a later human-gated stage handles that. Stage only the files you`,
+      `modified.`,
+      `</worktree_protocol>`,
+    ].join("\n");
+  }
+  return [
+    `<worktree_protocol>`,
+    `Create your own git worktree and branch for this change (do not work`,
+    `directly on the checked-out branch). Commit with conventional commit`,
+    `messages. Do NOT push — a later human-gated stage handles that. Stage`,
+    `only the files you modified.`,
+    `</worktree_protocol>`,
+  ].join("\n");
 }
 
 export function buildImplementationPrompt(input: ImplementationPromptInput): string {
@@ -55,12 +104,17 @@ export function buildImplementationPrompt(input: ImplementationPromptInput): str
     input.git_history_summary
       ? `<git_history>\n${input.git_history_summary}\n</git_history>\n`
       : "",
-    `<worktree_protocol>`,
-    `Create your own git worktree and branch for this change (do not work`,
-    `directly on the checked-out branch). Commit with conventional commit`,
-    `messages. Do NOT push — a later human-gated stage handles that. Stage`,
-    `only the files you modified.`,
-    `</worktree_protocol>`,
+    input.review_findings && input.review_findings.length > 0
+      ? [
+          `<review_findings>`,
+          `This is a RETRY after a failed review. Fix EVERY finding below on`,
+          `the SAME worktree/branch before reporting again:`,
+          ...input.review_findings.map((f) => `- ${f}`),
+          `</review_findings>`,
+          "",
+        ].join("\n")
+      : "",
+    worktreeProtocolBlock(input),
     "",
     `<task>`,
     `Implement the change specified in <spec_files>, grounded by`,

@@ -35,6 +35,8 @@ import {
   GIT_HISTORY_INV_ID,
   IMPLEMENTATION_GATE_QUESTION_ID,
   IMPLEMENTATION_INV_ID,
+  TESTING_INV_ID,
+  REVIEW_INV_PREFIX,
 } from "./handlers/protocol-ids.js";
 
 export interface CannedDispatcherOptions {
@@ -66,6 +68,14 @@ export interface CannedDispatcherOptions {
    * path in a full smoke run.
    */
   readonly implementation_gate_answer?: "PRD only" | "Implement";
+  /**
+   * Per-attempt verdict producer for the `review` step (PR 4b). Default:
+   * always "pass" — the zero-regression default matching implementation's
+   * nominal report contract. Tests exercising the FAIL→retry→PASS or
+   * FAIL×N→advisory loop pass a custom function, e.g.
+   * `(attempt) => (attempt < 3 ? "fail" : "pass")`.
+   */
+  readonly review_verdict_for_attempt?: (attempt: number) => "pass" | "fail";
 }
 
 export type CannedDispatcher = (action: NextAction) => ActionResult | undefined;
@@ -138,6 +148,42 @@ function fakeImplementationReport(): string {
   ].join("\n");
 }
 
+/**
+ * Nominal test-engineer report for the `testing` step's spawn (PR 4b).
+ * Freeform prose — TestingStateSchema stores only `{ raw_report }`, no
+ * machine-readable footer contract.
+ */
+function fakeTestingReport(): string {
+  return [
+    "Added unit tests for the change and ran the project's test suite on",
+    "the implementation worktree. All tests pass; no regressions found.",
+  ].join(" ");
+}
+
+/**
+ * Nominal code-reviewer report for the `review` step's spawn (PR 4b).
+ * Carries a parsable VERDICT:/FINDINGS: footer per review.ts's report
+ * contract (buildReviewPrompt / parseReviewReport).
+ */
+function fakeReviewReport(verdict: "pass" | "fail"): string {
+  if (verdict === "pass") {
+    return [
+      "The implementation matches the spec, verification gates passed, and",
+      "the test report shows a clean run.",
+      "",
+      "VERDICT: PASS",
+    ].join("\n");
+  }
+  return [
+    "The implementation has a gap relative to the spec that must be fixed",
+    "before this can ship.",
+    "",
+    "VERDICT: FAIL",
+    "FINDINGS:",
+    "- Canned synthetic finding: address the gap and resubmit.",
+  ].join("\n");
+}
+
 function fakeJudgeVerdict(): string {
   return JSON.stringify({
     verdict: "PASS",
@@ -167,6 +213,7 @@ export function makeCannedDispatcher(
   const graph_path = opts.graph_path ?? "/tmp/canned/graph";
   const fake_section_draft = opts.fake_section_draft ?? defaultFakeSectionDraft;
   const implementation_gate_answer = opts.implementation_gate_answer ?? "PRD only";
+  const review_verdict_for_attempt = opts.review_verdict_for_attempt ?? (() => "pass" as const);
 
   function pickFakeAgentResponse(invocation_id: string): string {
     if (invocation_id.startsWith(SELF_CHECK_JUDGE_INV_PREFIX)) {
@@ -189,6 +236,13 @@ export function makeCannedDispatcher(
     }
     if (invocation_id === IMPLEMENTATION_INV_ID) {
       return fakeImplementationReport();
+    }
+    if (invocation_id === TESTING_INV_ID) {
+      return fakeTestingReport();
+    }
+    if (invocation_id.startsWith(REVIEW_INV_PREFIX)) {
+      const attempt = Number(invocation_id.slice(REVIEW_INV_PREFIX.length));
+      return fakeReviewReport(review_verdict_for_attempt(attempt));
     }
     return "Canned synthetic response.";
   }
