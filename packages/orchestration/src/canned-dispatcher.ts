@@ -37,7 +37,18 @@ import {
   IMPLEMENTATION_INV_ID,
   TESTING_INV_ID,
   REVIEW_INV_PREFIX,
+  PR_GATE_QUESTION_ID,
+  PR_CREATION_INV_ID,
 } from "./handlers/protocol-ids.js";
+import {
+  defaultFakeSectionDraft,
+  fakeClarificationQuestion,
+  fakeImplementationReport,
+  fakeJudgeVerdict,
+  fakePrCreationReport,
+  fakeReviewReport,
+  fakeTestingReport,
+} from "./canned-responses.js";
 
 export interface CannedDispatcherOptions {
   /**
@@ -76,130 +87,22 @@ export interface CannedDispatcherOptions {
    * `(attempt) => (attempt < 3 ? "fail" : "pass")`.
    */
   readonly review_verdict_for_attempt?: (attempt: number) => "pass" | "fail";
+  /**
+   * Answer for the `pr_gate` ask_user (PR 5, design-phases-3-5.md §3).
+   * Default "No" — the zero-risk terminal default (never pushes/opens a PR
+   * unless a test explicitly opts in). Set to "Push + open PR" to drive the
+   * `pr_creation` spawn in a full smoke run.
+   */
+  readonly pr_gate_answer?: "Push + open PR" | "No";
+  /**
+   * Whether the canned `pr_creation` engineer response includes a parsable
+   * `PR_URL:` footer. Default true (nominal path). Set to false to exercise
+   * pr-creation.ts's "footer absent → degrade" path in a full smoke run.
+   */
+  readonly pr_creation_footer_present?: boolean;
 }
 
 export type CannedDispatcher = (action: NextAction) => ActionResult | undefined;
-
-/**
- * Default per-section draft producer. Each branch emits content the claim
- * extractors recognise (FR_LINE_RE, AC_LINE_RE, ARCH_PATTERNS, NFR_PATTERNS,
- * SECURITY_KEYWORDS). Without claims the verifier returns zero judge_requests
- * and the self-check phase silently bypasses the judge round.
- *
- * source: curie cross-audit pass-2 (2026-04) — fake drafts must be claim-rich.
- */
-export function defaultFakeSectionDraft(section_type: string): string {
-  const heading = `## ${section_type}`;
-  switch (section_type) {
-    case "requirements":
-      return [
-        heading,
-        "",
-        "- FR-001: The system supports OAuth login via Google and GitHub.",
-        "- FR-002: The system stores session tokens in HttpOnly cookies.",
-      ].join("\n");
-    case "acceptance_criteria":
-      return [
-        heading,
-        "",
-        "- AC-001: A user with valid Google credentials can sign in.",
-        "- AC-002: A user with invalid credentials sees an error message.",
-      ].join("\n");
-    case "technical_specification":
-      return [
-        heading,
-        "",
-        "We use ports-and-adapters architecture. The OAuth domain port is",
-        "implemented by Google and GitHub adapters at the infrastructure layer.",
-      ].join("\n");
-    case "performance_requirements":
-      return [
-        heading,
-        "",
-        "p95 < 250ms for token validation under nominal load.",
-      ].join("\n");
-    case "security_considerations":
-      return [
-        heading,
-        "",
-        "All session tokens use AES-256-GCM. Authentication uses OAuth 2.0.",
-      ].join("\n");
-    default:
-      return [heading, "", "Canned synthetic content."].join("\n");
-  }
-}
-
-/**
- * Nominal engineer report for the `implementation` step's spawn (PR 4a).
- * Carries a parsable BRANCH:/WORKTREE:/FILES: footer per
- * implementation.ts's report contract (buildImplementationPrompt /
- * parseImplementationReport) so a full "Implement" smoke run traverses
- * `post_impl_verification` instead of aborting on an unparsable report.
- */
-function fakeImplementationReport(): string {
-  return [
-    "Implemented the requested change on a fresh worktree, per protocol.",
-    "",
-    "BRANCH: feat/canned-implementation",
-    "WORKTREE: /tmp/canned/implementation-worktree",
-    "SHA: 0000000000000000000000000000000000cafe",
-    "FILES:",
-    "- src/example.ts",
-  ].join("\n");
-}
-
-/**
- * Nominal test-engineer report for the `testing` step's spawn (PR 4b).
- * Freeform prose — TestingStateSchema stores only `{ raw_report }`, no
- * machine-readable footer contract.
- */
-function fakeTestingReport(): string {
-  return [
-    "Added unit tests for the change and ran the project's test suite on",
-    "the implementation worktree. All tests pass; no regressions found.",
-  ].join(" ");
-}
-
-/**
- * Nominal code-reviewer report for the `review` step's spawn (PR 4b).
- * Carries a parsable VERDICT:/FINDINGS: footer per review.ts's report
- * contract (buildReviewPrompt / parseReviewReport).
- */
-function fakeReviewReport(verdict: "pass" | "fail"): string {
-  if (verdict === "pass") {
-    return [
-      "The implementation matches the spec, verification gates passed, and",
-      "the test report shows a clean run.",
-      "",
-      "VERDICT: PASS",
-    ].join("\n");
-  }
-  return [
-    "The implementation has a gap relative to the spec that must be fixed",
-    "before this can ship.",
-    "",
-    "VERDICT: FAIL",
-    "FINDINGS:",
-    "- Canned synthetic finding: address the gap and resubmit.",
-  ].join("\n");
-}
-
-function fakeJudgeVerdict(): string {
-  return JSON.stringify({
-    verdict: "PASS",
-    rationale: "Canned synthetic verdict.",
-    caveats: [],
-    confidence: 0.9,
-  });
-}
-
-function fakeClarificationQuestion(): string {
-  return JSON.stringify({
-    question: "What is the primary success metric?",
-    options: null,
-    rationale: "Canned placeholder.",
-  });
-}
 
 /**
  * Build a canned dispatcher with the given options. Returns a function that
@@ -214,6 +117,8 @@ export function makeCannedDispatcher(
   const fake_section_draft = opts.fake_section_draft ?? defaultFakeSectionDraft;
   const implementation_gate_answer = opts.implementation_gate_answer ?? "PRD only";
   const review_verdict_for_attempt = opts.review_verdict_for_attempt ?? (() => "pass" as const);
+  const pr_gate_answer = opts.pr_gate_answer ?? "No";
+  const pr_creation_footer_present = opts.pr_creation_footer_present ?? true;
 
   function pickFakeAgentResponse(invocation_id: string): string {
     if (invocation_id.startsWith(SELF_CHECK_JUDGE_INV_PREFIX)) {
@@ -244,6 +149,9 @@ export function makeCannedDispatcher(
       const attempt = Number(invocation_id.slice(REVIEW_INV_PREFIX.length));
       return fakeReviewReport(review_verdict_for_attempt(attempt));
     }
+    if (invocation_id === PR_CREATION_INV_ID) {
+      return fakePrCreationReport(pr_creation_footer_present);
+    }
     return "Canned synthetic response.";
   }
 
@@ -268,6 +176,16 @@ export function makeCannedDispatcher(
         kind: "user_answer",
         question_id: action.question_id,
         selected: [implementation_gate_answer],
+      };
+    }
+    if (action.question_id === PR_GATE_QUESTION_ID) {
+      // Explicit, not relying on options[0]: "No" is the zero-risk default
+      // (design-phases-3-5.md §3, PR 5) — never pushes/opens a PR unless a
+      // test explicitly opts in via pr_gate_answer.
+      return {
+        kind: "user_answer",
+        question_id: action.question_id,
+        selected: [pr_gate_answer],
       };
     }
     if (action.options && action.options.length > 0) {

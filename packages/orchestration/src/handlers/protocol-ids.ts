@@ -125,3 +125,24 @@ export const REVIEW_INV_PREFIX = "review_code_reviewer_";
 export function reviewInvocationId(attempt: number): string {
   return `${REVIEW_INV_PREFIX}${attempt}`;
 }
+
+/**
+ * pr-gate.ts — ask_user question_id for the trust-seam gate ("Push + open
+ * PR" / "No"). Named here (not inline) so canned-dispatcher.ts's explicit
+ * default and any test driving the gate share the SAME literal — mirrors
+ * IMPLEMENTATION_GATE_QUESTION_ID's rationale (a drift here would silently
+ * fall through to the generic options[0] canned answer).
+ *
+ * source: design-phases-3-5.md §3 "pr_gate" — "mandatory, non-skippable,
+ * always fires when reached regardless of review verdict."
+ */
+export const PR_GATE_QUESTION_ID = "pr_gate";
+
+/**
+ * pr-creation.ts — single invocation AND batch_id for the `pr_creation`
+ * step's engineer spawn (design-phases-3-5.md §3, PR 5). Single-invocation
+ * batch, same naming convention as IMPLEMENTATION_INV_ID/TESTING_INV_ID —
+ * runs at most once per `pr_gate` "yes" decision (no retry loop on this
+ * step; a push/`gh pr create` failure degrades to `finalize`, per design §4).
+ */
+export const PR_CREATION_INV_ID = "pr_creation_engineer";

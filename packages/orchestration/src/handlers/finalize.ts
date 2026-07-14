@@ -61,6 +61,11 @@ const REMEMBER_SOURCE = "prd-gen:self_check";
  * outcome when the run reached that far (design-phases-3-5.md §5 PR
  * breakdown item 4: "finalize's remember content extended to include
  * implementation/verification/PR outcome").
+ *
+ * PR 5 addition: appends the PR outcome — pushed/opened with its URL,
+ * declined at `pr_gate` ("No"), or degraded (push/`gh pr create` failure) —
+ * whenever `post_specs.pr` is non-null (design §5 PR 5: "the remember of
+ * finalize includes the PR outcome (url or decline/failure)").
  */
 function buildPostSpecsSummary(state: PipelineState): string {
   const ps = state.post_specs;
@@ -95,6 +100,13 @@ function buildPostSpecsSummary(state: PipelineState): string {
     if (ps.review.findings.length > 0) {
       lines.push(`  Findings: ${ps.review.findings.join("; ")}`);
     }
+  }
+  if (ps.pr) {
+    lines.push(
+      ps.pr.pushed
+        ? `PR: opened at ${ps.pr.url ?? "(unknown url)"}.`
+        : "PR: not opened (declined at the gate, or push/gh pr create failed).",
+    );
   }
   return lines.join("\n");
 }

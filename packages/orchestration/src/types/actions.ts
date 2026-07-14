@@ -93,9 +93,11 @@ export const SpawnSubagentsActionSchema = z.object({
    * unaffected. "test" added additively (design-phases-3-5.md §3, PR 4b) for
    * the `testing` step's test-engineer spawn — "review" already existed
    * (unused until PR 4b's `review` step wires it) so no addition was needed
-   * there.
+   * there. "pr" added additively (design-phases-3-5.md §3, PR 5) for the
+   * `pr_creation` step's engineer spawn (branch push + `gh pr create`) — no
+   * existing purpose value was removed or repurposed.
    */
-  purpose: z.enum(["judge", "draft", "review", "implement", "test"]),
+  purpose: z.enum(["judge", "draft", "review", "implement", "test", "pr"]),
 });
 export type SpawnSubagentsAction = z.infer<typeof SpawnSubagentsActionSchema>;
 
