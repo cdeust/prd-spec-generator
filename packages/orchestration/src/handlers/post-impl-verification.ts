@@ -56,16 +56,20 @@
  *
  * No-op condition (design §4, "no codebase" row): no `state.codebase_graph_path`
  * (nothing to diff against) or no `state.post_specs.implementation.worktree_path`
- * (nothing was implemented — PR 4a is not wired, so this is ALWAYS the case
- * on the current step graph; this handler is unit-tested directly via
- * `current_step: "post_impl_verification"` injection, never runner-reached)
- * → skip cleanly (emit_message, `verification.step = "done"`), advance to
- * `finalize` — mirrors `pre_impl_grounding`'s skip pattern.
+ * (implementation aborted before recording a worktree — see
+ * implementation.ts's failure policy) → skip cleanly (emit_message,
+ * `verification.step = "done"`), advance to `finalize` — mirrors
+ * `pre_impl_grounding`'s skip pattern.
  *
- * PR 3c dead-end (design §5.3): the design doc's post-`post_impl_verification`
- * transition is `testing` (PR 4b, not yet wired), so this handler advances to
- * `finalize` in the interim, exactly like `pre_impl_grounding`'s PR-3b
- * dead-end.
+ * PR 4a reachability: `implementation` (PR 4a) is the only handler that
+ * transitions `current_step` here, once it has recorded a parsed
+ * branch/worktree_path. This handler is ALSO still unit-tested directly via
+ * `current_step: "post_impl_verification"` injection (no change there).
+ *
+ * PR-3c-era dead-end (design §5.3): the design doc's post-
+ * `post_impl_verification` transition is `testing` (PR 4b, not yet wired),
+ * so this handler still advances to `finalize` in the interim — this part is
+ * unchanged by PR 4a.
  *
  * Loop-guard placement (Phase 2 git-historian lesson, restated in design §3
  * and pre-impl-grounding.ts): result-processing for the CURRENT cursor step

@@ -21,30 +21,32 @@ export const PipelineStepSchema = z.enum([
   "implementation_gate",
   "pre_impl_grounding",
   /**
-   * `post_impl_verification` (PR 3c, design-phases-3-5.md §1, §3, §5): the
-   * 4-call POST-implementation verification sequence (index_codebase(worktree)
-   * → detect_changes → verify_semantic_diff → check_security_gates). The
-   * handler is registered in runner.ts's HANDLERS and independently
-   * unit-tested (post-impl-verification.test.ts), but this PR does NOT wire
-   * any transition INTO this step — `implementation` (PR 4a), the only
-   * handler that would hand off here, does not exist yet. Reachable today
-   * only by directly constructing a state with
-   * `current_step: "post_impl_verification"` (as the unit tests do); no
-   * runner-driven smoke path can reach it (see
-   * smoke-implementation-gate.test.ts's "never reaches post_impl_verification"
-   * assertion). The step must still be a member of this enum: HANDLERS is a
-   * `Record<PipelineState["current_step"], StepHandler>` in runner.ts, so the
-   * TypeScript compiler enforces the handler's presence.
+   * `implementation` (PR 4a, design-phases-3-5.md §3): one `spawn_subagents`
+   * (purpose "implement", subagent_type "engineer", isolation "worktree")
+   * that hands the validated specs + pre-impl grounding to an engineer
+   * subagent. `pre_impl_grounding` always transitions here once its
+   * (optional) grounding loop settles — grounding is best-effort context for
+   * the engineer, not a gate on reaching implementation. On success,
+   * advances to `post_impl_verification`; on subagent error or an
+   * unparseable report, aborts straight to `finalize` (design §4 —
+   * "nothing to verify without code").
+   */
+  "implementation",
+  /**
+   * `post_impl_verification` (PR 3c wiring, PR 4a reachability,
+   * design-phases-3-5.md §1, §3, §5): the 4-call POST-implementation
+   * verification sequence (index_codebase(worktree) → detect_changes →
+   * verify_semantic_diff → check_security_gates). Reached from
+   * `implementation` once the engineer's report is parsed successfully.
    */
   "post_impl_verification",
   /**
    * Relocated Phase C (Cortex `remember` → `done`) — the only step that
-   * advances `current_step` to `complete`. PR 3b dead-ends both
-   * `implementation_gate` ("prd_only") and `pre_impl_grounding` (grounding
-   * gathered or skipped) straight here; `post_impl_verification` (PR 3c) is
-   * registered but unreachable (see above). The `implementation` / `testing`
-   * / `review` / `pr_gate` / `pr_creation` steps named in the design doc are
-   * NOT yet in this enum — they land in PRs 4a/4b/5.
+   * advances `current_step` to `complete`. `implementation_gate`
+   * ("prd_only") and every failure/degrade path in `pre_impl_grounding` /
+   * `implementation` / `post_impl_verification` dead-end here (PR 4a: the
+   * `testing` / `review` / `pr_gate` / `pr_creation` steps named in the
+   * design doc are NOT yet in this enum — they land in PRs 4b/5).
    */
   "finalize",
   "complete",

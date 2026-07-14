@@ -1,6 +1,6 @@
 /**
  * `post_impl_verification` — POST-implementation verification sequence
- * (design-phases-3-5.md §1, §3, §4, §5, PR 3c).
+ * (design-phases-3-5.md §1, §3, §4, §5, PR 3c wiring, PR 4a reachability).
  *
  * Proves:
  *   1. No `codebase_graph_path` or no `implementation.worktree_path` → skips
@@ -19,12 +19,13 @@
  *      run still reaches `finalize` (index_codebase failure short-circuits
  *      calls 2-4; the other 3 failures degrade in place and continue the
  *      sequence).
- *   6. This handler is registered (reachable via direct current_step
- *      injection) but NOT wired into any transition — a full smoke run
- *      (implementation_gate → pre_impl_grounding → finalize) never emits
- *      index_codebase/detect_changes/verify_semantic_diff/
- *      check_security_gates and never sets current_step to
- *      "post_impl_verification".
+ *   6. This handler is registered AND (as of PR 4a) reachable via a full
+ *      smoke run: `implementation_gate` → `pre_impl_grounding` →
+ *      `implementation` → `post_impl_verification` → `finalize`. A full
+ *      smoke run through the "Implement" branch with a nominal engineer
+ *      report DOES emit index_codebase/detect_changes/verify_semantic_diff/
+ *      check_security_gates and DOES set current_step to
+ *      "post_impl_verification" along the way.
  *
  * source: design-phases-3-5.md §1, §3, §4, §5.
  */
@@ -365,23 +366,22 @@ describe("post_impl_verification — idempotence (replay before result arrives)"
   });
 });
 
-describe("post_impl_verification — unreachable from the runner graph (PR 3c dead-end)", () => {
+describe("post_impl_verification — reachable from the runner graph (PR 4a wiring)", () => {
   /**
-   * The handler is registered in runner.ts's HANDLERS (compile-time
-   * Record<PipelineState["current_step"], ...> requirement) but NO other
-   * handler transitions `current_step` to "post_impl_verification" in this
-   * PR — `implementation` (PR 4a), the only step that would hand off here,
-   * does not exist yet. A full smoke run through the "Implement" branch
-   * must therefore never reach it and never emit any of the 4 AP tool calls
-   * this handler owns.
+   * `implementation` (PR 4a) is now the handler that transitions
+   * `current_step` to "post_impl_verification", once it has recorded a
+   * parsed branch/worktree_path from the engineer's report. A full smoke
+   * run through the "Implement" branch, with a nominal (parsable) canned
+   * engineer report, must reach this step and emit all 4 AP tool calls this
+   * handler owns.
    */
-  it("a full smoke run never emits index_codebase/detect_changes/verify_semantic_diff/check_security_gates and never sets current_step to post_impl_verification", () => {
+  it("a full smoke run reaches post_impl_verification and emits index_codebase/detect_changes/verify_semantic_diff/check_security_gates", () => {
     const dispatch = makeCannedDispatcher({
       implementation_gate_answer: "Implement",
       graph_path: "/tmp/smoke-post-impl/.prd-gen/graphs/smoke/graph",
     });
     const seed = newPipelineState({
-      run_id: "smoke_post_impl_unreachable",
+      run_id: "smoke_post_impl_reachable",
       feature_description: "build a feature for OAuth login",
       codebase_path: "/tmp/smoke-post-impl",
     });
@@ -406,10 +406,12 @@ describe("post_impl_verification — unreachable from the runner graph (PR 3c de
       }
     }
 
-    expect(observedSteps).not.toContain("post_impl_verification");
-    expect(observedToolNames).not.toContain("index_codebase");
-    expect(observedToolNames).not.toContain("detect_changes");
-    expect(observedToolNames).not.toContain("verify_semantic_diff");
-    expect(observedToolNames).not.toContain("check_security_gates");
+    expect(observedSteps).toContain("post_impl_verification");
+    expect(observedToolNames).toContain("index_codebase");
+    expect(observedToolNames).toContain("detect_changes");
+    expect(observedToolNames).toContain("verify_semantic_diff");
+    expect(observedToolNames).toContain("check_security_gates");
+    expect(state.current_step).toBe("complete");
+    expect(state.post_specs?.verification?.gates_passed).toBe(true);
   });
 });

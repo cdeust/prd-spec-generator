@@ -9,7 +9,8 @@
  *      `state.pending_completion` untouched — today's exact behavior (zero
  *      regression is the acceptance criterion for this branch,
  *      design-phases-3-5.md §5, PR 3b).
- *   3. Answering "Implement" advances to `pre_impl_grounding` instead.
+ *   3. Answering "Implement" advances to `pre_impl_grounding`, then coalesces
+ *      through to `implementation` (PR 4a wiring).
  *   4. An unrecognized/empty answer fails CLOSED to "prd_only" rather than
  *      silently spawning an engineer.
  *
@@ -78,7 +79,7 @@ describe("implementation_gate — PRD only branch (zero regression)", () => {
 });
 
 describe("implementation_gate — Implement branch", () => {
-  it('routes through pre_impl_grounding, decision="implement"', () => {
+  it('routes through pre_impl_grounding into implementation, decision="implement"', () => {
     const out = step({
       state: stateAtGate(),
       result: {
@@ -90,11 +91,13 @@ describe("implementation_gate — Implement branch", () => {
 
     expect(out.state.post_specs?.decision).toBe("implement");
     // Coalesces into pre_impl_grounding, which (no graph/no affected-symbols
-    // sidecar in this fixture) immediately dead-ends to finalize — see
+    // sidecar in this fixture) immediately advances to implementation (see
     // pre-impl-grounding.test.ts for the grounding loop itself when a graph
-    // and claims ARE present.
-    expect(out.state.current_step).toBe("finalize");
+    // and claims ARE present); implementation then emits a SUBSTANTIVE
+    // spawn_subagents action, which stops the coalescing chain.
+    expect(out.state.current_step).toBe("implementation");
     expect(out.state.post_specs?.impact_queries.done).toBe(true);
+    expect(out.action.kind).toBe("spawn_subagents");
   });
 });
 

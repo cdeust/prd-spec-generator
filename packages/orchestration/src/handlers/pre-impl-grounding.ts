@@ -14,11 +14,11 @@
  * is used only as the GATE signal (non-null iff file-export found >=1 claim
  * — see file-export.ts's conditional sidecar emission).
  *
- * PR 3b dead-end (design §5.2): implementation/testing/review/PR stages are
- * not yet wired. Once grounding is gathered (or skipped), this handler
- * advances straight to `finalize`, carrying `post_specs` forward so
- * finalize's remember content documents the decision + grounding collected
- * even though no code was written yet.
+ * PR 4a wiring (design §3, §5.2): once grounding is gathered (or skipped —
+ * grounding is best-effort context, never a gate), this handler advances to
+ * `implementation`, carrying `post_specs` forward so the engineer's prompt
+ * (implementation.ts) can embed the collected grounding. `testing`/`review`/
+ * PR stages are still not wired (PRs 4b/5).
  *
  * Failure policy (design §4): a `get_impact` tool error DEGRADES — recorded
  * via `appendError("upstream_failure")`, the failing symbol's result entry
@@ -78,19 +78,20 @@ function boundedAffectedSymbols(state: PipelineState): string[] {
 }
 
 /**
- * 3b dead-ends here: implementation/testing/review/PR stages are not yet
- * wired (design-phases-3-5.md §5, PR 3b scope). Advance straight to
- * `finalize`, carrying the collected grounding forward.
+ * Advances to `implementation` (PR 4a, design-phases-3-5.md §3), carrying
+ * the collected (or skipped) grounding forward. `testing`/`review`/PR stages
+ * are still not wired (PRs 4b/5) — `implementation` may itself dead-end to
+ * `finalize` on a subagent failure (implementation.ts's own failure policy).
  */
-function advanceDeadEnd(
+function advanceToImplementation(
   state: PipelineState,
   message: string,
 ): { state: PipelineState; action: { kind: "emit_message"; message: string; level: "info" } } {
   return {
-    state: { ...state, current_step: "finalize" },
+    state: { ...state, current_step: "implementation" },
     action: {
       kind: "emit_message",
-      message: `${message} Implementation/testing/review/PR stages are not yet wired in this build — finalizing with PRD deliverables.`,
+      message,
       level: "info",
     },
   };
@@ -155,7 +156,7 @@ export const handlePreImplGrounding: StepHandler = ({ state, result }) => {
   // No graph, or no sidecar was exported (zero affected-symbol claims) →
   // skip cleanly (design §3 "no graph or empty sidecar → skip").
   if (!graphPath || !state.affected_symbols_path || symbols.length === 0) {
-    return advanceDeadEnd(
+    return advanceToImplementation(
       {
         ...state,
         post_specs: {
@@ -163,12 +164,12 @@ export const handlePreImplGrounding: StepHandler = ({ state, result }) => {
           impact_queries: { ...postSpecs.impact_queries, done: true },
         },
       },
-      "No affected-symbols grounding available.",
+      "No affected-symbols grounding available. Proceeding to implementation.",
     );
   }
 
   if (postSpecs.impact_queries.index >= symbols.length) {
-    return advanceDeadEnd(
+    return advanceToImplementation(
       {
         ...state,
         post_specs: {
@@ -176,7 +177,7 @@ export const handlePreImplGrounding: StepHandler = ({ state, result }) => {
           impact_queries: { ...postSpecs.impact_queries, done: true },
         },
       },
-      `Pre-implementation grounding complete: ${symbols.length} symbol(s) queried.`,
+      `Pre-implementation grounding complete: ${symbols.length} symbol(s) queried. Proceeding to implementation.`,
     );
   }
 

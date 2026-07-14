@@ -2,7 +2,7 @@
  * `pre_impl_grounding` — PRE-implementation blast-radius grounding.
  *
  * Proves:
- *   1. No codebase_graph_path → skips cleanly, advances to `finalize`
+ *   1. No codebase_graph_path → skips cleanly, advances to `implementation`
  *      (emit_message, impact_queries.done = true, no call_pipeline_tool).
  *   2. No affected_symbols_path (no sidecar exported — zero claims) → same
  *      clean skip, even with a graph present.
@@ -16,8 +16,8 @@
  *      cursor still advances to the next symbol — no run-abort.
  *   6. More than IMPACT_QUERY_SYMBOL_CAP distinct symbols are truncated to
  *      the cap; symbols beyond the cap are never queried.
- *   7. Once every (capped) symbol has been queried, advances to `finalize`
- *      with impact_queries.done = true.
+ *   7. Once every (capped) symbol has been queried, advances to
+ *      `implementation` with impact_queries.done = true.
  *
  * source: design-phases-3-5.md §1, §3, §4.
  */
@@ -80,7 +80,7 @@ function stateAtGrounding(opts: {
 }
 
 describe("pre_impl_grounding — clean skip conditions", () => {
-  it("no graph_path → skips to finalize without a call_pipeline_tool", () => {
+  it("no graph_path → skips to implementation without a call_pipeline_tool", () => {
     const out = step({
       state: stateAtGrounding({
         graphPath: null,
@@ -89,7 +89,7 @@ describe("pre_impl_grounding — clean skip conditions", () => {
       }),
     });
     expect(out.action.kind).not.toBe("call_pipeline_tool");
-    expect(out.state.current_step).toBe("finalize");
+    expect(out.state.current_step).toBe("implementation");
     expect(out.state.post_specs?.impact_queries.done).toBe(true);
     expect(out.state.post_specs?.impact_queries.results).toEqual([]);
   });
@@ -102,7 +102,7 @@ describe("pre_impl_grounding — clean skip conditions", () => {
       }),
     });
     expect(out.action.kind).not.toBe("call_pipeline_tool");
-    expect(out.state.current_step).toBe("finalize");
+    expect(out.state.current_step).toBe("implementation");
     expect(out.state.post_specs?.impact_queries.done).toBe(true);
   });
 });
@@ -195,7 +195,7 @@ describe("pre_impl_grounding — cursor loop over affected symbols", () => {
     expect(afterFailure.action.kind).toBe("call_pipeline_tool");
   });
 
-  it("once every symbol is queried, advances to finalize with impact_queries.done", () => {
+  it("once every symbol is queried, advances to implementation with impact_queries.done", () => {
     const seed = stateAtGrounding({
       graphPath: "/g/graph",
       sidecarPath: "prd-output/x/stage-5.affected_symbols.json",
@@ -214,7 +214,7 @@ describe("pre_impl_grounding — cursor loop over affected symbols", () => {
       },
     });
 
-    expect(out.state.current_step).toBe("finalize");
+    expect(out.state.current_step).toBe("implementation");
     expect(out.state.post_specs?.impact_queries.done).toBe(true);
     expect(out.state.post_specs?.impact_queries.results.length).toBe(1);
     expect(out.action.kind).not.toBe("call_pipeline_tool");
@@ -264,7 +264,7 @@ describe("pre_impl_grounding — dedup + cap", () => {
     expect(queried.length).toBe(IMPACT_QUERY_SYMBOL_CAP);
     expect(queried).toEqual(names.slice(0, IMPACT_QUERY_SYMBOL_CAP));
     expect(queried).not.toContain(names[IMPACT_QUERY_SYMBOL_CAP]);
-    expect(state.current_step).toBe("finalize");
+    expect(state.current_step).toBe("implementation");
     expect(state.post_specs?.impact_queries.results.length).toBe(IMPACT_QUERY_SYMBOL_CAP);
   });
 });

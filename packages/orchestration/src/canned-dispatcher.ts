@@ -34,6 +34,7 @@ import {
   JIRA_GENERATION_INV_ID,
   GIT_HISTORY_INV_ID,
   IMPLEMENTATION_GATE_QUESTION_ID,
+  IMPLEMENTATION_INV_ID,
 } from "./handlers/protocol-ids.js";
 
 export interface CannedDispatcherOptions {
@@ -118,6 +119,25 @@ export function defaultFakeSectionDraft(section_type: string): string {
   }
 }
 
+/**
+ * Nominal engineer report for the `implementation` step's spawn (PR 4a).
+ * Carries a parsable BRANCH:/WORKTREE:/FILES: footer per
+ * implementation.ts's report contract (buildImplementationPrompt /
+ * parseImplementationReport) so a full "Implement" smoke run traverses
+ * `post_impl_verification` instead of aborting on an unparsable report.
+ */
+function fakeImplementationReport(): string {
+  return [
+    "Implemented the requested change on a fresh worktree, per protocol.",
+    "",
+    "BRANCH: feat/canned-implementation",
+    "WORKTREE: /tmp/canned/implementation-worktree",
+    "SHA: 0000000000000000000000000000000000cafe",
+    "FILES:",
+    "- src/example.ts",
+  ].join("\n");
+}
+
 function fakeJudgeVerdict(): string {
   return JSON.stringify({
     verdict: "PASS",
@@ -166,6 +186,9 @@ export function makeCannedDispatcher(
     }
     if (invocation_id === GIT_HISTORY_INV_ID) {
       return "History is silent within the searched space (canned git-historian response).";
+    }
+    if (invocation_id === IMPLEMENTATION_INV_ID) {
+      return fakeImplementationReport();
     }
     return "Canned synthetic response.";
   }

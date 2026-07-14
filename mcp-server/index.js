@@ -29478,30 +29478,32 @@ var PipelineStepSchema = external_exports.enum([
   "implementation_gate",
   "pre_impl_grounding",
   /**
-   * `post_impl_verification` (PR 3c, design-phases-3-5.md §1, §3, §5): the
-   * 4-call POST-implementation verification sequence (index_codebase(worktree)
-   * → detect_changes → verify_semantic_diff → check_security_gates). The
-   * handler is registered in runner.ts's HANDLERS and independently
-   * unit-tested (post-impl-verification.test.ts), but this PR does NOT wire
-   * any transition INTO this step — `implementation` (PR 4a), the only
-   * handler that would hand off here, does not exist yet. Reachable today
-   * only by directly constructing a state with
-   * `current_step: "post_impl_verification"` (as the unit tests do); no
-   * runner-driven smoke path can reach it (see
-   * smoke-implementation-gate.test.ts's "never reaches post_impl_verification"
-   * assertion). The step must still be a member of this enum: HANDLERS is a
-   * `Record<PipelineState["current_step"], StepHandler>` in runner.ts, so the
-   * TypeScript compiler enforces the handler's presence.
+   * `implementation` (PR 4a, design-phases-3-5.md §3): one `spawn_subagents`
+   * (purpose "implement", subagent_type "engineer", isolation "worktree")
+   * that hands the validated specs + pre-impl grounding to an engineer
+   * subagent. `pre_impl_grounding` always transitions here once its
+   * (optional) grounding loop settles — grounding is best-effort context for
+   * the engineer, not a gate on reaching implementation. On success,
+   * advances to `post_impl_verification`; on subagent error or an
+   * unparseable report, aborts straight to `finalize` (design §4 —
+   * "nothing to verify without code").
+   */
+  "implementation",
+  /**
+   * `post_impl_verification` (PR 3c wiring, PR 4a reachability,
+   * design-phases-3-5.md §1, §3, §5): the 4-call POST-implementation
+   * verification sequence (index_codebase(worktree) → detect_changes →
+   * verify_semantic_diff → check_security_gates). Reached from
+   * `implementation` once the engineer's report is parsed successfully.
    */
   "post_impl_verification",
   /**
    * Relocated Phase C (Cortex `remember` → `done`) — the only step that
-   * advances `current_step` to `complete`. PR 3b dead-ends both
-   * `implementation_gate` ("prd_only") and `pre_impl_grounding` (grounding
-   * gathered or skipped) straight here; `post_impl_verification` (PR 3c) is
-   * registered but unreachable (see above). The `implementation` / `testing`
-   * / `review` / `pr_gate` / `pr_creation` steps named in the design doc are
-   * NOT yet in this enum — they land in PRs 4a/4b/5.
+   * advances `current_step` to `complete`. `implementation_gate`
+   * ("prd_only") and every failure/degrade path in `pre_impl_grounding` /
+   * `implementation` / `post_impl_verification` dead-end here (PR 4a: the
+   * `testing` / `review` / `pr_gate` / `pr_creation` steps named in the
+   * design doc are NOT yet in this enum — they land in PRs 4b/5).
    */
   "finalize",
   "complete"
@@ -30441,9 +30443,14 @@ var SpawnSubagentsActionSchema = external_exports.object({
   /**
    * Observability label only — host dispatch logic MUST NOT branch on this
    * field. It exists so logs and telemetry can attribute batches to a high-
-   * level intent (judging vs drafting vs reviewing).
+   * level intent (judging vs drafting vs reviewing vs implementing).
+   *
+   * "implement" added additively (design-phases-3-5.md §3, PR 4a) for the
+   * `implementation` step's engineer spawn — no existing purpose value was
+   * removed or repurposed, so every prior batch's observability label is
+   * unaffected.
    */
-  purpose: external_exports.enum(["judge", "draft", "review"])
+  purpose: external_exports.enum(["judge", "draft", "review", "implement"])
 });
 var WriteFileActionSchema = external_exports.object({
   kind: external_exports.literal("write_file"),
@@ -31616,6 +31623,58 @@ ${input.grounding_summary}
   ].filter((line) => line !== "").join("\n");
 }
 
+// packages/meta-prompting/dist/implementation-prompts.js
+function buildImplementationPrompt(input) {
+  const specFilesBlock = input.spec_files.length > 0 ? input.spec_files.map((p) => `- ${p}`).join("\n") : "(no spec files were exported for this run)";
+  return [
+    `<role>You are an engineer. Implement the feature described below, exactly as specified in the attached PRD/spec files, inside the given codebase.</role>`,
+    "",
+    `<codebase_path>${input.codebase_path}</codebase_path>`,
+    "",
+    `<feature>${input.feature_description}</feature>`,
+    "",
+    `<spec_files>`,
+    specFilesBlock,
+    `</spec_files>`,
+    "",
+    input.blast_radius_summary ? `<blast_radius>
+${input.blast_radius_summary}
+</blast_radius>
+` : "",
+    input.git_history_summary ? `<git_history>
+${input.git_history_summary}
+</git_history>
+` : "",
+    `<worktree_protocol>`,
+    `Create your own git worktree and branch for this change (do not work`,
+    `directly on the checked-out branch). Commit with conventional commit`,
+    `messages. Do NOT push \u2014 a later human-gated stage handles that. Stage`,
+    `only the files you modified.`,
+    `</worktree_protocol>`,
+    "",
+    `<task>`,
+    `Implement the change specified in <spec_files>, grounded by`,
+    `<blast_radius> and <git_history> when present. Follow`,
+    `<worktree_protocol> exactly.`,
+    `</task>`,
+    "",
+    `<report_format>`,
+    `End your final response with a short prose summary (a few sentences),`,
+    `followed by EXACTLY this footer, each field on its own line, values`,
+    `filled in (no placeholders, no surrounding markdown/code fences):`,
+    "",
+    `BRANCH: <the branch name you created>`,
+    `WORKTREE: <the absolute worktree path you created>`,
+    `SHA: <the HEAD commit sha after your last commit>`,
+    `FILES:`,
+    `- <path of a changed file, one per line>`,
+    "",
+    `Omit the FILES: block entirely if you changed no files. BRANCH and`,
+    `WORKTREE are mandatory \u2014 the caller cannot proceed without them.`,
+    `</report_format>`
+  ].filter((line) => line !== "").join("\n");
+}
+
 // packages/orchestration/dist/handlers/protocol-ids.js
 var QUESTION_ID_CONTINUE = "clarification_continue";
 var CLARIFICATION_COMPOSE_INV_PREFIX = "clarification_compose_inv_";
@@ -31635,6 +31694,7 @@ var POST_IMPL_INDEX_CODEBASE_CORRELATION_ID = "post_impl_verification_index_code
 var POST_IMPL_DETECT_CHANGES_CORRELATION_ID = "post_impl_verification_detect_changes";
 var POST_IMPL_VERIFY_SEMANTIC_DIFF_CORRELATION_ID = "post_impl_verification_verify_semantic_diff";
 var POST_IMPL_CHECK_SECURITY_GATES_CORRELATION_ID = "post_impl_verification_check_security_gates";
+var IMPLEMENTATION_INV_ID = "implementation_engineer";
 
 // packages/orchestration/dist/handlers/input-analysis/git-history.js
 var GIT_HISTORY_BATCH_ID = GIT_HISTORY_INV_ID;
@@ -33773,12 +33833,12 @@ function boundedAffectedSymbols(state) {
   const names = doc.affected_symbols.map((s) => s.qualified_name);
   return Array.from(new Set(names)).slice(0, IMPACT_QUERY_SYMBOL_CAP);
 }
-function advanceDeadEnd(state, message) {
+function advanceToImplementation(state, message) {
   return {
-    state: { ...state, current_step: "finalize" },
+    state: { ...state, current_step: "implementation" },
     action: {
       kind: "emit_message",
-      message: `${message} Implementation/testing/review/PR stages are not yet wired in this build \u2014 finalizing with PRD deliverables.`,
+      message,
       level: "info"
     }
   };
@@ -33818,22 +33878,22 @@ var handlePreImplGrounding = ({ state, result }) => {
   }
   const graphPath = state.codebase_graph_path;
   if (!graphPath || !state.affected_symbols_path || symbols.length === 0) {
-    return advanceDeadEnd({
+    return advanceToImplementation({
       ...state,
       post_specs: {
         ...postSpecs,
         impact_queries: { ...postSpecs.impact_queries, done: true }
       }
-    }, "No affected-symbols grounding available.");
+    }, "No affected-symbols grounding available. Proceeding to implementation.");
   }
   if (postSpecs.impact_queries.index >= symbols.length) {
-    return advanceDeadEnd({
+    return advanceToImplementation({
       ...state,
       post_specs: {
         ...postSpecs,
         impact_queries: { ...postSpecs.impact_queries, done: true }
       }
-    }, `Pre-implementation grounding complete: ${symbols.length} symbol(s) queried.`);
+    }, `Pre-implementation grounding complete: ${symbols.length} symbol(s) queried. Proceeding to implementation.`);
   }
   return {
     state: { ...state, post_specs: postSpecs },
@@ -33853,8 +33913,142 @@ function emitImpactCall(state, postSpecs, symbols) {
   };
 }
 
-// packages/orchestration/dist/handlers/post-impl-verification.js
+// packages/orchestration/dist/handlers/implementation.js
+var IMPLEMENTATION_BATCH_ID = IMPLEMENTATION_INV_ID;
 function ensurePostSpecs3(state) {
+  return state.post_specs ?? initialPostSpecs();
+}
+var RAW_REPORT_TRUNCATE_CHARS = 4e3;
+var RAW_REPORT_TRUNCATION_MARKER = "...";
+function truncateRawReport(text) {
+  return text.length > RAW_REPORT_TRUNCATE_CHARS ? text.slice(0, RAW_REPORT_TRUNCATE_CHARS) + RAW_REPORT_TRUNCATION_MARKER : text;
+}
+function summarizeBlastRadius(postSpecs) {
+  const results = postSpecs.impact_queries.results;
+  if (results.length === 0)
+    return "";
+  function arrayLen(data, key) {
+    const value = data?.[key];
+    return Array.isArray(value) ? value.length : 0;
+  }
+  return results.map((r) => {
+    if (!r.success) {
+      return `- ${r.qualified_name}: grounding failed (${r.error ?? "unknown"})`;
+    }
+    const data = r.data;
+    return `- ${r.qualified_name}: ${arrayLen(data, "callers")} caller(s), ${arrayLen(data, "importers")} importer(s), ${arrayLen(data, "users")} user(s), ${arrayLen(data, "implementors")} implementor(s)`;
+  }).join("\n");
+}
+var BRANCH_FOOTER_RE = /^\s*BRANCH:\s*(\S+)\s*$/im;
+var WORKTREE_FOOTER_RE = /^\s*WORKTREE:\s*(\S+)\s*$/im;
+var FILES_HEADER_RE = /^\s*FILES:\s*$/im;
+var FILE_BULLET_RE = /^-\s+(\S.*)$/;
+function parseImplementationReport(rawText) {
+  const branchMatch = BRANCH_FOOTER_RE.exec(rawText);
+  const worktreeMatch = WORKTREE_FOOTER_RE.exec(rawText);
+  if (!branchMatch?.[1] || !worktreeMatch?.[1])
+    return null;
+  const changed_files = [];
+  const filesHeaderMatch = FILES_HEADER_RE.exec(rawText);
+  if (filesHeaderMatch) {
+    const afterHeaderStart = filesHeaderMatch.index + filesHeaderMatch[0].length;
+    const body = rawText.slice(afterHeaderStart).split("\n");
+    for (const line of body) {
+      if (line.trim() === "")
+        continue;
+      const bulletMatch = FILE_BULLET_RE.exec(line);
+      if (!bulletMatch)
+        break;
+      changed_files.push(bulletMatch[1].trim());
+    }
+  }
+  return {
+    branch: branchMatch[1],
+    worktree_path: worktreeMatch[1],
+    changed_files
+  };
+}
+function emitImplementationSpawn(state, postSpecs) {
+  return {
+    state: { ...state, post_specs: postSpecs },
+    action: {
+      kind: "spawn_subagents",
+      purpose: "implement",
+      batch_id: IMPLEMENTATION_BATCH_ID,
+      invocations: [
+        {
+          invocation_id: IMPLEMENTATION_INV_ID,
+          subagent_type: "engineer",
+          description: "Implement the validated PRD/specs",
+          prompt: buildImplementationPrompt({
+            feature_description: state.feature_description,
+            codebase_path: state.codebase_path ?? "",
+            spec_files: state.written_files,
+            blast_radius_summary: summarizeBlastRadius(postSpecs),
+            git_history_summary: state.git_history_summary ?? void 0
+          }),
+          isolation: "worktree"
+        }
+      ]
+    }
+  };
+}
+function abortToFinalize(state, postSpecs, message, errorKind) {
+  return {
+    state: appendError({ ...state, current_step: "finalize", post_specs: postSpecs }, message, errorKind),
+    action: { kind: "emit_message", message, level: "warn" }
+  };
+}
+function processImplementationResult(state, postSpecs, result) {
+  const response = result.responses.find((r) => r.invocation_id === IMPLEMENTATION_INV_ID);
+  if (!response || response.error || !response.raw_text?.trim()) {
+    return abortToFinalize(state, postSpecs, `implementation subagent failed: ${response?.error ?? "no response"}; aborting \u2014 nothing to verify without code`, "upstream_failure");
+  }
+  const parsed = parseImplementationReport(response.raw_text);
+  if (!parsed) {
+    return abortToFinalize(state, postSpecs, "implementation subagent report did not include a parsable BRANCH:/WORKTREE: footer; aborting \u2014 nothing to verify without code", "structural");
+  }
+  const implementation = {
+    branch: parsed.branch,
+    worktree_path: parsed.worktree_path,
+    changed_files: parsed.changed_files,
+    raw_report: truncateRawReport(response.raw_text.trim())
+  };
+  return {
+    state: {
+      ...state,
+      current_step: "post_impl_verification",
+      post_specs: { ...postSpecs, implementation }
+    },
+    action: {
+      kind: "emit_message",
+      message: `Implementation complete: branch '${implementation.branch}' at ${implementation.worktree_path} (${implementation.changed_files.length} file(s) changed).`
+    }
+  };
+}
+var handleImplementation = ({ state, result }) => {
+  const postSpecs = ensurePostSpecs3(state);
+  if (result?.kind === "subagent_batch_result" && result.batch_id === IMPLEMENTATION_BATCH_ID) {
+    return processImplementationResult(state, postSpecs, result);
+  }
+  if (postSpecs.implementation) {
+    return {
+      state: {
+        ...state,
+        current_step: "post_impl_verification",
+        post_specs: postSpecs
+      },
+      action: {
+        kind: "emit_message",
+        message: "Implementation already recorded; proceeding to verification."
+      }
+    };
+  }
+  return emitImplementationSpawn(state, postSpecs);
+};
+
+// packages/orchestration/dist/handlers/post-impl-verification.js
+function ensurePostSpecs4(state) {
   return state.post_specs ?? initialPostSpecs();
 }
 function ensureVerification(postSpecs) {
@@ -34052,7 +34246,7 @@ function emitCallForStep(state, postSpecs, verification, worktree, beforeGraphPa
   }
 }
 var handlePostImplVerification = ({ state, result }) => {
-  const postSpecs = ensurePostSpecs3(state);
+  const postSpecs = ensurePostSpecs4(state);
   const verification = ensureVerification(postSpecs);
   const worktree = worktreePath(postSpecs);
   const beforeGraphPath = state.codebase_graph_path;
@@ -34161,13 +34355,7 @@ var HANDLERS = {
   self_check: handleSelfCheck,
   implementation_gate: handleImplementationGate,
   pre_impl_grounding: handlePreImplGrounding,
-  /**
-   * Registered for TypeScript's Record<PipelineState["current_step"], ...>
-   * completeness (see pipeline-step.ts's post_impl_verification doc) — NOT
-   * reachable from any other handler's transition in this PR (3c). Only
-   * exercised by tests that construct current_step:"post_impl_verification"
-   * directly.
-   */
+  implementation: handleImplementation,
   post_impl_verification: handlePostImplVerification,
   finalize: handleFinalize,
   complete: ({ state }) => ({
@@ -34417,6 +34605,17 @@ function defaultFakeSectionDraft(section_type) {
       return [heading, "", "Canned synthetic content."].join("\n");
   }
 }
+function fakeImplementationReport() {
+  return [
+    "Implemented the requested change on a fresh worktree, per protocol.",
+    "",
+    "BRANCH: feat/canned-implementation",
+    "WORKTREE: /tmp/canned/implementation-worktree",
+    "SHA: 0000000000000000000000000000000000cafe",
+    "FILES:",
+    "- src/example.ts"
+  ].join("\n");
+}
 function fakeJudgeVerdict() {
   return JSON.stringify({
     verdict: "PASS",
@@ -34453,6 +34652,9 @@ function makeCannedDispatcher(opts = {}) {
     }
     if (invocation_id === GIT_HISTORY_INV_ID) {
       return "History is silent within the searched space (canned git-historian response).";
+    }
+    if (invocation_id === IMPLEMENTATION_INV_ID) {
+      return fakeImplementationReport();
     }
     return "Canned synthetic response.";
   }

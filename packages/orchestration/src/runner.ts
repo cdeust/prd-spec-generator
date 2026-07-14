@@ -41,6 +41,7 @@ import { handleFileExport } from "./handlers/file-export.js";
 import { handleSelfCheck } from "./handlers/self-check.js";
 import { handleImplementationGate } from "./handlers/implementation-gate.js";
 import { handlePreImplGrounding } from "./handlers/pre-impl-grounding.js";
+import { handleImplementation } from "./handlers/implementation.js";
 import { handlePostImplVerification } from "./handlers/post-impl-verification.js";
 import { handleFinalize } from "./handlers/finalize.js";
 
@@ -82,13 +83,7 @@ const HANDLERS: Record<PipelineState["current_step"], StepHandler> = {
   self_check: handleSelfCheck,
   implementation_gate: handleImplementationGate,
   pre_impl_grounding: handlePreImplGrounding,
-  /**
-   * Registered for TypeScript's Record<PipelineState["current_step"], ...>
-   * completeness (see pipeline-step.ts's post_impl_verification doc) — NOT
-   * reachable from any other handler's transition in this PR (3c). Only
-   * exercised by tests that construct current_step:"post_impl_verification"
-   * directly.
-   */
+  implementation: handleImplementation,
   post_impl_verification: handlePostImplVerification,
   finalize: handleFinalize,
   complete: ({ state }) => ({

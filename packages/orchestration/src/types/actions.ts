@@ -85,9 +85,14 @@ export const SpawnSubagentsActionSchema = z.object({
   /**
    * Observability label only — host dispatch logic MUST NOT branch on this
    * field. It exists so logs and telemetry can attribute batches to a high-
-   * level intent (judging vs drafting vs reviewing).
+   * level intent (judging vs drafting vs reviewing vs implementing).
+   *
+   * "implement" added additively (design-phases-3-5.md §3, PR 4a) for the
+   * `implementation` step's engineer spawn — no existing purpose value was
+   * removed or repurposed, so every prior batch's observability label is
+   * unaffected.
    */
-  purpose: z.enum(["judge", "draft", "review"]),
+  purpose: z.enum(["judge", "draft", "review", "implement"]),
 });
 export type SpawnSubagentsAction = z.infer<typeof SpawnSubagentsActionSchema>;
 

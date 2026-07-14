@@ -20,3 +20,8 @@ export {
   buildGitHistoryPrompt,
   type GitHistoryPromptInput,
 } from "./git-history-prompts.js";
+
+export {
+  buildImplementationPrompt,
+  type ImplementationPromptInput,
+} from "./implementation-prompts.js";

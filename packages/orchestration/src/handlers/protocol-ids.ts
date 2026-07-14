@@ -92,3 +92,12 @@ export const POST_IMPL_VERIFY_SEMANTIC_DIFF_CORRELATION_ID =
   "post_impl_verification_verify_semantic_diff";
 export const POST_IMPL_CHECK_SECURITY_GATES_CORRELATION_ID =
   "post_impl_verification_check_security_gates";
+
+/**
+ * implementation.ts — single invocation AND batch_id for the `implementation`
+ * step's engineer spawn (design-phases-3-5.md §3, PR 4a). Single-invocation
+ * batch, mirrors GIT_HISTORY_INV_ID / JIRA_GENERATION_INV_ID's naming
+ * convention — one constant covers both since there is exactly one
+ * invocation per batch.
+ */
+export const IMPLEMENTATION_INV_ID = "implementation_engineer";

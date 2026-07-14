@@ -13,8 +13,9 @@
  *      call_pipeline_tool (pre_impl_grounding never runs).
  *   2. "Implement" with a codebase + an affected-symbols claim: reaches
  *      `done`, DOES emit get_impact call_pipeline_tool(s) for the claimed
- *      symbol(s), and still completes (PR 3b's grounding dead-end still
- *      converges to finalize/done — no `implementation` step is wired yet).
+ *      symbol(s), traverses `implementation` (recording a parsed
+ *      branch/worktree_path from the canned engineer report) and
+ *      `post_impl_verification` (PR 4a wiring), and still completes.
  */
 
 import { describe, expect, it } from "vitest";
@@ -99,8 +100,8 @@ describe("implementation_gate — PRD-only smoke path (zero regression)", () => 
   });
 });
 
-describe("implementation_gate — Implement smoke path (dead-ended gate, PR 3b)", () => {
-  it("emits get_impact for the claimed symbol, still reaches done", () => {
+describe("implementation_gate — Implement smoke path (PR 4a: implementation + post-impl verification wired)", () => {
+  it("emits get_impact for the claimed symbol, implements, verifies, and reaches done", () => {
     const dispatch = makeCannedDispatcher({
       freeform_answer: "smoke-gate-answer",
       graph_path: "/tmp/smoke-gate-impl/.prd-gen/graphs/smoke/graph",
@@ -125,5 +126,19 @@ describe("implementation_gate — Implement smoke path (dead-ended gate, PR 3b)"
         (r) => r.qualified_name === "src/auth.ts::login" && r.success,
       ),
     ).toBe(true);
+    // PR 4a: implementation ran and recorded a parsed branch/worktree_path
+    // from the canned engineer report, then post_impl_verification ran the
+    // full 4-call sequence.
+    expect(result.finalState.post_specs?.implementation?.branch).toBe(
+      "feat/canned-implementation",
+    );
+    expect(result.finalState.post_specs?.implementation?.worktree_path).toBe(
+      "/tmp/canned/implementation-worktree",
+    );
+    expect(result.observedToolNames).toContain("index_codebase");
+    expect(result.observedToolNames).toContain("detect_changes");
+    expect(result.observedToolNames).toContain("verify_semantic_diff");
+    expect(result.observedToolNames).toContain("check_security_gates");
+    expect(result.finalState.post_specs?.verification?.gates_passed).toBe(true);
   });
 });
