@@ -86,6 +86,11 @@ function composeAction(state: PipelineState, round: number): HandlerAction {
       answer: c.answer,
     })),
     recall_summary: "",
+    // git-historian investigation report (Phase 2), threaded so clarification
+    // questions can be informed by provenance/prior-attempt context without
+    // re-asking something history already answers. "" when no codebase or
+    // the investigation returned nothing.
+    git_history_summary: state.git_history_summary ?? "",
   });
   return {
     kind: "spawn_subagents",

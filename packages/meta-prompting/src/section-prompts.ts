@@ -108,6 +108,21 @@ export interface SectionPromptInput {
    * source: Phase 1a (2026-07-14) — Cortex memory-loop closure.
    */
   readonly global_recall_summary?: string;
+  /**
+   * git-historian investigation report for the feature's zone
+   * (state.git_history_summary), fetched ONCE per run in input_analysis
+   * after code-graph grounding settles. Distinct from `global_recall_summary`
+   * (Cortex prior-run memory) and `codebase_grounding` (code-graph
+   * symbols/communities): this is version-control provenance — relevant
+   * commits/PRs, abandoned prior attempts, churn hotspots, discovered
+   * constraints. Rendered in its own `<git_history>` block. Optional/falsy
+   * for pipelines predating the field, without a codebase, or when the
+   * investigation returned nothing — the rendered prompt is then
+   * byte-identical to before.
+   *
+   * source: Phase 2 (2026-07-14) — git-historian stage.
+   */
+  readonly git_history_summary?: string;
 }
 
 const COMMON_RULES = [
@@ -391,6 +406,9 @@ export function buildSectionPrompt(input: SectionPromptInput): string {
     "",
     input.global_recall_summary
       ? `<project_memory>\n${input.global_recall_summary}\n</project_memory>\n`
+      : "",
+    input.git_history_summary
+      ? `<git_history>\n${input.git_history_summary}\n</git_history>\n`
       : "",
     input.recall_summary
       ? `<codebase_context>\n${input.recall_summary}\n</codebase_context>\n`

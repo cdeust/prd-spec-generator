@@ -32,6 +32,7 @@ import {
   SECTION_GENERATE_INV_PREFIX,
   SELF_CHECK_JUDGE_INV_PREFIX,
   JIRA_GENERATION_INV_ID,
+  GIT_HISTORY_INV_ID,
 } from "./handlers/protocol-ids.js";
 
 export interface CannedDispatcherOptions {
@@ -152,6 +153,9 @@ export function makeCannedDispatcher(
     }
     if (invocation_id === JIRA_GENERATION_INV_ID) {
       return "## JIRA Tickets\n\nCanned JIRA placeholder.";
+    }
+    if (invocation_id === GIT_HISTORY_INV_ID) {
+      return "History is silent within the searched space (canned git-historian response).";
     }
     return "Canned synthetic response.";
   }
