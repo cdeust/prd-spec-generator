@@ -30,6 +30,7 @@ import {
 } from "@prd-gen/core";
 import { z } from "zod";
 import { SELF_CHECK_JUDGE_INV_PREFIX } from "./protocol-ids.js";
+import { emitRememberOrDone, handleRememberPhase } from "./self-check/remember-phase.js";
 
 const VERIFY_BATCH_ID = "self_check_verify";
 const VALIDATE_PRD_CORRELATION_ID = "self_check_validate_prd_against_graph";
@@ -261,28 +262,28 @@ function finalize(
     .filter((l) => l !== "")
     .join("\n");
 
-  return {
-    state: { ...state, current_step: "complete" as const },
-    action: {
-      kind: "done" as const,
-      summary,
-      artifacts: state.sections.map((s) => `${s.section_type}: ${s.status}`),
-      // Typed verification surface (Phase 3+4 cross-audit closure). Callers
-      // MUST consume this field, not regex-parse `summary`. The string
-      // remains as a human-readable artifact only.
-      verification: {
-        claims_evaluated: verificationReport.claims_evaluated,
-        distribution: verificationReport.distribution,
-        distribution_suspicious: verificationReport.distribution_suspicious,
-        // Attach the PRD-vs-graph validation report when one was produced. Left
-        // undefined for non-codebase runs so the prior verification shape is
-        // unchanged (backward-compatible). See VerificationSummarySchema.
-        ...(state.prd_validation
-          ? { prd_graph_validation: state.prd_validation }
-          : {}),
-      },
+  // Phase C (remember) needs a host round trip before `done` can be
+  // returned — emitRememberOrDone stores this payload in
+  // state.pending_completion and emits the Cortex `remember` call.
+  // source: Phase 1b (2026-07-14) — Cortex memory-loop closure.
+  return emitRememberOrDone(state, {
+    summary,
+    artifacts: state.sections.map((s) => `${s.section_type}: ${s.status}`),
+    // Typed verification surface (Phase 3+4 cross-audit closure). Callers
+    // MUST consume this field, not regex-parse `summary`. The string
+    // remains as a human-readable artifact only.
+    verification: {
+      claims_evaluated: verificationReport.claims_evaluated,
+      distribution: verificationReport.distribution,
+      distribution_suspicious: verificationReport.distribution_suspicious,
+      // Attach the PRD-vs-graph validation report when one was produced. Left
+      // undefined for non-codebase runs so the prior verification shape is
+      // unchanged (backward-compatible). See VerificationSummarySchema.
+      ...(state.prd_validation
+        ? { prd_graph_validation: state.prd_validation }
+        : {}),
     },
-  };
+  });
 }
 
 /**
@@ -359,6 +360,14 @@ function handleSelfCheckPhaseB(
 }
 
 export const handleSelfCheck: StepHandler = ({ state, result }) => {
+  // Phase C — the final summary was already computed (Phase A/B) and is
+  // awaiting the Cortex `remember` round trip. Route here BEFORE Phase 0/A/B
+  // so a replay never re-runs validation or re-dispatches judges once the
+  // run has already reached completion.
+  if (state.pending_completion) {
+    return handleRememberPhase(state, result);
+  }
+
   // Phase 0 — PRD-vs-graph validation runs before the judge phase. It either
   // emits the validation call (and we return immediately) or falls through
   // with possibly-updated state (validation stored / skipped / failed-advisory).

@@ -22,6 +22,29 @@ import { newPipelineState, step, type PipelineState } from "../index.js";
 /** Must match self-check.ts:VALIDATE_PRD_CORRELATION_ID. */
 const VALIDATE_PRD_CORRELATION_ID = "self_check_validate_prd_against_graph";
 
+/** Must match self-check/remember-phase.ts:REMEMBER_CORRELATION_ID. */
+const REMEMBER_CORRELATION_ID = "self_check_remember";
+
+/**
+ * Self-check's finalize() now hands off to Phase C (Cortex `remember`)
+ * before `done` (Phase 1b) — drive that round trip so pre-existing
+ * assertions on the terminal `done` action keep working.
+ */
+function resolveRemember(out: ReturnType<typeof step>) {
+  expect(out.action.kind).toBe("call_cortex_tool");
+  if (out.action.kind !== "call_cortex_tool") return out;
+  expect(out.action.correlation_id).toBe(REMEMBER_CORRELATION_ID);
+  return step({
+    state: out.state,
+    result: {
+      kind: "tool_result",
+      correlation_id: out.action.correlation_id,
+      success: true,
+      data: {},
+    },
+  });
+}
+
 function stateAtSelfCheck(opts: {
   graphPath: string | null;
   prdPath?: string;
@@ -89,10 +112,12 @@ describe("self-check PRD-vs-graph validation (Phase 0)", () => {
 
     expect(after.state.prd_validated).toBe(true);
     expect(after.state.prd_validation).toEqual(report);
-    // Empty sections → judge phase short-circuits to done.
-    expect(after.action.kind).toBe("done");
-    if (after.action.kind === "done") {
-      expect(after.action.verification?.prd_graph_validation).toEqual(report);
+    // Empty sections → judge phase short-circuits to the remember phase,
+    // then done.
+    const final = resolveRemember(after);
+    expect(final.action.kind).toBe("done");
+    if (final.action.kind === "done") {
+      expect(final.action.verification?.prd_graph_validation).toEqual(report);
     }
   });
 
@@ -115,9 +140,10 @@ describe("self-check PRD-vs-graph validation (Phase 0)", () => {
 
     expect(after.state.prd_validated).toBe(true);
     expect(after.state.prd_validation).toBeNull();
-    expect(after.action.kind).toBe("done");
-    if (after.action.kind === "done") {
-      expect(after.action.verification?.prd_graph_validation).toBeUndefined();
+    const final = resolveRemember(after);
+    expect(final.action.kind).toBe("done");
+    if (final.action.kind === "done") {
+      expect(final.action.verification?.prd_graph_validation).toBeUndefined();
     }
     expect(
       after.state.errors.some((e) =>
@@ -128,9 +154,10 @@ describe("self-check PRD-vs-graph validation (Phase 0)", () => {
 
   it("no graph_path → no AP call, no prd_graph_validation (backward-compatible)", () => {
     const s = stateAtSelfCheck({ graphPath: null });
-    const out = step({ state: s });
+    const issued = step({ state: s });
 
-    // Skips straight past validation into the judge phase → done.
+    // Skips straight past validation into the judge phase → remember → done.
+    const out = resolveRemember(issued);
     expect(out.action.kind).toBe("done");
     if (out.action.kind === "done") {
       expect(out.action.verification?.prd_graph_validation).toBeUndefined();

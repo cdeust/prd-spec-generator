@@ -30165,6 +30165,150 @@ var EffectivenessTracker = class {
   }
 };
 
+// packages/orchestration/dist/types/actions.js
+var AskUserActionSchema = external_exports.object({
+  kind: external_exports.literal("ask_user"),
+  /** Identifies the question so the host can map answer → state */
+  question_id: external_exports.string(),
+  header: external_exports.string().describe("Short prompt header for AskUserQuestion tool"),
+  description: external_exports.string().describe("Body explaining what we need from the user"),
+  options: external_exports.array(external_exports.object({
+    label: external_exports.string(),
+    description: external_exports.string().optional()
+  })).min(2).max(4).nullable().describe("Structured options for AskUserQuestion. Null = freeform answer."),
+  multi_select: external_exports.boolean().default(false)
+});
+var CallPipelineToolActionSchema = external_exports.object({
+  kind: external_exports.literal("call_pipeline_tool"),
+  tool_name: external_exports.string().describe("automatised-pipeline MCP tool name"),
+  arguments: external_exports.record(external_exports.string(), external_exports.unknown()),
+  /** Opaque routing token — host echoes it back unchanged on the corresponding tool_result. */
+  correlation_id: external_exports.string()
+});
+var CallCortexToolActionSchema = external_exports.object({
+  kind: external_exports.literal("call_cortex_tool"),
+  tool_name: external_exports.string().describe("Cortex MCP tool name"),
+  arguments: external_exports.record(external_exports.string(), external_exports.unknown()),
+  /** Opaque routing token — host echoes it back unchanged on the corresponding tool_result. */
+  correlation_id: external_exports.string()
+});
+var SpawnSubagentsActionSchema = external_exports.object({
+  kind: external_exports.literal("spawn_subagents"),
+  /** Multiple invocations to run IN PARALLEL — host MUST issue them in one message */
+  invocations: external_exports.array(external_exports.object({
+    invocation_id: external_exports.string(),
+    subagent_type: external_exports.string(),
+    description: external_exports.string(),
+    prompt: external_exports.string(),
+    isolation: external_exports.enum(["worktree", "none"]).default("none")
+  })),
+  /** Identifies the batch so the runner can route the batch result on submission. */
+  batch_id: external_exports.string(),
+  /**
+   * Observability label only — host dispatch logic MUST NOT branch on this
+   * field. It exists so logs and telemetry can attribute batches to a high-
+   * level intent (judging vs drafting vs reviewing).
+   */
+  purpose: external_exports.enum(["judge", "draft", "review"])
+});
+var WriteFileActionSchema = external_exports.object({
+  kind: external_exports.literal("write_file"),
+  path: external_exports.string(),
+  content: external_exports.string()
+});
+var EmitMessageActionSchema = external_exports.object({
+  kind: external_exports.literal("emit_message"),
+  message: external_exports.string(),
+  level: external_exports.enum(["info", "warn", "error"]).default("info")
+});
+var VerificationSummarySchema = external_exports.object({
+  claims_evaluated: external_exports.number().int().nonnegative(),
+  distribution: external_exports.record(VerdictSchema, external_exports.number().int().nonnegative()),
+  distribution_suspicious: external_exports.boolean(),
+  /**
+   * PRD-vs-graph validation report from automatised-pipeline
+   * `validate_prd_against_graph`, attached when the run had a code graph.
+   * Symbol-hallucination / community-consistency / process-impact findings.
+   * Opaque object — the orchestration layer is a passthrough and does not parse
+   * the AP payload. Absent when no codebase was provided (preserves the prior
+   * verification shape for non-codebase runs).
+   *
+   * source: AP validate_prd_against_graph contract (shipped 2026-06). Attached
+   * here (not as a new top-level done field) so KPI/test consumers read one
+   * typed verification surface.
+   */
+  prd_graph_validation: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+});
+var DoneActionSchema = external_exports.object({
+  kind: external_exports.literal("done"),
+  summary: external_exports.string(),
+  artifacts: external_exports.array(external_exports.string()).default([]),
+  /**
+   * Typed verification summary. Optional only because not every `done`
+   * emission has run the judge phase (zero-claim short-circuit, malformed
+   * input, etc.). When present, KPI extractors and tests MUST read this
+   * field — never regex-parse `summary`.
+   */
+  verification: VerificationSummarySchema.optional()
+});
+var FailedActionSchema = external_exports.object({
+  kind: external_exports.literal("failed"),
+  reason: external_exports.string(),
+  step: external_exports.string()
+});
+var HandlerActionSchema = external_exports.discriminatedUnion("kind", [
+  AskUserActionSchema,
+  CallPipelineToolActionSchema,
+  CallCortexToolActionSchema,
+  SpawnSubagentsActionSchema,
+  WriteFileActionSchema,
+  EmitMessageActionSchema,
+  DoneActionSchema,
+  FailedActionSchema
+]);
+var NextActionSchema = external_exports.discriminatedUnion("kind", [
+  AskUserActionSchema,
+  CallPipelineToolActionSchema,
+  CallCortexToolActionSchema,
+  SpawnSubagentsActionSchema,
+  WriteFileActionSchema,
+  DoneActionSchema,
+  FailedActionSchema
+]);
+var UserAnswerSchema = external_exports.object({
+  kind: external_exports.literal("user_answer"),
+  question_id: external_exports.string(),
+  selected: external_exports.array(external_exports.string()).default([]),
+  freeform: external_exports.string().optional()
+});
+var ToolResultSchema = external_exports.object({
+  kind: external_exports.literal("tool_result"),
+  correlation_id: external_exports.string(),
+  success: external_exports.boolean(),
+  data: external_exports.unknown(),
+  error: external_exports.string().optional()
+});
+var SubagentBatchResultSchema = external_exports.object({
+  kind: external_exports.literal("subagent_batch_result"),
+  batch_id: external_exports.string(),
+  responses: external_exports.array(external_exports.object({
+    invocation_id: external_exports.string(),
+    raw_text: external_exports.string().optional(),
+    error: external_exports.string().optional()
+  }))
+});
+var FileWrittenSchema = external_exports.object({
+  kind: external_exports.literal("file_written"),
+  path: external_exports.string(),
+  bytes: external_exports.number().int().nonnegative()
+});
+var ActionResultSchema = external_exports.discriminatedUnion("kind", [
+  UserAnswerSchema,
+  ToolResultSchema,
+  SubagentBatchResultSchema,
+  FileWrittenSchema
+]);
+
 // packages/orchestration/dist/types/state.js
 var PipelineStepSchema = external_exports.enum([
   "banner",
@@ -30469,6 +30613,72 @@ var PipelineStateSchema = external_exports.object({
    */
   strategy_executions: external_exports.array(ExecutionResultSchema).default([]),
   /**
+   * Global Cortex memory-recall summary for the whole run, fetched ONCE
+   * (query = feature_description) at the start of input_analysis — before
+   * any codebase-specific or per-section context is built. Distinct from
+   * `codebase_grounding` (code-graph evidence from automatised-pipeline) and
+   * from the per-section `call_cortex_tool[recall]` in section-generation.ts
+   * (which queries a section-specific template). This is prior-run/decision
+   * memory, injected into every downstream prompt that builds context so
+   * generation benefits from what Cortex already knows about the feature —
+   * not just what the current codebase graph shows.
+   *
+   * Empty string when the recall returned no usable content or Cortex was
+   * unreachable (never null-vs-empty ambiguity downstream); `null` only
+   * before the recall has run. Failure/emptiness is tracked via the existing
+   * `cortex_recall_empty_count` counter (shared with the per-section path —
+   * both are "a Cortex recall call returned nothing", the same degraded-
+   * generation signal) rather than a duplicate counter.
+   *
+   * source: Phase 1a (2026-07-14) — Cortex memory-loop closure. Prior to this
+   * field, Cortex was consulted only for preflight liveness (memory_stats)
+   * and per-section recall; no run-level memory context reached section
+   * drafting.
+   */
+  global_recall_summary: external_exports.string().nullable().default(null),
+  /**
+   * Idempotency flag for the global recall emission in input_analysis.
+   * Mirrors `prd_input_prepared` / `codebase_indexed`: set true once the
+   * recall call has been processed (success OR failure) so the step fires
+   * exactly once per run and replayed state does not re-issue the call.
+   *
+   * source: Phase 1a (2026-07-14).
+   */
+  global_recall_done: external_exports.boolean().default(false),
+  /**
+   * Terminal `done` action payload computed by self-check's finalize once
+   * verdicts are aggregated, held here while Phase C (Cortex `remember`)
+   * runs. The reducer cannot emit `done` and also wait for a host round
+   * trip in the same step — this field is the seam: finalize's summary/
+   * artifacts/verification are persisted so the NEXT step (after the
+   * remember tool_result comes back) can reconstruct the exact `done`
+   * action without re-deriving it from verdicts that are no longer
+   * available (verification_plan is cleared during Phase B).
+   *
+   * Null before Phase A/B has produced a final summary, and null again once
+   * Phase C consumes it (the `done` action is emitted and current_step
+   * advances to "complete").
+   *
+   * source: Phase 1b (2026-07-14) — Cortex memory-loop closure.
+   */
+  pending_completion: external_exports.object({
+    summary: external_exports.string(),
+    artifacts: external_exports.array(external_exports.string()),
+    // Matches DoneActionSchema.verification exactly (actions.ts) so
+    // remember-phase.ts can reconstruct the `done` action byte-for-byte
+    // without a cast. source: Phase 1b (2026-07-14).
+    verification: VerificationSummarySchema.optional()
+  }).nullable().default(null),
+  /**
+   * Idempotency flag for the Phase C `remember` emission in self-check.
+   * Mirrors `prd_validated`. A `remember` failure is recorded via
+   * `appendError` (upstream_failure) but still sets this flag true — the
+   * run's completion must never be blocked by a memory-write failure.
+   *
+   * source: Phase 1b (2026-07-14).
+   */
+  run_remembered: external_exports.boolean().default(false),
+  /**
    * Per-run retry policy injected by the composition root (mcp-server) before
    * handing the state to the reducer. The reducer reads this field only —
    * it never calls `getRetryArmForRun` or `getMaxAttemptsForRun` directly,
@@ -30559,150 +30769,6 @@ function appendError(state, message, kind) {
     error_kinds: nextKinds
   };
 }
-
-// packages/orchestration/dist/types/actions.js
-var AskUserActionSchema = external_exports.object({
-  kind: external_exports.literal("ask_user"),
-  /** Identifies the question so the host can map answer → state */
-  question_id: external_exports.string(),
-  header: external_exports.string().describe("Short prompt header for AskUserQuestion tool"),
-  description: external_exports.string().describe("Body explaining what we need from the user"),
-  options: external_exports.array(external_exports.object({
-    label: external_exports.string(),
-    description: external_exports.string().optional()
-  })).min(2).max(4).nullable().describe("Structured options for AskUserQuestion. Null = freeform answer."),
-  multi_select: external_exports.boolean().default(false)
-});
-var CallPipelineToolActionSchema = external_exports.object({
-  kind: external_exports.literal("call_pipeline_tool"),
-  tool_name: external_exports.string().describe("automatised-pipeline MCP tool name"),
-  arguments: external_exports.record(external_exports.string(), external_exports.unknown()),
-  /** Opaque routing token — host echoes it back unchanged on the corresponding tool_result. */
-  correlation_id: external_exports.string()
-});
-var CallCortexToolActionSchema = external_exports.object({
-  kind: external_exports.literal("call_cortex_tool"),
-  tool_name: external_exports.string().describe("Cortex MCP tool name"),
-  arguments: external_exports.record(external_exports.string(), external_exports.unknown()),
-  /** Opaque routing token — host echoes it back unchanged on the corresponding tool_result. */
-  correlation_id: external_exports.string()
-});
-var SpawnSubagentsActionSchema = external_exports.object({
-  kind: external_exports.literal("spawn_subagents"),
-  /** Multiple invocations to run IN PARALLEL — host MUST issue them in one message */
-  invocations: external_exports.array(external_exports.object({
-    invocation_id: external_exports.string(),
-    subagent_type: external_exports.string(),
-    description: external_exports.string(),
-    prompt: external_exports.string(),
-    isolation: external_exports.enum(["worktree", "none"]).default("none")
-  })),
-  /** Identifies the batch so the runner can route the batch result on submission. */
-  batch_id: external_exports.string(),
-  /**
-   * Observability label only — host dispatch logic MUST NOT branch on this
-   * field. It exists so logs and telemetry can attribute batches to a high-
-   * level intent (judging vs drafting vs reviewing).
-   */
-  purpose: external_exports.enum(["judge", "draft", "review"])
-});
-var WriteFileActionSchema = external_exports.object({
-  kind: external_exports.literal("write_file"),
-  path: external_exports.string(),
-  content: external_exports.string()
-});
-var EmitMessageActionSchema = external_exports.object({
-  kind: external_exports.literal("emit_message"),
-  message: external_exports.string(),
-  level: external_exports.enum(["info", "warn", "error"]).default("info")
-});
-var VerificationSummarySchema = external_exports.object({
-  claims_evaluated: external_exports.number().int().nonnegative(),
-  distribution: external_exports.record(VerdictSchema, external_exports.number().int().nonnegative()),
-  distribution_suspicious: external_exports.boolean(),
-  /**
-   * PRD-vs-graph validation report from automatised-pipeline
-   * `validate_prd_against_graph`, attached when the run had a code graph.
-   * Symbol-hallucination / community-consistency / process-impact findings.
-   * Opaque object — the orchestration layer is a passthrough and does not parse
-   * the AP payload. Absent when no codebase was provided (preserves the prior
-   * verification shape for non-codebase runs).
-   *
-   * source: AP validate_prd_against_graph contract (shipped 2026-06). Attached
-   * here (not as a new top-level done field) so KPI/test consumers read one
-   * typed verification surface.
-   */
-  prd_graph_validation: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
-});
-var DoneActionSchema = external_exports.object({
-  kind: external_exports.literal("done"),
-  summary: external_exports.string(),
-  artifacts: external_exports.array(external_exports.string()).default([]),
-  /**
-   * Typed verification summary. Optional only because not every `done`
-   * emission has run the judge phase (zero-claim short-circuit, malformed
-   * input, etc.). When present, KPI extractors and tests MUST read this
-   * field — never regex-parse `summary`.
-   */
-  verification: VerificationSummarySchema.optional()
-});
-var FailedActionSchema = external_exports.object({
-  kind: external_exports.literal("failed"),
-  reason: external_exports.string(),
-  step: external_exports.string()
-});
-var HandlerActionSchema = external_exports.discriminatedUnion("kind", [
-  AskUserActionSchema,
-  CallPipelineToolActionSchema,
-  CallCortexToolActionSchema,
-  SpawnSubagentsActionSchema,
-  WriteFileActionSchema,
-  EmitMessageActionSchema,
-  DoneActionSchema,
-  FailedActionSchema
-]);
-var NextActionSchema = external_exports.discriminatedUnion("kind", [
-  AskUserActionSchema,
-  CallPipelineToolActionSchema,
-  CallCortexToolActionSchema,
-  SpawnSubagentsActionSchema,
-  WriteFileActionSchema,
-  DoneActionSchema,
-  FailedActionSchema
-]);
-var UserAnswerSchema = external_exports.object({
-  kind: external_exports.literal("user_answer"),
-  question_id: external_exports.string(),
-  selected: external_exports.array(external_exports.string()).default([]),
-  freeform: external_exports.string().optional()
-});
-var ToolResultSchema = external_exports.object({
-  kind: external_exports.literal("tool_result"),
-  correlation_id: external_exports.string(),
-  success: external_exports.boolean(),
-  data: external_exports.unknown(),
-  error: external_exports.string().optional()
-});
-var SubagentBatchResultSchema = external_exports.object({
-  kind: external_exports.literal("subagent_batch_result"),
-  batch_id: external_exports.string(),
-  responses: external_exports.array(external_exports.object({
-    invocation_id: external_exports.string(),
-    raw_text: external_exports.string().optional(),
-    error: external_exports.string().optional()
-  }))
-});
-var FileWrittenSchema = external_exports.object({
-  kind: external_exports.literal("file_written"),
-  path: external_exports.string(),
-  bytes: external_exports.number().int().nonnegative()
-});
-var ActionResultSchema = external_exports.discriminatedUnion("kind", [
-  UserAnswerSchema,
-  ToolResultSchema,
-  SubagentBatchResultSchema,
-  FileWrittenSchema
-]);
 
 // packages/orchestration/dist/section-plan.js
 var SECTIONS_BY_CONTEXT = {
@@ -31046,8 +31112,61 @@ var handleContextDetection = ({ state, result }) => {
 
 // packages/orchestration/dist/handlers/input-analysis.js
 import { join as join3 } from "node:path";
+
+// packages/orchestration/dist/handlers/cortex-recall-summary.js
+var RECALL_MAX_RESULTS_INCLUDED = 8;
+var RECALL_RESULT_TRUNCATE_CHARS = 800;
+var RECALL_TRUNCATION_MARKER = "...";
+function summarizeCortexRecall(data) {
+  if (!data || typeof data !== "object")
+    return "";
+  const results = data.results;
+  if (!Array.isArray(results))
+    return "";
+  return results.slice(0, RECALL_MAX_RESULTS_INCLUDED).map((r) => r.content).filter((c) => typeof c === "string" && c.length > 0).map((c) => c.length > RECALL_RESULT_TRUNCATE_CHARS ? c.slice(0, RECALL_RESULT_TRUNCATE_CHARS) + RECALL_TRUNCATION_MARKER : c).join("\n---\n");
+}
+
+// packages/orchestration/dist/handlers/input-analysis.js
 var CORRELATION_ID = "input_analysis_index";
 var PREPARE_CORRELATION_ID = "input_analysis_prepare_prd_input";
+var GLOBAL_RECALL_CORRELATION_ID = "input_analysis_global_recall";
+var GLOBAL_RECALL_MAX_RESULTS = 8;
+function handleGlobalRecall(state, result) {
+  if (result?.kind === "tool_result" && result.correlation_id === GLOBAL_RECALL_CORRELATION_ID) {
+    if (!result.success) {
+      const nextState2 = appendError({
+        ...state,
+        global_recall_done: true,
+        global_recall_summary: "",
+        cortex_recall_empty_count: state.cortex_recall_empty_count + 1
+      }, `global recall failed: ${result.error ?? "unknown"}; continuing without prior-run memory context`, "upstream_failure");
+      return continueAfterGlobalRecall(nextState2);
+    }
+    const summary = summarizeCortexRecall(result.data);
+    const nextState = {
+      ...state,
+      global_recall_done: true,
+      global_recall_summary: summary,
+      cortex_recall_empty_count: summary.length === 0 ? state.cortex_recall_empty_count + 1 : state.cortex_recall_empty_count
+    };
+    return continueAfterGlobalRecall(nextState);
+  }
+  return {
+    state,
+    action: {
+      kind: "call_cortex_tool",
+      tool_name: "recall",
+      arguments: {
+        query: state.feature_description,
+        max_results: GLOBAL_RECALL_MAX_RESULTS
+      },
+      correlation_id: GLOBAL_RECALL_CORRELATION_ID
+    }
+  };
+}
+function continueAfterGlobalRecall(state) {
+  return handleCodebaseAnalysis(state, void 0);
+}
 var GITIGNORE_CONTENT = "*\n";
 function deriveOutputDir(codebasePath, runId) {
   return join3(codebasePath, ".prd-gen", "graphs", runId);
@@ -31104,6 +31223,12 @@ function emitAnalyze(state) {
   };
 }
 var handleInputAnalysis = ({ state, result }) => {
+  if (!state.global_recall_done) {
+    return handleGlobalRecall(state, result);
+  }
+  return handleCodebaseAnalysis(state, result);
+};
+function handleCodebaseAnalysis(state, result) {
   if (!state.codebase_path) {
     return {
       state: { ...state, current_step: "feasibility_gate" },
@@ -31213,7 +31338,7 @@ var handleInputAnalysis = ({ state, result }) => {
     };
   }
   return emitAnalyze(state);
-};
+}
 
 // packages/orchestration/dist/handlers/feasibility-gate.js
 var QUESTION_ID2 = "feasibility_focus";
@@ -31425,6 +31550,10 @@ A: ${c.answer}`).join("\n\n");
     `Attempt: ${input.attempt}`,
     `</context>`,
     "",
+    input.global_recall_summary ? `<project_memory>
+${input.global_recall_summary}
+</project_memory>
+` : "",
     input.recall_summary ? `<codebase_context>
 ${input.recall_summary}
 </codebase_context>
@@ -31928,7 +32057,13 @@ function draftAction(state, section, recall_summary, prior_violations) {
     // wrapped in a prepare_prd_input response) into the prompt so drafts
     // reference real symbols/files/communities/processes. `undefined` when no
     // codebase grounding exists → prompt is byte-identical to before.
-    codebase_grounding: normalizeGrounding(state.codebase_grounding)
+    codebase_grounding: normalizeGrounding(state.codebase_grounding),
+    // Run-level Cortex memory recall (Phase 1a, fetched once in
+    // input_analysis on feature_description), distinct from `recall_summary`
+    // above (per-section, template-driven). `undefined`/"" when Cortex
+    // returned nothing or the run predates the field → prompt is
+    // byte-identical to before.
+    global_recall_summary: state.global_recall_summary ?? void 0
   });
   return {
     kind: "spawn_subagents",
@@ -31985,7 +32120,7 @@ function startRetrieving(init, active) {
   };
 }
 function advanceFromRecall(init, active, data) {
-  const recallSummary = summarizeRecall(data);
+  const recallSummary = summarizeCortexRecall(data);
   const emptyRecall = recallSummary.length === 0;
   const next = {
     ...active,
@@ -32041,17 +32176,6 @@ var handleSectionGeneration = ({ state, result }) => {
   }
   return reissueStalled(init, active);
 };
-var RECALL_MAX_RESULTS_INCLUDED = 8;
-var RECALL_RESULT_TRUNCATE_CHARS = 800;
-var RECALL_TRUNCATION_MARKER = "...";
-function summarizeRecall(data) {
-  if (!data || typeof data !== "object")
-    return "";
-  const results = data.results;
-  if (!Array.isArray(results))
-    return "";
-  return results.slice(0, RECALL_MAX_RESULTS_INCLUDED).map((r) => r.content).filter((c) => typeof c === "string" && c.length > 0).map((c) => c.length > RECALL_RESULT_TRUNCATE_CHARS ? c.slice(0, RECALL_RESULT_TRUNCATE_CHARS) + RECALL_TRUNCATION_MARKER : c).join("\n---\n");
-}
 function collectDraftText(result, sectionType) {
   const expectedId = correlationFor(SECTION_GENERATE_INV_PREFIX, sectionType);
   const response = result.responses.find((r) => r.invocation_id === expectedId);
@@ -33043,6 +33167,69 @@ ${context.memory_excerpts.join("\n---\n")}
   };
 }
 
+// packages/orchestration/dist/handlers/self-check/remember-phase.js
+var REMEMBER_CORRELATION_ID = "self_check_remember";
+var REMEMBER_TAGS = ["prd-gen", "prd-run"];
+var REMEMBER_SOURCE = "prd-gen:self_check";
+function buildRememberContent(state, pending) {
+  const sectionsTotal = state.sections.filter((s) => s.section_type !== "jira_tickets").length;
+  const hasJiraTickets = state.sections.some((s) => s.section_type === "jira_tickets" && s.content);
+  const exportedFiles = state.written_files.length ? state.written_files.join("\n  - ") : "(none written)";
+  return [
+    `PRD run complete: "${state.feature_description}"`,
+    `PRD context: ${state.prd_context ?? "unknown"}`,
+    `Sections: ${sectionsTotal} planned. JIRA tickets generated: ${hasJiraTickets ? "yes" : "no"}.`,
+    "",
+    pending.summary,
+    "",
+    `Exported files (verifiable references):`,
+    `  - ${exportedFiles}`
+  ].join("\n");
+}
+function rememberAction(state, pending) {
+  return {
+    kind: "call_cortex_tool",
+    tool_name: "remember",
+    arguments: {
+      content: buildRememberContent(state, pending),
+      tags: REMEMBER_TAGS,
+      source: REMEMBER_SOURCE
+    },
+    correlation_id: REMEMBER_CORRELATION_ID
+  };
+}
+function doneAction(pending) {
+  return {
+    kind: "done",
+    summary: pending.summary,
+    artifacts: pending.artifacts,
+    verification: pending.verification
+  };
+}
+function emitRememberOrDone(state, pending) {
+  if (state.run_remembered) {
+    return {
+      state: { ...state, current_step: "complete", pending_completion: null },
+      action: doneAction(pending)
+    };
+  }
+  return {
+    state: { ...state, pending_completion: pending },
+    action: rememberAction(state, pending)
+  };
+}
+function handleRememberPhase(state, result) {
+  const pending = state.pending_completion;
+  if (!pending) {
+    throw new Error("handleRememberPhase reached with pending_completion === null");
+  }
+  if (result?.kind === "tool_result" && result.correlation_id === REMEMBER_CORRELATION_ID) {
+    const nextState = result.success ? { ...state, run_remembered: true } : appendError({ ...state, run_remembered: true }, `remember failed: ${result.error ?? "unknown"}; run summary was not persisted to Cortex`, "upstream_failure");
+    return emitRememberOrDone(nextState, pending);
+  }
+  return { state, action: rememberAction(state, pending) };
+}
+
 // packages/orchestration/dist/handlers/self-check.js
 var VERIFY_BATCH_ID = "self_check_verify";
 var VALIDATE_PRD_CORRELATION_ID = "self_check_validate_prd_against_graph";
@@ -33185,26 +33372,22 @@ function finalize(state, verdicts = []) {
     `  FAIL:           ${verificationReport.distribution.FAIL}`,
     verificationReport.distribution_suspicious ? `  \u26A0 Distribution suspicious \u2014 100% PASS suggests confirmatory bias.` : ""
   ].filter((l) => l !== "").join("\n");
-  return {
-    state: { ...state, current_step: "complete" },
-    action: {
-      kind: "done",
-      summary,
-      artifacts: state.sections.map((s) => `${s.section_type}: ${s.status}`),
-      // Typed verification surface (Phase 3+4 cross-audit closure). Callers
-      // MUST consume this field, not regex-parse `summary`. The string
-      // remains as a human-readable artifact only.
-      verification: {
-        claims_evaluated: verificationReport.claims_evaluated,
-        distribution: verificationReport.distribution,
-        distribution_suspicious: verificationReport.distribution_suspicious,
-        // Attach the PRD-vs-graph validation report when one was produced. Left
-        // undefined for non-codebase runs so the prior verification shape is
-        // unchanged (backward-compatible). See VerificationSummarySchema.
-        ...state.prd_validation ? { prd_graph_validation: state.prd_validation } : {}
-      }
+  return emitRememberOrDone(state, {
+    summary,
+    artifacts: state.sections.map((s) => `${s.section_type}: ${s.status}`),
+    // Typed verification surface (Phase 3+4 cross-audit closure). Callers
+    // MUST consume this field, not regex-parse `summary`. The string
+    // remains as a human-readable artifact only.
+    verification: {
+      claims_evaluated: verificationReport.claims_evaluated,
+      distribution: verificationReport.distribution,
+      distribution_suspicious: verificationReport.distribution_suspicious,
+      // Attach the PRD-vs-graph validation report when one was produced. Left
+      // undefined for non-codebase runs so the prior verification shape is
+      // unchanged (backward-compatible). See VerificationSummarySchema.
+      ...state.prd_validation ? { prd_graph_validation: state.prd_validation } : {}
     }
-  };
+  });
 }
 function handleSelfCheckPhaseA(state) {
   const sections = gatherSections(state);
@@ -33246,6 +33429,9 @@ function handleSelfCheckPhaseB(state, result) {
   return finalize(stateAfter, verdicts);
 }
 var handleSelfCheck = ({ state, result }) => {
+  if (state.pending_completion) {
+    return handleRememberPhase(state, result);
+  }
   const validation = handlePrdValidation(state, result);
   if ("action" in validation) {
     return { state: validation.state, action: validation.action };

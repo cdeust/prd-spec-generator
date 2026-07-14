@@ -17,6 +17,7 @@ import {
   StrategyAssignmentSchema,
   ExecutionResultSchema,
 } from "@prd-gen/strategy";
+import { VerificationSummarySchema } from "./actions.js";
 
 export const PipelineStepSchema = z.enum([
   "banner",
@@ -426,6 +427,75 @@ export const PipelineStateSchema = z.object({
    * source: Phase 4 strategy-wiring (2026-04).
    */
   strategy_executions: z.array(ExecutionResultSchema).default([]),
+  /**
+   * Global Cortex memory-recall summary for the whole run, fetched ONCE
+   * (query = feature_description) at the start of input_analysis — before
+   * any codebase-specific or per-section context is built. Distinct from
+   * `codebase_grounding` (code-graph evidence from automatised-pipeline) and
+   * from the per-section `call_cortex_tool[recall]` in section-generation.ts
+   * (which queries a section-specific template). This is prior-run/decision
+   * memory, injected into every downstream prompt that builds context so
+   * generation benefits from what Cortex already knows about the feature —
+   * not just what the current codebase graph shows.
+   *
+   * Empty string when the recall returned no usable content or Cortex was
+   * unreachable (never null-vs-empty ambiguity downstream); `null` only
+   * before the recall has run. Failure/emptiness is tracked via the existing
+   * `cortex_recall_empty_count` counter (shared with the per-section path —
+   * both are "a Cortex recall call returned nothing", the same degraded-
+   * generation signal) rather than a duplicate counter.
+   *
+   * source: Phase 1a (2026-07-14) — Cortex memory-loop closure. Prior to this
+   * field, Cortex was consulted only for preflight liveness (memory_stats)
+   * and per-section recall; no run-level memory context reached section
+   * drafting.
+   */
+  global_recall_summary: z.string().nullable().default(null),
+  /**
+   * Idempotency flag for the global recall emission in input_analysis.
+   * Mirrors `prd_input_prepared` / `codebase_indexed`: set true once the
+   * recall call has been processed (success OR failure) so the step fires
+   * exactly once per run and replayed state does not re-issue the call.
+   *
+   * source: Phase 1a (2026-07-14).
+   */
+  global_recall_done: z.boolean().default(false),
+  /**
+   * Terminal `done` action payload computed by self-check's finalize once
+   * verdicts are aggregated, held here while Phase C (Cortex `remember`)
+   * runs. The reducer cannot emit `done` and also wait for a host round
+   * trip in the same step — this field is the seam: finalize's summary/
+   * artifacts/verification are persisted so the NEXT step (after the
+   * remember tool_result comes back) can reconstruct the exact `done`
+   * action without re-deriving it from verdicts that are no longer
+   * available (verification_plan is cleared during Phase B).
+   *
+   * Null before Phase A/B has produced a final summary, and null again once
+   * Phase C consumes it (the `done` action is emitted and current_step
+   * advances to "complete").
+   *
+   * source: Phase 1b (2026-07-14) — Cortex memory-loop closure.
+   */
+  pending_completion: z
+    .object({
+      summary: z.string(),
+      artifacts: z.array(z.string()),
+      // Matches DoneActionSchema.verification exactly (actions.ts) so
+      // remember-phase.ts can reconstruct the `done` action byte-for-byte
+      // without a cast. source: Phase 1b (2026-07-14).
+      verification: VerificationSummarySchema.optional(),
+    })
+    .nullable()
+    .default(null),
+  /**
+   * Idempotency flag for the Phase C `remember` emission in self-check.
+   * Mirrors `prd_validated`. A `remember` failure is recorded via
+   * `appendError` (upstream_failure) but still sets this flag true — the
+   * run's completion must never be blocked by a memory-write failure.
+   *
+   * source: Phase 1b (2026-07-14).
+   */
+  run_remembered: z.boolean().default(false),
   /**
    * Per-run retry policy injected by the composition root (mcp-server) before
    * handing the state to the reducer. The reducer reads this field only —

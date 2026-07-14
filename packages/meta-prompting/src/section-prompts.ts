@@ -95,6 +95,19 @@ export interface SectionPromptInput {
    * source: AP feature-mode prepare_prd_input contract, shipped 2026-06.
    */
   readonly codebase_grounding?: CodebaseGrounding;
+  /**
+   * Run-level Cortex memory-recall summary (state.global_recall_summary),
+   * fetched ONCE per run in input_analysis on `feature_description` — before
+   * any section-specific context exists. Distinct from `recall_summary`
+   * (per-section, template-driven query, rendered as `<codebase_context>`):
+   * this is prior-run/decision memory that applies across every section, so
+   * it is rendered in its own `<project_memory>` block. Optional/falsy for
+   * pipelines predating the field or when Cortex returned nothing — the
+   * rendered prompt is then byte-identical to before.
+   *
+   * source: Phase 1a (2026-07-14) — Cortex memory-loop closure.
+   */
+  readonly global_recall_summary?: string;
 }
 
 const COMMON_RULES = [
@@ -376,6 +389,9 @@ export function buildSectionPrompt(input: SectionPromptInput): string {
     `Attempt: ${input.attempt}`,
     `</context>`,
     "",
+    input.global_recall_summary
+      ? `<project_memory>\n${input.global_recall_summary}\n</project_memory>\n`
+      : "",
     input.recall_summary
       ? `<codebase_context>\n${input.recall_summary}\n</codebase_context>\n`
       : "",

@@ -2,6 +2,29 @@ import { describe, expect, it } from "vitest";
 import { newPipelineState, step } from "../index.js";
 import type { PipelineState } from "../index.js";
 
+/** Must match self-check/remember-phase.ts:REMEMBER_CORRELATION_ID. */
+const REMEMBER_CORRELATION_ID = "self_check_remember";
+
+/**
+ * self_check's finalize() hands off to the Cortex `remember` round trip
+ * (Phase 1b) before `done` — resolve it so this file's terminal-state
+ * assertions still reach `complete`/`done`.
+ */
+function resolveRemember(out: ReturnType<typeof step>) {
+  expect(out.action.kind).toBe("call_cortex_tool");
+  if (out.action.kind !== "call_cortex_tool") return out;
+  expect(out.action.correlation_id).toBe(REMEMBER_CORRELATION_ID);
+  return step({
+    state: out.state,
+    result: {
+      kind: "tool_result",
+      correlation_id: out.action.correlation_id,
+      success: true,
+      data: {},
+    },
+  });
+}
+
 function stateAtFileExport(): PipelineState {
   const s = newPipelineState({
     run_id: "test_export_001",
@@ -98,10 +121,11 @@ describe("file_export handler", () => {
         "prd-output/test_exp/09-test-code.md",
       ],
     };
-    const out = step({ state: s });
+    const issued = step({ state: s });
     // After all files written, file_export coalesces emit_message → self_check
-    // → finalize → done. Empty sections produce a `done` action with empty
-    // verification distribution.
+    // → finalize → remember (Phase C, Phase 1b) → done. Zero-claim sections
+    // produce a `done` action with empty verification distribution.
+    const out = resolveRemember(issued);
     expect(out.state.current_step).toBe("complete");
     expect(out.action.kind).toBe("done");
   });

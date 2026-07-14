@@ -79,7 +79,14 @@ describe("section-generation — cortex_recall_empty_count", () => {
       "test-recall-empty",
     );
 
-    expect(stateBefore.cortex_recall_empty_count).toBe(0);
+    // Baseline is 1, not 0: driveToSectionRecall's canned dispatcher already
+    // resolved Phase 1a's global recall (input-analysis.ts) with an empty
+    // `{results: [], total: 0}` payload, which increments the SAME counter
+    // (cortex_recall_empty_count is shared across every recall call site —
+    // see state.ts field doc). This test asserts the DELTA the section-level
+    // recall adds, not the absolute count.
+    const baseline = stateBefore.cortex_recall_empty_count;
+    expect(baseline).toBeGreaterThan(0);
 
     // Empty result — `success: true` (tool ran but returned nothing) is
     // exactly the Curie A4 silent-suppression failure mode this test guards.
@@ -93,7 +100,7 @@ describe("section-generation — cortex_recall_empty_count", () => {
     };
 
     const out = step({ state: stateBefore, result: emptyResult });
-    expect(out.state.cortex_recall_empty_count).toBe(1);
+    expect(out.state.cortex_recall_empty_count).toBe(baseline + 1);
   });
 
   it("does NOT increment counter on non-empty recall", () => {
@@ -101,7 +108,8 @@ describe("section-generation — cortex_recall_empty_count", () => {
       "test-recall-with-content",
     );
 
-    expect(stateBefore.cortex_recall_empty_count).toBe(0);
+    // See baseline note above — global recall (Phase 1a) already contributed.
+    const baseline = stateBefore.cortex_recall_empty_count;
 
     const nonEmptyResult: ActionResult = {
       kind: "tool_result",
@@ -115,7 +123,7 @@ describe("section-generation — cortex_recall_empty_count", () => {
     };
 
     const out = step({ state: stateBefore, result: nonEmptyResult });
-    expect(out.state.cortex_recall_empty_count).toBe(0);
+    expect(out.state.cortex_recall_empty_count).toBe(baseline);
   });
 });
 
@@ -189,6 +197,65 @@ describe("section-generation — codebase_grounding flows into the draft prompt"
     );
     expect(prompt).toContain("<codebase_grounding>");
     expect(prompt).toContain("loginHandler");
+  });
+});
+
+// ─── Phase 1a: global_recall_summary threading into the draft prompt ───────
+
+describe("section-generation — global_recall_summary flows into the draft prompt", () => {
+  it("renders <project_memory> when state.global_recall_summary is set", () => {
+    const { state: atRecall, correlationId } = driveToSectionRecall(
+      "global-recall-prompt",
+    );
+    const withGlobalRecall: PipelineState = {
+      ...atRecall,
+      global_recall_summary: "prior decision: use OAuth PKCE flow",
+    };
+    const out = step({
+      state: withGlobalRecall,
+      result: {
+        kind: "tool_result",
+        correlation_id: correlationId,
+        success: true,
+        data: { results: [{ content: "section-level context" }] },
+      },
+    });
+    if (out.action.kind !== "spawn_subagents") {
+      throw new Error(`Expected spawn_subagents, got '${out.action.kind}'.`);
+    }
+    const prompt = out.action.invocations[0]?.prompt ?? "";
+    expect(prompt).toContain("<project_memory>");
+    expect(prompt).toContain("prior decision: use OAuth PKCE flow");
+    expect(prompt).toContain("</project_memory>");
+    // Distinct from the per-section <codebase_context> block.
+    expect(prompt).toContain("<codebase_context>");
+    expect(prompt).toContain("section-level context");
+  });
+
+  it("omits <project_memory> when global_recall_summary is null (byte-identical to pre-Phase-1a)", () => {
+    const { state: atRecall, correlationId } = driveToSectionRecall(
+      "global-recall-prompt-absent",
+    );
+    // driveToSectionRecall runs the FULL pipeline via the canned dispatcher,
+    // which already resolved Phase 1a's global recall with an empty
+    // {results: [], total: 0} payload — global_recall_summary is "" (recall
+    // ran, found nothing), not null (recall never ran). Both are falsy, so
+    // the rendered prompt omits <project_memory> either way.
+    expect(atRecall.global_recall_summary).toBe("");
+    const out = step({
+      state: atRecall,
+      result: {
+        kind: "tool_result",
+        correlation_id: correlationId,
+        success: true,
+        data: { results: [{ content: "section-level context" }] },
+      },
+    });
+    if (out.action.kind !== "spawn_subagents") {
+      throw new Error(`Expected spawn_subagents, got '${out.action.kind}'.`);
+    }
+    const prompt = out.action.invocations[0]?.prompt ?? "";
+    expect(prompt).not.toContain("<project_memory>");
   });
 });
 

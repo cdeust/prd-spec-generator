@@ -35,6 +35,27 @@ function stepOnce(state: PipelineState, result?: ActionResult) {
   return step({ state, result });
 }
 
+/** Must match self-check/remember-phase.ts:REMEMBER_CORRELATION_ID. */
+const REMEMBER_CORRELATION_ID = "self_check_remember";
+
+/**
+ * Self-check Phase B computes the final summary and hands off to Phase C
+ * (Cortex `remember`) before `done` — drive that round trip so tests written
+ * against the pre-Phase-1b "Phase B returns done directly" behaviour keep
+ * asserting on the SAME terminal `done` action, just one step later.
+ */
+function resolveRemember(out: ReturnType<typeof stepOnce>) {
+  expect(out.action.kind).toBe("call_cortex_tool");
+  if (out.action.kind !== "call_cortex_tool") return out;
+  expect(out.action.correlation_id).toBe(REMEMBER_CORRELATION_ID);
+  return stepOnce(out.state, {
+    kind: "tool_result",
+    correlation_id: out.action.correlation_id,
+    success: true,
+    data: {},
+  });
+}
+
 describe("jira_generation", () => {
   it("is skipped when no source sections have content", () => {
     // Postcondition: handleJiraGeneration emits emit_message("No source sections")
@@ -78,6 +99,9 @@ describe("input_analysis", () => {
     const awaitingResult: PipelineState = {
       ...baseState,
       current_step: "input_analysis",
+      // Phase 1a global recall already resolved — position the state past
+      // it so this injection targets the codebase-analysis branch only.
+      global_recall_done: true,
       codebase_output_dir: "/tmp/inj/.prd-gen/graphs/inj_index_failure",
     };
     const failedToolResult: ActionResult = {
@@ -104,6 +128,7 @@ describe("input_analysis", () => {
     const awaitingResult: PipelineState = {
       ...baseState,
       current_step: "input_analysis",
+      global_recall_done: true,
       codebase_output_dir: "/tmp/inj/.prd-gen/graphs/inj_no_graph_path",
     };
     const missingGraphPath: ActionResult = {
@@ -247,11 +272,12 @@ describe("self_check Phase B graceful degradation", () => {
       invocation_id: inv.invocation_id,
       raw_text: "this is not json { broken",
     }));
-    const phaseB = stepOnce(phaseA.state, {
+    const phaseBRaw = stepOnce(phaseA.state, {
       kind: "subagent_batch_result",
       batch_id: phaseA.action.batch_id,
       responses: malformedResponses,
     });
+    const phaseB = resolveRemember(phaseBRaw);
     expect(phaseB.action.kind).toBe("done");
     if (phaseB.action.kind !== "done") return;
     // Cross-audit closure (test-engineer C1, popper M-2, 2026-04). The
@@ -308,11 +334,12 @@ describe("self_check Phase B graceful degradation", () => {
       invocation_id: inv.invocation_id,
       error: "agent timed out",
     }));
-    const phaseB = stepOnce(phaseA.state, {
+    const phaseBRaw = stepOnce(phaseA.state, {
       kind: "subagent_batch_result",
       batch_id: phaseA.action.batch_id,
       responses: errorResponses,
     });
+    const phaseB = resolveRemember(phaseBRaw);
     expect(phaseB.action.kind).toBe("done");
     if (phaseB.action.kind !== "done") return;
     // Same mutation guard as the malformed-JSON test above (CRIT-6).
@@ -361,7 +388,7 @@ describe("self_check Phase B graceful degradation", () => {
       },
     };
 
-    const phaseB = stepOnce(stateWithStaleSnapshot, {
+    const phaseBRaw = stepOnce(stateWithStaleSnapshot, {
       kind: "subagent_batch_result",
       batch_id: "self_check_verify",
       responses: [
@@ -385,6 +412,7 @@ describe("self_check Phase B graceful degradation", () => {
         },
       ],
     });
+    const phaseB = resolveRemember(phaseBRaw);
 
     expect(phaseB.action.kind).toBe("done");
     if (phaseB.action.kind !== "done") return;

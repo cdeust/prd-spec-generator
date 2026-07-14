@@ -403,7 +403,20 @@ describe("end-to-end smoke run", () => {
 
     const result = runSmoke(seed);
 
-    // Tight regression bounds around the measured baseline of 61.
+    // Tight regression bounds around the measured baseline of 61, plus two
+    // structural host round trips added by the Cortex memory-loop closure
+    // (Phase 1a/1b, 2026-07-14): input_analysis now opens with ONE
+    // call_cortex_tool[recall] round trip (global memory recall, before any
+    // codebase work) and self_check now closes with ONE
+    // call_cortex_tool[remember] round trip (Phase C, before `done`) instead
+    // of returning `done` directly from Phase A/B. Each round trip is
+    // exactly +1 iteration (the action-emitting step merges into what used
+    // to be the NEXT substantive action's step — see
+    // packages/orchestration/src/handlers/input-analysis.ts:handleGlobalRecall
+    // and .../self-check/remember-phase.ts). Measured post-change: 69
+    // (verified against the pre-change worktree via a debug harness before
+    // this bound was updated; delta = exactly +2, matching the two new round
+    // trips with no unexplained growth).
     // ±7 slack is enough to absorb a single new emit_message hop in either
     // direction without re-audit, but not enough to hide a whole new phase
     // (which would add ≥9 hops, e.g. an additional clarification round-trip).
@@ -412,9 +425,10 @@ describe("end-to-end smoke run", () => {
     //
     // source: per-phase trace by Dijkstra cross-audit, 2026-04
     // (license:1 + ctx:1 + input:2 + feasibility:1 + clar:8 + budget:1 +
-    //  section:33 + jira:2 + export:9 + self_check:2 + done:1 = 61).
+    //  section:33 + jira:2 + export:9 + self_check:2 + done:1 = 61);
+    // + global_recall:1 + remember:1 = 63 (Phase 1a/1b, 2026-07-14).
     const ITER_LOW = 55;
-    const ITER_HIGH = 68;
+    const ITER_HIGH = 70;
     expect(result.iterations).toBeGreaterThanOrEqual(ITER_LOW);
     expect(result.iterations).toBeLessThanOrEqual(ITER_HIGH);
   });

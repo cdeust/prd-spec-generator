@@ -47,6 +47,7 @@ import {
   failSection,
   validateAndAdvance,
 } from "./section-generation/validate-and-advance.js";
+import { summarizeCortexRecall } from "./cortex-recall-summary.js";
 
 /**
  * Maximum draft attempts per section before marking it failed and moving on.
@@ -178,6 +179,12 @@ function draftAction(
     // reference real symbols/files/communities/processes. `undefined` when no
     // codebase grounding exists → prompt is byte-identical to before.
     codebase_grounding: normalizeGrounding(state.codebase_grounding),
+    // Run-level Cortex memory recall (Phase 1a, fetched once in
+    // input_analysis on feature_description), distinct from `recall_summary`
+    // above (per-section, template-driven). `undefined`/"" when Cortex
+    // returned nothing or the run predates the field → prompt is
+    // byte-identical to before.
+    global_recall_summary: state.global_recall_summary ?? undefined,
   });
 
   return {
@@ -272,7 +279,7 @@ function advanceFromRecall(
   active: SectionStatus,
   data: unknown,
 ) {
-  const recallSummary = summarizeRecall(data);
+  const recallSummary = summarizeCortexRecall(data);
   // Track empty recalls so the KPI surface can surface recall-efficacy
   // without post-hoc parsing.
   const emptyRecall = recallSummary.length === 0;
@@ -365,32 +372,6 @@ export const handleSectionGeneration: StepHandler = ({ state, result }) => {
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * source: provisional heuristic.
- *  - RECALL_MAX_RESULTS_INCLUDED = 8 mirrors the request-side max_results.
- *  - RECALL_RESULT_TRUNCATE_CHARS = 800 caps each excerpt to ~200 tokens.
- * Cross-audit code-reviewer M8 (Phase 3+4, 2026-04).
- */
-const RECALL_MAX_RESULTS_INCLUDED = 8;
-const RECALL_RESULT_TRUNCATE_CHARS = 800;
-const RECALL_TRUNCATION_MARKER = "...";
-
-function summarizeRecall(data: unknown): string {
-  if (!data || typeof data !== "object") return "";
-  const results = (data as { results?: unknown }).results;
-  if (!Array.isArray(results)) return "";
-  return (results as Array<{ content?: string }>)
-    .slice(0, RECALL_MAX_RESULTS_INCLUDED)
-    .map((r) => r.content)
-    .filter((c): c is string => typeof c === "string" && c.length > 0)
-    .map((c) =>
-      c.length > RECALL_RESULT_TRUNCATE_CHARS
-        ? c.slice(0, RECALL_RESULT_TRUNCATE_CHARS) + RECALL_TRUNCATION_MARKER
-        : c,
-    )
-    .join("\n---\n");
-}
 
 function collectDraftText(
   result: Extract<ActionResult, { kind: "subagent_batch_result" }>,

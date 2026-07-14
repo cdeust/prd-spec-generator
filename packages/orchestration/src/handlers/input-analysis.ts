@@ -61,10 +61,114 @@
 import { join } from "node:path";
 import type { StepHandler } from "../runner.js";
 import { appendError, type PipelineState } from "../types/state.js";
-import type { HandlerAction } from "../types/actions.js";
+import type { ActionResult, HandlerAction } from "../types/actions.js";
+import { summarizeCortexRecall } from "./cortex-recall-summary.js";
 
 const CORRELATION_ID = "input_analysis_index";
 const PREPARE_CORRELATION_ID = "input_analysis_prepare_prd_input";
+const GLOBAL_RECALL_CORRELATION_ID = "input_analysis_global_recall";
+
+/**
+ * source: reuses the per-section recall budget (section-generation.ts
+ * recallAction) for consistency — one Cortex recall query, same result
+ * size, whether it is run-level or section-level. 8 results × ~500
+ * tokens/memory ≈ 4K tokens, which fits the retrieval budget computed by
+ * mcp-server/context-budget.ts. Cross-audit code-reviewer H6 (Phase 3+4,
+ * 2026-04), reapplied at the global-recall call site Phase 1a (2026-07-14).
+ */
+const GLOBAL_RECALL_MAX_RESULTS = 8;
+
+/**
+ * Phase 1a — global Cortex memory recall, ONE call per run, fired before any
+ * codebase-specific or per-section work. Runs regardless of whether a
+ * codebase_path is present, because memory recall is not code-graph
+ * grounding — it is prior-run/decision context that applies to every PRD
+ * context. Placed at the front of input_analysis (rather than in preflight)
+ * to keep preflight strictly a liveness check (SRP — preflight's own module
+ * doc scopes it to "verify required MCP servers are reachable"); this
+ * handler already owns "build every kind of upstream context the pipeline
+ * uses before section generation" (code-graph grounding via
+ * analyze_codebase/prepare_prd_input below).
+ *
+ * precondition:  state.global_recall_done === false.
+ * postcondition: either (a) a call_cortex_tool[recall] action with
+ *                { query: feature_description, max_results }, leaving
+ *                global_recall_done false (result sets it); or (b) once the
+ *                result is processed, global_recall_done === true and
+ *                control falls through to the existing codebase-analysis
+ *                flow on the SAME step() call (no extra host round trip is
+ *                spent just to re-enter this handler).
+ *
+ * A failed or empty recall is NOT a pipeline failure — Cortex memory is
+ * best-effort context, exactly like the per-section recall it mirrors.
+ * Failure/emptiness increments the existing `cortex_recall_empty_count`
+ * counter (shared with the per-section path; both signal "a recall call
+ * returned nothing") and appends an `upstream_failure` error on explicit
+ * failure, but always proceeds.
+ *
+ * source: Phase 1a (2026-07-14) — Cortex memory-loop closure.
+ */
+function handleGlobalRecall(
+  state: PipelineState,
+  result: ActionResult | undefined,
+): { state: PipelineState; action: HandlerAction } {
+  if (
+    result?.kind === "tool_result" &&
+    result.correlation_id === GLOBAL_RECALL_CORRELATION_ID
+  ) {
+    if (!result.success) {
+      const nextState = appendError(
+        {
+          ...state,
+          global_recall_done: true,
+          global_recall_summary: "",
+          cortex_recall_empty_count: state.cortex_recall_empty_count + 1,
+        },
+        `global recall failed: ${result.error ?? "unknown"}; continuing without prior-run memory context`,
+        "upstream_failure",
+      );
+      return continueAfterGlobalRecall(nextState);
+    }
+    const summary = summarizeCortexRecall(result.data);
+    const nextState: PipelineState = {
+      ...state,
+      global_recall_done: true,
+      global_recall_summary: summary,
+      cortex_recall_empty_count:
+        summary.length === 0
+          ? state.cortex_recall_empty_count + 1
+          : state.cortex_recall_empty_count,
+    };
+    return continueAfterGlobalRecall(nextState);
+  }
+
+  return {
+    state,
+    action: {
+      kind: "call_cortex_tool",
+      tool_name: "recall",
+      arguments: {
+        query: state.feature_description,
+        max_results: GLOBAL_RECALL_MAX_RESULTS,
+      },
+      correlation_id: GLOBAL_RECALL_CORRELATION_ID,
+    },
+  };
+}
+
+/**
+ * Fall through into the pre-existing codebase-analysis flow on the same
+ * step() call, now that global_recall_done is true. Kept as a named seam
+ * (rather than inlining a recursive call to the exported handler) so the
+ * control flow reads as "recall, THEN codebase analysis" rather than an
+ * opaque self-recursion.
+ */
+function continueAfterGlobalRecall(state: PipelineState): {
+  state: PipelineState;
+  action: HandlerAction;
+} {
+  return handleCodebaseAnalysis(state, undefined);
+}
 
 /**
  * Self-ignore pattern for the `.prd-gen/` artifact directory. `*` inside
@@ -179,6 +283,18 @@ function emitAnalyze(state: PipelineState): {
 }
 
 export const handleInputAnalysis: StepHandler = ({ state, result }) => {
+  // Phase 1a — global memory recall fires exactly once per run, before any
+  // codebase-specific work, regardless of whether a codebase_path exists.
+  if (!state.global_recall_done) {
+    return handleGlobalRecall(state, result);
+  }
+  return handleCodebaseAnalysis(state, result);
+};
+
+function handleCodebaseAnalysis(
+  state: PipelineState,
+  result: ActionResult | undefined,
+): { state: PipelineState; action: HandlerAction } {
   // No codebase → skip indexing entirely.
   if (!state.codebase_path) {
     return {
@@ -344,4 +460,4 @@ export const handleInputAnalysis: StepHandler = ({ state, result }) => {
   // Guard already written this run (e.g. replay after a analyze_codebase
   // failure was retried) — trigger the analyze_codebase call directly.
   return emitAnalyze(state);
-};
+}

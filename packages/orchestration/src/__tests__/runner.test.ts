@@ -12,6 +12,32 @@ const seed = (codebasePath?: string) =>
     skip_preflight: true,
   });
 
+/** Must match input-analysis.ts:GLOBAL_RECALL_CORRELATION_ID. */
+const GLOBAL_RECALL_CORRELATION_ID = "input_analysis_global_recall";
+
+/**
+ * Drive a fresh state past input_analysis's Phase 1a global recall (the
+ * FIRST substantive action input_analysis emits, before any codebase or
+ * clarification work) and return the resulting {state, action} at the same
+ * point the pre-Phase-1a tests below assumed as their starting position.
+ */
+function issueGlobalRecall(codebasePath?: string) {
+  const out = step({ state: seed(codebasePath) });
+  expect(out.action.kind).toBe("call_cortex_tool");
+  const correlation_id =
+    out.action.kind === "call_cortex_tool" ? out.action.correlation_id : "";
+  expect(correlation_id).toBe(GLOBAL_RECALL_CORRELATION_ID);
+  return step({
+    state: out.state,
+    result: {
+      kind: "tool_result",
+      correlation_id,
+      success: true,
+      data: { results: [], total: 0 },
+    },
+  });
+}
+
 describe("pipeline runner — emit_message coalescing", () => {
   it("first step() never returns emit_message as the action kind", () => {
     const out = step({ state: seed() });
@@ -25,16 +51,18 @@ describe("pipeline runner — emit_message coalescing", () => {
   });
 
   it("auto-detected feature context advances past context_detection in one step", () => {
-    const out = step({ state: seed() });
-    // 'build OAuth login' → trigger 'build' → feature → input_analysis (no codebase) → feasibility_gate → clarification compose action
-    expect(out.state.prd_context).toBe("feature");
-    expect(out.state.current_step).toBe("clarification");
+    const afterRecall = issueGlobalRecall();
+    // 'build OAuth login' → trigger 'build' → feature → input_analysis (no codebase, global recall resolved) → feasibility_gate → clarification compose action
+    expect(afterRecall.state.prd_context).toBe("feature");
+    expect(afterRecall.state.global_recall_done).toBe(true);
+    expect(afterRecall.state.current_step).toBe("clarification");
     // First clarification action: spawn engineer to compose the question
-    expect(out.action.kind).toBe("spawn_subagents");
+    expect(afterRecall.action.kind).toBe("spawn_subagents");
   });
 
   it("input_analysis with codebase first writes the .prd-gen/.gitignore guard", () => {
-    const out = step({ state: seed("/some/path") });
+    const out = issueGlobalRecall("/some/path");
+    expect(out.state.global_recall_done).toBe(true);
     expect(out.action.kind).toBe("write_file");
     if (out.action.kind === "write_file") {
       expect(out.action.path).toBe("/some/path/.prd-gen/.gitignore");
@@ -43,7 +71,7 @@ describe("pipeline runner — emit_message coalescing", () => {
   });
 
   it("input_analysis: after the gitignore write, yields a call_pipeline_tool action with analyze_codebase", () => {
-    const written = step({ state: seed("/some/path") });
+    const written = issueGlobalRecall("/some/path");
     const gitignorePath =
       written.action.kind === "write_file" ? written.action.path : "";
     const out = step({
@@ -69,7 +97,7 @@ describe("pipeline runner — emit_message coalescing", () => {
    * on the behaviour it's named for.
    */
   function issueAnalyze(codebasePath: string) {
-    const written = step({ state: seed(codebasePath) });
+    const written = issueGlobalRecall(codebasePath);
     const gitignorePath =
       written.action.kind === "write_file" ? written.action.path : "";
     return step({
