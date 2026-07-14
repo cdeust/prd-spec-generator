@@ -66,6 +66,20 @@ export {
   type CrossRefValidationResult,
 } from "./domain/validation-result.js";
 
+export {
+  ChangeKindSchema,
+  AffectedSymbolSchema,
+  ScopeClaimSchema,
+  AffectedSymbolsDocumentSchema,
+  AFFECTED_SYMBOLS_MARKER,
+  parseAffectedSymbolsBlock,
+  stripAffectedSymbolsBlock,
+  type ChangeKind,
+  type AffectedSymbol,
+  type ScopeClaim,
+  type AffectedSymbolsDocument,
+} from "./domain/affected-symbols.js";
+
 // Agent / judge domain
 export {
   GeniusAgentSchema,

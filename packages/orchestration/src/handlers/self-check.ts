@@ -105,12 +105,23 @@ function handlePrdValidation(
   }
 
   // Emit the validation call. prd_validated stays false until the result.
+  // affected_symbols_path is attached when file-export produced the
+  // stage-5.affected_symbols.json sidecar (Move: contract-first extraction
+  // beats regex fallback — source: stages/stage-6.md §4.2/§6.1). Omitted
+  // (not sent as null/empty string) when absent, so AP's own "path missing
+  // → regex fallback" branch fires exactly as designed.
   return {
     state,
     action: {
       kind: "call_pipeline_tool",
       tool_name: "validate_prd_against_graph",
-      arguments: { prd_path: prdPath, graph_path: graphPath },
+      arguments: {
+        prd_path: prdPath,
+        graph_path: graphPath,
+        ...(state.affected_symbols_path
+          ? { affected_symbols_path: state.affected_symbols_path }
+          : {}),
+      },
       correlation_id: VALIDATE_PRD_CORRELATION_ID,
     },
   };

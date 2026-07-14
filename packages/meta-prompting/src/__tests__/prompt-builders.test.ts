@@ -395,6 +395,34 @@ describe("buildSectionPrompt", () => {
     expect(out).toContain("AC-XXX");
     expect(out).toContain("Source:");
   });
+
+  it("includes the affected-symbols instruction for technical_specification only (stage-6.md §4.2)", () => {
+    const techSpec = buildSectionPrompt({
+      section_type: "technical_specification",
+      feature_description: "x",
+      prd_context: "feature",
+      recall_summary: "",
+      clarification_qa: [],
+      prior_violations: [],
+      attempt: 1,
+    });
+    expect(techSpec).toContain("<!-- AFFECTED_SYMBOLS_JSON -->");
+    expect(techSpec).toContain("affected_symbols");
+    expect(techSpec).toContain("scope_claims");
+    expect(techSpec).toContain("qualified_name");
+
+    const requirements = buildSectionPrompt({
+      section_type: "requirements",
+      feature_description: "x",
+      prd_context: "feature",
+      recall_summary: "",
+      clarification_qa: [],
+      prior_violations: [],
+      attempt: 1,
+    });
+    expect(requirements).not.toContain("AFFECTED_SYMBOLS_JSON");
+    expect(requirements).not.toContain("affected_symbols_instruction");
+  });
 });
 
 describe("buildJiraPrompt", () => {

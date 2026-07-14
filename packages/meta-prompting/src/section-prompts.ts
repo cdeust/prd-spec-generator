@@ -18,6 +18,7 @@
 import {
   SECTION_DISPLAY_NAMES,
   PRD_CONTEXT_CONFIGS,
+  AFFECTED_SYMBOLS_MARKER,
   type PRDContext,
   type SectionType,
 } from "@prd-gen/core";
@@ -281,6 +282,61 @@ function renderGroundingBlock(
   return lines.join("\n");
 }
 
+/**
+ * Instructs the engineer subagent to append a machine-parsable "Affected
+ * Symbols" block to the technical_specification section. This is the ONLY
+ * source for automatised-pipeline stage 6's `stage-5.affected_symbols.json`
+ * sidecar — claims must come from what the LLM asserts here, never from
+ * `<codebase_grounding>` (that would validate the graph against itself;
+ * stage 6's whole purpose is to catch symbols the PRD claims that the graph
+ * does NOT contain).
+ *
+ * The block is a deliberate, narrowly-scoped exception to COMMON_RULES #1
+ * ("no JSON, no fences") — it is appended AFTER the section body, marked
+ * unambiguously, and stripped from the human-readable PRD before assembly
+ * (see @prd-gen/core stripAffectedSymbolsBlock, applied in
+ * orchestration/file-export.ts joinSections). Omitting the block entirely is
+ * valid when the section introduces no symbol-level changes (e.g. a purely
+ * conceptual/greenfield technical spec) — parseAffectedSymbolsBlock treats an
+ * absent block as "no claims," and file-export skips the sidecar in that
+ * case rather than emitting an empty one (an empty sidecar would wrongly
+ * suppress stage 6's regex fallback, which activates only when the file is
+ * ABSENT).
+ *
+ * source: automatised-pipeline stages/stage-6.md §4.2 contract; parser
+ * verified against src/prd_validator.rs::parse_structured_claims (JSON, not
+ * the doc's illustrative YAML) — see affected-symbols.ts module doc.
+ */
+function renderAffectedSymbolsInstruction(sectionType: SectionType): string {
+  if (sectionType !== "technical_specification") return "";
+  return [
+    `<affected_symbols_instruction>`,
+    `After the section body above, if this feature modifies, adds, removes, or`,
+    `renames any existing codebase symbol, append EXACTLY ONE block in this`,
+    `exact form (this is the ONLY place fenced JSON is permitted in this`,
+    `section — do not use JSON/fences anywhere else):`,
+    "",
+    AFFECTED_SYMBOLS_MARKER,
+    "```json",
+    `{`,
+    `  "affected_symbols": [`,
+    `    {"qualified_name": "<file_path>::<symbol_name>", "change_kind": "add|modify|remove|rename", "rationale": "<why this symbol is touched>"}`,
+    `  ],`,
+    `  "scope_claims": [`,
+    `    {"kind": "community_scope", "assertion": "<human-readable community label>"},`,
+    `    {"kind": "process_exclusion", "processes": ["process::<entry_qualified_name>"]}`,
+    `  ]`,
+    `}`,
+    "```",
+    "",
+    `Rules for this block:`,
+    `  - qualified_name MUST be "<file_path>::<symbol_name>" (e.g. "src/main.rs::handle_tool_call"), matching a REAL symbol from <codebase_grounding> when grounding is present. Entries without qualified_name are ignored downstream.`,
+    `  - scope_claims is optional; omit the key entirely if there is nothing to claim.`,
+    `  - If nothing in this feature touches an existing symbol, omit this entire block (marker and fence both) — do not emit an empty affected_symbols array.`,
+    `</affected_symbols_instruction>`,
+  ].join("\n");
+}
+
 export function buildSectionPrompt(input: SectionPromptInput): string {
   const display = SECTION_DISPLAY_NAMES[input.section_type];
   const contextConfig = PRD_CONTEXT_CONFIGS[input.prd_context];
@@ -305,6 +361,9 @@ export function buildSectionPrompt(input: SectionPromptInput): string {
 
   const strategiesBlock = renderStrategiesBlock(input.strategy_assignment);
   const groundingBlock = renderGroundingBlock(input.codebase_grounding);
+  const affectedSymbolsInstruction = renderAffectedSymbolsInstruction(
+    input.section_type,
+  );
 
   return [
     `<role>You draft section "${display}" of a ${contextConfig.displayName} PRD.</role>`,
@@ -321,14 +380,11 @@ export function buildSectionPrompt(input: SectionPromptInput): string {
       ? `<codebase_context>\n${input.recall_summary}\n</codebase_context>\n`
       : "",
     groundingBlock,
-    groundingBlock ? "" : "",
     clarificationLines
       ? `<clarifications>\n${clarificationLines}\n</clarifications>\n`
       : "",
     violationsBlock,
-    violationsBlock ? "" : "",
     strategiesBlock,
-    strategiesBlock ? "" : "",
     `<guidance>`,
     sectionGuidance,
     `</guidance>`,
@@ -337,6 +393,7 @@ export function buildSectionPrompt(input: SectionPromptInput): string {
     COMMON_RULES.join("\n"),
     `</hard_rules>`,
     "",
+    affectedSymbolsInstruction,
     `Produce the "${display}" section now. Markdown only.`,
   ]
     .filter((line) => line !== "")

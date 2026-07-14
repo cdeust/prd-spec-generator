@@ -1,5 +1,7 @@
 /**
- * File export — write 9 files (6 core + 3 companion) per SKILL.md Phase 4.
+ * File export — write the 9 PRD deliverable files (6 core + 3 companion) per
+ * SKILL.md Phase 4, plus an optional 10th sidecar (`stage-5.affected_symbols.json`)
+ * when the technical_specification section asserted symbol-level claims.
  *
  * Protocol:
  *   - On entry with no result: emit write_file for the first un-written file.
@@ -8,6 +10,13 @@
  *
  * Progress is tracked in `state.written_files` (a dedicated field). It is
  * NOT folded into `state.errors`; that field is reserved for genuine errors.
+ *
+ * The sidecar is conditional (not always emitted): automatised-pipeline
+ * stage 6 treats an ABSENT `stage-5.affected_symbols.json` as "fall back to
+ * regex extraction" and a PRESENT-BUT-EMPTY one as "the PRD asserts zero
+ * claims" — the latter would wrongly suppress the regex fallback. So the
+ * sidecar is written only when parseAffectedSymbolsBlock found ≥1 claim.
+ * source: automatised-pipeline stages/stage-6.md §4.2.
  */
 
 import type { StepHandler } from "../runner.js";
@@ -15,14 +24,31 @@ import { appendError, type PipelineState } from "../types/state.js";
 import {
   SECTION_DISPLAY_NAMES,
   SECTION_ORDER,
+  parseAffectedSymbolsBlock,
+  stripAffectedSymbolsBlock,
+  type AffectedSymbolsDocument,
   type SectionType,
 } from "@prd-gen/core";
 
 const OUTPUT_DIR = "prd-output";
+const AFFECTED_SYMBOLS_FILENAME = "stage-5.affected_symbols.json";
 
 interface PrdFile {
   readonly path: string;
   readonly content: () => string;
+}
+
+/**
+ * Section body for markdown assembly. Strips the affected-symbols marker
+ * block from technical_specification so the internal validator payload
+ * never leaks into the human-readable PRD (it is exported separately, as
+ * its own sidecar file, when present).
+ */
+function sectionBody(section: PipelineState["sections"][number]): string {
+  const trimmed = section.content!.trim();
+  return section.section_type === "technical_specification"
+    ? stripAffectedSymbolsBlock(trimmed)
+    : trimmed;
 }
 
 function joinSections(
@@ -35,10 +61,7 @@ function joinSections(
       (a, b) =>
         SECTION_ORDER[a.section_type] - SECTION_ORDER[b.section_type],
     )
-    .map(
-      (s) =>
-        `## ${SECTION_DISPLAY_NAMES[s.section_type]}\n\n${s.content!.trim()}`,
-    )
+    .map((s) => `## ${SECTION_DISPLAY_NAMES[s.section_type]}\n\n${sectionBody(s)}`)
     .join("\n\n");
 }
 
@@ -49,11 +72,28 @@ function jiraContent(state: PipelineState): string {
   return last?.content?.trim() ?? "";
 }
 
+/**
+ * Extract affected-symbol claims from the technical_specification section.
+ * Claims come exclusively from the LLM's own "Affected Symbols" block (see
+ * @prd-gen/meta-prompting section-prompts.ts) — never from
+ * `state.codebase_grounding`, which would validate the graph against itself.
+ *
+ * source: automatised-pipeline stages/stage-6.md §4.2.
+ */
+function affectedSymbolsForState(state: PipelineState): AffectedSymbolsDocument {
+  const techSpec = state.sections.find(
+    (s) => s.section_type === "technical_specification" && s.content,
+  );
+  return techSpec
+    ? parseAffectedSymbolsBlock(techSpec.content!)
+    : { affected_symbols: [], scope_claims: [] };
+}
+
 function buildFileSet(state: PipelineState): readonly PrdFile[] {
   const slug = state.run_id.slice(0, 8);
   const base = `${OUTPUT_DIR}/${slug}`;
 
-  return [
+  const files: PrdFile[] = [
     {
       path: `${base}/01-prd.md`,
       content: () =>
@@ -120,6 +160,16 @@ function buildFileSet(state: PipelineState): readonly PrdFile[] {
         "_Test code section not generated in this run._",
     },
   ];
+
+  const affected = affectedSymbolsForState(state);
+  if (affected.affected_symbols.length > 0) {
+    files.push({
+      path: `${base}/${AFFECTED_SYMBOLS_FILENAME}`,
+      content: () => JSON.stringify(affected, null, 2),
+    });
+  }
+
+  return files;
 }
 
 export const handleFileExport: StepHandler = ({ state, result }) => {
@@ -151,8 +201,16 @@ export const handleFileExport: StepHandler = ({ state, result }) => {
   const remaining = files.filter((f) => !done.has(f.path));
 
   if (remaining.length === 0) {
+    // Record the sidecar path (when exported) so self-check can pass it to
+    // `validate_prd_against_graph` as `affected_symbols_path`. Derived from
+    // the file set just written rather than re-parsing — this is the same
+    // list `done` was checked against, so it is exactly what landed on disk.
+    const sidecar = files.find((f) => f.path.endsWith(AFFECTED_SYMBOLS_FILENAME));
+    const finalState = sidecar
+      ? { ...nextState, affected_symbols_path: sidecar.path }
+      : nextState;
     return {
-      state: { ...nextState, current_step: "self_check" },
+      state: { ...finalState, current_step: "self_check" },
       action: {
         kind: "emit_message",
         message: `All ${files.length} files written. Running self-check.`,

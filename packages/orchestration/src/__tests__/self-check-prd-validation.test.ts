@@ -139,3 +139,35 @@ describe("self-check PRD-vs-graph validation (Phase 0)", () => {
     expect(out.state.prd_validation).toBeNull();
   });
 });
+
+describe("self-check — affected_symbols_path argument (stage-6.md §4.2/§6.1)", () => {
+  it("attaches affected_symbols_path when file-export produced the sidecar", () => {
+    const s: PipelineState = {
+      ...stateAtSelfCheck({ graphPath: "/g/graph" }),
+      affected_symbols_path:
+        "prd-output/selfchec/stage-5.affected_symbols.json",
+    };
+    const out = step({ state: s });
+
+    expect(out.action.kind).toBe("call_pipeline_tool");
+    if (out.action.kind === "call_pipeline_tool") {
+      expect(out.action.arguments).toHaveProperty(
+        "affected_symbols_path",
+        "prd-output/selfchec/stage-5.affected_symbols.json",
+      );
+    }
+  });
+
+  it("omits affected_symbols_path when no sidecar was exported (lets AP's regex fallback fire)", () => {
+    const s: PipelineState = {
+      ...stateAtSelfCheck({ graphPath: "/g/graph" }),
+      affected_symbols_path: null,
+    };
+    const out = step({ state: s });
+
+    expect(out.action.kind).toBe("call_pipeline_tool");
+    if (out.action.kind === "call_pipeline_tool") {
+      expect(out.action.arguments).not.toHaveProperty("affected_symbols_path");
+    }
+  });
+});
