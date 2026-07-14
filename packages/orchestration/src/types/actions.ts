@@ -90,9 +90,12 @@ export const SpawnSubagentsActionSchema = z.object({
    * "implement" added additively (design-phases-3-5.md §3, PR 4a) for the
    * `implementation` step's engineer spawn — no existing purpose value was
    * removed or repurposed, so every prior batch's observability label is
-   * unaffected.
+   * unaffected. "test" added additively (design-phases-3-5.md §3, PR 4b) for
+   * the `testing` step's test-engineer spawn — "review" already existed
+   * (unused until PR 4b's `review` step wires it) so no addition was needed
+   * there.
    */
-  purpose: z.enum(["judge", "draft", "review", "implement"]),
+  purpose: z.enum(["judge", "draft", "review", "implement", "test"]),
 });
 export type SpawnSubagentsAction = z.infer<typeof SpawnSubagentsActionSchema>;
 

@@ -38,27 +38,28 @@
  * `z.record(z.string(), z.unknown())` (PostSpecsStateSchema convention,
  * matching `codebase_grounding`/`prd_validation`) — orchestration never
  * parses AP response shapes, EXCEPT the two fields this handler's own
- * contract with `finalize`/a future `review` stage depends on:
+ * contract with `testing`/`review` depends on:
  *   - `detect_changes.data.symbols_affected[].qualified_name` → extracted
  *     into `verification.changed_symbols` (call 4's required argument).
  *   - `check_security_gates.data.gates_passed` → extracted into
- *     `verification.gates_passed` (the boolean `finalize`/`review` gate on).
+ *     `verification.gates_passed` (the boolean `review` gates on).
  *
  * Failure policy (design §4, "post_impl_verification" row): ANY of the 4
  * calls failing DEGRADES — record the failure via appendError
  * ("upstream_failure"), keep `gates_passed` at its fail-closed default
- * (false), and continue. Call 1 (`index_codebase`) failing is a special
- * case: calls 2-4 all require the "after" graph_path it produces, so a call-1
- * failure degrades the WHOLE sequence (marks `step: "done"` immediately,
- * skipping calls 2-4 rather than emitting 3 more calls guaranteed to fail
- * for lack of a graph_path) — still fail-closed on `gates_passed`, still
- * reaches `finalize`.
+ * (false), and continue to `testing`/`review` with the failure surfaced.
+ * Call 1 (`index_codebase`) failing is a special case: calls 2-4 all require
+ * the "after" graph_path it produces, so a call-1 failure degrades the
+ * WHOLE sequence (marks `step: "done"` immediately, skipping calls 2-4
+ * rather than emitting 3 more calls guaranteed to fail for lack of a
+ * graph_path) — still fail-closed on `gates_passed`, still reaches
+ * `testing`.
  *
  * No-op condition (design §4, "no codebase" row): no `state.codebase_graph_path`
  * (nothing to diff against) or no `state.post_specs.implementation.worktree_path`
  * (implementation aborted before recording a worktree — see
  * implementation.ts's failure policy) → skip cleanly (emit_message,
- * `verification.step = "done"`), advance to `finalize` — mirrors
+ * `verification.step = "done"`), advance to `testing` — mirrors
  * `pre_impl_grounding`'s skip pattern.
  *
  * PR 4a reachability: `implementation` (PR 4a) is the only handler that
@@ -66,10 +67,10 @@
  * branch/worktree_path. This handler is ALSO still unit-tested directly via
  * `current_step: "post_impl_verification"` injection (no change there).
  *
- * PR-3c-era dead-end (design §5.3): the design doc's post-
- * `post_impl_verification` transition is `testing` (PR 4b, not yet wired),
- * so this handler still advances to `finalize` in the interim — this part is
- * unchanged by PR 4a.
+ * PR 4b wiring: `testing`/`review` now exist, so every path through this
+ * sequence (success, degrade, or no-op) advances to `testing` — there is
+ * nothing left to verify structurally once the 4-call sequence has settled;
+ * `testing`/`review` run regardless of `gates_passed`, per design §4.
  *
  * Loop-guard placement (Phase 2 git-historian lesson, restated in design §3
  * and pre-impl-grounding.ts): result-processing for the CURRENT cursor step
@@ -157,7 +158,7 @@ function asRecord(data: unknown): Record<string, unknown> {
   return (data ?? {}) as Record<string, unknown>;
 }
 
-function advanceToFinalize(
+function advanceToTesting(
   state: PipelineState,
   postSpecs: PostSpecsState,
   verification: VerificationState,
@@ -166,7 +167,7 @@ function advanceToFinalize(
   return {
     state: {
       ...state,
-      current_step: "finalize",
+      current_step: "testing",
       post_specs: { ...postSpecs, verification: { ...verification, step: "done" } },
     },
     action: { kind: "emit_message", message, level: "info" },
@@ -211,7 +212,7 @@ function processIndexCodebaseResult(
       `index_codebase (post-impl) failed: ${result.error ?? "unknown"}; skipping post-impl verification`,
       "upstream_failure",
     );
-    return advanceToFinalize(
+    return advanceToTesting(
       nextState,
       postSpecs,
       { ...verification, after_graph_path: null, gates_passed: false },
@@ -304,7 +305,7 @@ function processCheckSecurityGatesResult(
     check_security_gates: securityGatesData,
     gates_passed: gatesPassed,
   };
-  return advanceToFinalize(
+  return advanceToTesting(
     nextState,
     postSpecs,
     nextVerification,
@@ -460,7 +461,7 @@ function emitCallForStep(
     case "check_security_gates":
       return emitCheckSecurityGatesCall(state, postSpecs, verification);
     case "done":
-      return advanceToFinalize(
+      return advanceToTesting(
         state,
         postSpecs,
         verification,
@@ -485,7 +486,7 @@ export const handlePostImplVerification: StepHandler = ({ state, result }) => {
   // No-op: no "before" graph, or no implementation worktree (PR 4a not
   // wired — always true on the current step graph) → skip cleanly.
   if (!beforeGraphPath || !worktree) {
-    return advanceToFinalize(
+    return advanceToTesting(
       state,
       postSpecs,
       verification,

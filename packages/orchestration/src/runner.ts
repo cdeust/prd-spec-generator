@@ -43,6 +43,8 @@ import { handleImplementationGate } from "./handlers/implementation-gate.js";
 import { handlePreImplGrounding } from "./handlers/pre-impl-grounding.js";
 import { handleImplementation } from "./handlers/implementation.js";
 import { handlePostImplVerification } from "./handlers/post-impl-verification.js";
+import { handleTesting } from "./handlers/testing.js";
+import { handleReview } from "./handlers/review.js";
 import { handleFinalize } from "./handlers/finalize.js";
 
 export interface StepInput {
@@ -85,6 +87,8 @@ const HANDLERS: Record<PipelineState["current_step"], StepHandler> = {
   pre_impl_grounding: handlePreImplGrounding,
   implementation: handleImplementation,
   post_impl_verification: handlePostImplVerification,
+  testing: handleTesting,
+  review: handleReview,
   finalize: handleFinalize,
   complete: ({ state }) => ({
     state,
