@@ -30,30 +30,10 @@ import {
   type PipelineState,
 } from "../index.js";
 import type { SectionType } from "@prd-gen/core";
+import { resolveRemember } from "./helpers/resolve-completion.js";
 
 function stepOnce(state: PipelineState, result?: ActionResult) {
   return step({ state, result });
-}
-
-/** Must match self-check/remember-phase.ts:REMEMBER_CORRELATION_ID. */
-const REMEMBER_CORRELATION_ID = "self_check_remember";
-
-/**
- * Self-check Phase B computes the final summary and hands off to Phase C
- * (Cortex `remember`) before `done` — drive that round trip so tests written
- * against the pre-Phase-1b "Phase B returns done directly" behaviour keep
- * asserting on the SAME terminal `done` action, just one step later.
- */
-function resolveRemember(out: ReturnType<typeof stepOnce>) {
-  expect(out.action.kind).toBe("call_cortex_tool");
-  if (out.action.kind !== "call_cortex_tool") return out;
-  expect(out.action.correlation_id).toBe(REMEMBER_CORRELATION_ID);
-  return stepOnce(out.state, {
-    kind: "tool_result",
-    correlation_id: out.action.correlation_id,
-    success: true,
-    data: {},
-  });
 }
 
 describe("jira_generation", () => {

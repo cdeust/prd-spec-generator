@@ -11,6 +11,7 @@
  *   bounded-io.ts          — MAX_RESPONSE_CHARS / MAX_CLARIFICATION_TURNS / MAX_PIPELINE_ERRORS
  *   section-status.ts      — SectionStatusSchema
  *   verification-plan.ts   — VerificationPlanSnapshotSchema
+ *   post-specs-state.ts    — PostSpecsStateSchema (Phases 3-5 post-specs loop)
  *   core-state.ts           — ClarificationTurnSchema, PipelineStateSchema, PipelineState
  *   helpers.ts              — touch / appendError / newPipelineState
  * This barrel re-exports the full public surface so existing call sites keep
@@ -21,5 +22,6 @@ export * from "./pipeline-step.js";
 export * from "./bounded-io.js";
 export * from "./section-status.js";
 export * from "./verification-plan.js";
+export * from "./post-specs-state.js";
 export * from "./core-state.js";
 export * from "./helpers.js";

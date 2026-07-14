@@ -33,6 +33,7 @@ import {
   SELF_CHECK_JUDGE_INV_PREFIX,
   JIRA_GENERATION_INV_ID,
   GIT_HISTORY_INV_ID,
+  IMPLEMENTATION_GATE_QUESTION_ID,
 } from "./handlers/protocol-ids.js";
 
 export interface CannedDispatcherOptions {
@@ -56,6 +57,14 @@ export interface CannedDispatcherOptions {
    * so planDocumentVerification yields claims and the judge phase fires.
    */
   readonly fake_section_draft?: (section_type: string) => string;
+  /**
+   * Answer for the `implementation_gate` ask_user (PR 3b,
+   * design-phases-3-5.md §3). Default "PRD only" — the zero-regression
+   * default every pre-existing smoke/KPI baseline depends on. Set to
+   * "Implement" to drive the post-specs loop's pre_impl_grounding dead-end
+   * path in a full smoke run.
+   */
+  readonly implementation_gate_answer?: "PRD only" | "Implement";
 }
 
 export type CannedDispatcher = (action: NextAction) => ActionResult | undefined;
@@ -137,6 +146,7 @@ export function makeCannedDispatcher(
   const freeform_answer = opts.freeform_answer ?? "canned-answer";
   const graph_path = opts.graph_path ?? "/tmp/canned/graph";
   const fake_section_draft = opts.fake_section_draft ?? defaultFakeSectionDraft;
+  const implementation_gate_answer = opts.implementation_gate_answer ?? "PRD only";
 
   function pickFakeAgentResponse(invocation_id: string): string {
     if (invocation_id.startsWith(SELF_CHECK_JUDGE_INV_PREFIX)) {
@@ -168,6 +178,19 @@ export function makeCannedDispatcher(
         kind: "user_answer",
         question_id: action.question_id,
         selected: ["proceed"],
+      };
+    }
+    if (action.question_id === IMPLEMENTATION_GATE_QUESTION_ID) {
+      // Explicit, not relying on options[0]: PRD-only is the zero-regression
+      // default for every pre-existing smoke/KPI baseline (design-phases-3-5.md
+      // §5, PR 3b acceptance criterion). Callers that want to exercise the
+      // "implement" branch in a full smoke run pass
+      // implementation_gate_answer: "Implement" instead of hand-crafting a
+      // one-off ActionResult.
+      return {
+        kind: "user_answer",
+        question_id: action.question_id,
+        selected: [implementation_gate_answer],
       };
     }
     if (action.options && action.options.length > 0) {
@@ -218,6 +241,24 @@ export function makeCannedDispatcher(
           index: { node_count: 0, edge_count: 0, files_indexed: 0 },
           resolve: {},
           cluster: { community_count: 0, process_count: 0, modularity: 0 },
+        },
+      };
+    }
+    if (action.tool_name === "get_impact") {
+      // pre_impl_grounding.ts's per-symbol blast-radius query (PR 3b). Shape
+      // mirrors the live AP get_impact response envelope (callers/importers/
+      // users/implementors handles) — tests only assert on qualified_name /
+      // success, so a minimal but well-formed payload is sufficient here.
+      return {
+        kind: "tool_result",
+        correlation_id: action.correlation_id,
+        success: true,
+        data: {
+          qualified_name: action.arguments.qualified_name,
+          callers: [],
+          importers: [],
+          users: [],
+          implementors: [],
         },
       };
     }

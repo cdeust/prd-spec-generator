@@ -15,10 +15,15 @@ export {
   MAX_CLARIFICATION_TURNS,
   MAX_PIPELINE_ERRORS,
   MAX_RESPONSE_CHARS,
+  PostSpecsStateSchema,
+  ImpactQueryResultSchema,
+  initialPostSpecs,
   type PipelineStep,
   type SectionStatus,
   type ClarificationTurn,
   type PipelineState,
+  type PostSpecsState,
+  type ImpactQueryResult,
 } from "./types/state.js";
 
 export {

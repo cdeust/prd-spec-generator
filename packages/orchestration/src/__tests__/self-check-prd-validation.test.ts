@@ -18,32 +18,10 @@
 
 import { describe, it, expect } from "vitest";
 import { newPipelineState, step, type PipelineState } from "../index.js";
+import { resolveRemember } from "./helpers/resolve-completion.js";
 
 /** Must match self-check.ts:VALIDATE_PRD_CORRELATION_ID. */
 const VALIDATE_PRD_CORRELATION_ID = "self_check_validate_prd_against_graph";
-
-/** Must match self-check/remember-phase.ts:REMEMBER_CORRELATION_ID. */
-const REMEMBER_CORRELATION_ID = "self_check_remember";
-
-/**
- * Self-check's finalize() now hands off to Phase C (Cortex `remember`)
- * before `done` (Phase 1b) — drive that round trip so pre-existing
- * assertions on the terminal `done` action keep working.
- */
-function resolveRemember(out: ReturnType<typeof step>) {
-  expect(out.action.kind).toBe("call_cortex_tool");
-  if (out.action.kind !== "call_cortex_tool") return out;
-  expect(out.action.correlation_id).toBe(REMEMBER_CORRELATION_ID);
-  return step({
-    state: out.state,
-    result: {
-      kind: "tool_result",
-      correlation_id: out.action.correlation_id,
-      success: true,
-      data: {},
-    },
-  });
-}
 
 function stateAtSelfCheck(opts: {
   graphPath: string | null;

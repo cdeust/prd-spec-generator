@@ -47,3 +47,30 @@ export const GIT_HISTORY_INV_ID = "input_analysis_git_history";
 export function clarificationComposeInvocationId(round: number): string {
   return `${CLARIFICATION_COMPOSE_INV_PREFIX}${round}`;
 }
+
+/**
+ * implementation-gate.ts — ask_user question_id for the "Implement" /
+ * "PRD only" gate. Named here (not inline) so canned-dispatcher.ts's
+ * explicit "PRD only" default and any test driving the gate share the SAME
+ * literal — a drift here would silently fall through to the generic
+ * options[0] canned answer, flipping the smoke-test baseline onto the
+ * "Implement" path.
+ *
+ * source: design-phases-3-5.md §3 "implementation_gate".
+ */
+export const IMPLEMENTATION_GATE_QUESTION_ID = "implementation_gate";
+
+/**
+ * pre-impl-grounding.ts — correlation_id prefix for the per-symbol
+ * `get_impact` cursor loop (one round trip per affected symbol).
+ */
+export const PRE_IMPL_GROUNDING_IMPACT_PREFIX = "pre_impl_grounding_impact_";
+
+/**
+ * pre-impl-grounding.ts — correlation_id producer for symbol index N's
+ * `get_impact` call. Mirrors `clarificationComposeInvocationId` — the
+ * handler and the canned dispatcher/tests must share this exact format.
+ */
+export function preImplGroundingImpactCorrelationId(index: number): string {
+  return `${PRE_IMPL_GROUNDING_IMPACT_PREFIX}${index}`;
+}

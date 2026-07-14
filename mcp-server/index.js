@@ -29469,6 +29469,24 @@ var PipelineStepSchema = external_exports.enum([
   "jira_generation",
   "file_export",
   "self_check",
+  /**
+   * Post-specs implementation loop (design-phases-3-5.md, PR 3b).
+   * `self_check`'s finalize() now advances here instead of emitting
+   * `remember`/`done` directly — see finalize.ts, now the sole step that
+   * reaches `complete`.
+   */
+  "implementation_gate",
+  "pre_impl_grounding",
+  /**
+   * Relocated Phase C (Cortex `remember` → `done`) — the only step that
+   * advances `current_step` to `complete`. PR 3b dead-ends both
+   * `implementation_gate` ("prd_only") and `pre_impl_grounding` (grounding
+   * gathered or skipped) straight here; the `implementation` /
+   * `post_impl_verification` / `testing` / `review` / `pr_gate` /
+   * `pr_creation` steps named in the design doc are NOT yet in this enum —
+   * they land in PRs 3c/4a/4b/5.
+   */
+  "finalize",
   "complete"
 ]);
 
@@ -30261,6 +30279,72 @@ var VerificationPlanSnapshotSchema = external_exports.object({
   path: ["judges"]
 });
 
+// packages/orchestration/dist/types/state/post-specs-state.js
+var ImpactQueryResultSchema = external_exports.object({
+  qualified_name: external_exports.string(),
+  success: external_exports.boolean(),
+  data: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
+  error: external_exports.string().optional()
+});
+var ImpactQueriesStateSchema = external_exports.object({
+  done: external_exports.boolean().default(false),
+  index: external_exports.number().int().nonnegative().default(0),
+  results: external_exports.array(ImpactQueryResultSchema).default([])
+});
+var ImplementationStateSchema = external_exports.object({
+  branch: external_exports.string(),
+  worktree_path: external_exports.string().nullable(),
+  changed_files: external_exports.array(external_exports.string()).default([]),
+  raw_report: external_exports.string()
+});
+var VerificationStateSchema = external_exports.object({
+  detect_changes: external_exports.record(external_exports.string(), external_exports.unknown()).nullable().default(null),
+  verify_semantic_diff: external_exports.record(external_exports.string(), external_exports.unknown()).nullable().default(null),
+  check_security_gates: external_exports.record(external_exports.string(), external_exports.unknown()).nullable().default(null),
+  gates_passed: external_exports.boolean().default(false)
+});
+var TestingStateSchema = external_exports.object({
+  raw_report: external_exports.string()
+});
+var ReviewStateSchema = external_exports.object({
+  verdict: external_exports.enum(["pass", "fail"]),
+  findings: external_exports.array(external_exports.string()).default([]),
+  attempt: external_exports.number().int().positive()
+});
+var PrStateSchema = external_exports.object({
+  pushed: external_exports.boolean().default(false),
+  url: external_exports.string().nullable().default(null)
+});
+var PostSpecsStateSchema = external_exports.object({
+  /**
+   * Set by `implementation_gate`'s ask_user answer. `"pending"` is the
+   * pre-gate default (self_check's finalize() initializes post_specs but
+   * leaves decision at its schema default until the gate answers).
+   */
+  decision: external_exports.enum(["pending", "implement", "prd_only"]).default("pending"),
+  /** PR 3b — wired by pre_impl_grounding.ts. */
+  impact_queries: ImpactQueriesStateSchema.default({
+    done: false,
+    index: 0,
+    results: []
+  }),
+  /** Phase 4a — not wired in 3b. */
+  implementation: ImplementationStateSchema.nullable().default(null),
+  /** Phase 3c/4a — not wired in 3b. */
+  verification: VerificationStateSchema.nullable().default(null),
+  /** Phase 4b — not wired in 3b. */
+  testing: TestingStateSchema.nullable().default(null),
+  /** Phase 4b — not wired in 3b. */
+  review: ReviewStateSchema.nullable().default(null),
+  /** Phase 5 — not wired in 3b. */
+  pr: PrStateSchema.nullable().default(null),
+  /** Phase 4b review-loop counter — not wired in 3b. */
+  retry_count: external_exports.number().int().nonnegative().default(0)
+});
+function initialPostSpecs() {
+  return PostSpecsStateSchema.parse({});
+}
+
 // packages/orchestration/dist/types/actions.js
 var AskUserActionSchema = external_exports.object({
   kind: external_exports.literal("ask_user"),
@@ -30760,7 +30844,16 @@ var PipelineStateSchema = external_exports.object({
   retry_policy: external_exports.object({
     maxAttempts: external_exports.number().int().positive(),
     arm: external_exports.enum(["with_prior_violations", "without_prior_violations"])
-  }).nullable().default(null)
+  }).nullable().default(null),
+  /**
+   * Phases 3-5 post-specs implementation loop (design-phases-3-5.md).
+   * Nullable, default null — every existing run/test that never reaches the
+   * `implementation_gate` step is unaffected. Initialized (via
+   * `initialPostSpecs()`) the first time `implementation_gate` runs.
+   *
+   * source: design-phases-3-5.md §2.1.
+   */
+  post_specs: PostSpecsStateSchema.nullable().default(null)
 }).refine((s) => s.errors.length === s.error_kinds.length, {
   message: "PipelineState: errors[] and error_kinds[] must have the same length (lockstep invariant \u2014 use appendError() to append, never spread directly).",
   path: ["error_kinds"]
@@ -31478,6 +31571,11 @@ var JIRA_GENERATION_INV_ID = "jira_generation_engineer";
 var GIT_HISTORY_INV_ID = "input_analysis_git_history";
 function clarificationComposeInvocationId(round3) {
   return `${CLARIFICATION_COMPOSE_INV_PREFIX}${round3}`;
+}
+var IMPLEMENTATION_GATE_QUESTION_ID = "implementation_gate";
+var PRE_IMPL_GROUNDING_IMPACT_PREFIX = "pre_impl_grounding_impact_";
+function preImplGroundingImpactCorrelationId(index2) {
+  return `${PRE_IMPL_GROUNDING_IMPACT_PREFIX}${index2}`;
 }
 
 // packages/orchestration/dist/handlers/input-analysis/git-history.js
@@ -33299,69 +33397,6 @@ ${context.memory_excerpts.join("\n---\n")}
   };
 }
 
-// packages/orchestration/dist/handlers/self-check/remember-phase.js
-var REMEMBER_CORRELATION_ID = "self_check_remember";
-var REMEMBER_TAGS = ["prd-gen", "prd-run"];
-var REMEMBER_SOURCE = "prd-gen:self_check";
-function buildRememberContent(state, pending) {
-  const sectionsTotal = state.sections.filter((s) => s.section_type !== "jira_tickets").length;
-  const hasJiraTickets = state.sections.some((s) => s.section_type === "jira_tickets" && s.content);
-  const exportedFiles = state.written_files.length ? state.written_files.join("\n  - ") : "(none written)";
-  return [
-    `PRD run complete: "${state.feature_description}"`,
-    `PRD context: ${state.prd_context ?? "unknown"}`,
-    `Sections: ${sectionsTotal} planned. JIRA tickets generated: ${hasJiraTickets ? "yes" : "no"}.`,
-    "",
-    pending.summary,
-    "",
-    `Exported files (verifiable references):`,
-    `  - ${exportedFiles}`
-  ].join("\n");
-}
-function rememberAction(state, pending) {
-  return {
-    kind: "call_cortex_tool",
-    tool_name: "remember",
-    arguments: {
-      content: buildRememberContent(state, pending),
-      tags: REMEMBER_TAGS,
-      source: REMEMBER_SOURCE
-    },
-    correlation_id: REMEMBER_CORRELATION_ID
-  };
-}
-function doneAction(pending) {
-  return {
-    kind: "done",
-    summary: pending.summary,
-    artifacts: pending.artifacts,
-    verification: pending.verification
-  };
-}
-function emitRememberOrDone(state, pending) {
-  if (state.run_remembered) {
-    return {
-      state: { ...state, current_step: "complete", pending_completion: null },
-      action: doneAction(pending)
-    };
-  }
-  return {
-    state: { ...state, pending_completion: pending },
-    action: rememberAction(state, pending)
-  };
-}
-function handleRememberPhase(state, result) {
-  const pending = state.pending_completion;
-  if (!pending) {
-    throw new Error("handleRememberPhase reached with pending_completion === null");
-  }
-  if (result?.kind === "tool_result" && result.correlation_id === REMEMBER_CORRELATION_ID) {
-    const nextState = result.success ? { ...state, run_remembered: true } : appendError({ ...state, run_remembered: true }, `remember failed: ${result.error ?? "unknown"}; run summary was not persisted to Cortex`, "upstream_failure");
-    return emitRememberOrDone(nextState, pending);
-  }
-  return { state, action: rememberAction(state, pending) };
-}
-
 // packages/orchestration/dist/handlers/self-check.js
 var VERIFY_BATCH_ID = "self_check_verify";
 var VALIDATE_PRD_CORRELATION_ID = "self_check_validate_prd_against_graph";
@@ -33504,22 +33539,33 @@ function finalize(state, verdicts = []) {
     `  FAIL:           ${verificationReport.distribution.FAIL}`,
     verificationReport.distribution_suspicious ? `  \u26A0 Distribution suspicious \u2014 100% PASS suggests confirmatory bias.` : ""
   ].filter((l) => l !== "").join("\n");
-  return emitRememberOrDone(state, {
-    summary,
-    artifacts: state.sections.map((s) => `${s.section_type}: ${s.status}`),
-    // Typed verification surface (Phase 3+4 cross-audit closure). Callers
-    // MUST consume this field, not regex-parse `summary`. The string
-    // remains as a human-readable artifact only.
-    verification: {
-      claims_evaluated: verificationReport.claims_evaluated,
-      distribution: verificationReport.distribution,
-      distribution_suspicious: verificationReport.distribution_suspicious,
-      // Attach the PRD-vs-graph validation report when one was produced. Left
-      // undefined for non-codebase runs so the prior verification shape is
-      // unchanged (backward-compatible). See VerificationSummarySchema.
-      ...state.prd_validation ? { prd_graph_validation: state.prd_validation } : {}
+  return {
+    state: {
+      ...state,
+      pending_completion: {
+        summary,
+        artifacts: state.sections.map((s) => `${s.section_type}: ${s.status}`),
+        // Typed verification surface (Phase 3+4 cross-audit closure). Callers
+        // MUST consume this field, not regex-parse `summary`. The string
+        // remains as a human-readable artifact only.
+        verification: {
+          claims_evaluated: verificationReport.claims_evaluated,
+          distribution: verificationReport.distribution,
+          distribution_suspicious: verificationReport.distribution_suspicious,
+          // Attach the PRD-vs-graph validation report when one was produced.
+          // Left undefined for non-codebase runs so the prior verification
+          // shape is unchanged (backward-compatible). See
+          // VerificationSummarySchema.
+          ...state.prd_validation ? { prd_graph_validation: state.prd_validation } : {}
+        }
+      },
+      current_step: "implementation_gate"
+    },
+    action: {
+      kind: "emit_message",
+      message: "Self-check complete. Awaiting implementation decision."
     }
-  });
+  };
 }
 function handleSelfCheckPhaseA(state) {
   const sections = gatherSections(state);
@@ -33561,9 +33607,6 @@ function handleSelfCheckPhaseB(state, result) {
   return finalize(stateAfter, verdicts);
 }
 var handleSelfCheck = ({ state, result }) => {
-  if (state.pending_completion) {
-    return handleRememberPhase(state, result);
-  }
   const validation = handlePrdValidation(state, result);
   if ("action" in validation) {
     return { state: validation.state, action: validation.action };
@@ -33608,6 +33651,229 @@ function parseVerdictsFromSnapshot(snapshot, state, batchResult) {
   return out;
 }
 
+// packages/orchestration/dist/handlers/implementation-gate.js
+function ensurePostSpecs(state) {
+  return state.post_specs ?? initialPostSpecs();
+}
+function decisionFromAnswer(result) {
+  const chosen = (result.selected[0] ?? result.freeform ?? "").toLowerCase();
+  return chosen.includes("implement") ? "implement" : "prd_only";
+}
+var handleImplementationGate = ({ state, result }) => {
+  if (result?.kind === "user_answer" && result.question_id === IMPLEMENTATION_GATE_QUESTION_ID) {
+    const decision = decisionFromAnswer(result);
+    const postSpecs = { ...ensurePostSpecs(state), decision };
+    if (decision === "prd_only") {
+      return {
+        state: { ...state, post_specs: postSpecs, current_step: "finalize" },
+        action: {
+          kind: "emit_message",
+          message: "PRD-only run selected. Skipping implementation."
+        }
+      };
+    }
+    return {
+      state: { ...state, post_specs: postSpecs, current_step: "pre_impl_grounding" },
+      action: {
+        kind: "emit_message",
+        message: "Implementation selected. Gathering pre-implementation blast-radius grounding."
+      }
+    };
+  }
+  return {
+    state: { ...state, post_specs: ensurePostSpecs(state) },
+    action: {
+      kind: "ask_user",
+      question_id: IMPLEMENTATION_GATE_QUESTION_ID,
+      header: "Proceed to implementation?",
+      description: "The PRD/specs are ready. Implement the change now (spawns an engineer, runs tests and review, opens a PR after a human gate), or stop here with PRD-only deliverables (today's behavior)?",
+      options: [
+        {
+          label: "PRD only",
+          description: "Stop here. No code changes \u2014 today's default behavior."
+        },
+        {
+          label: "Implement",
+          description: "Spawn an engineer to implement, test, review, and (after a further gate) open a PR."
+        }
+      ],
+      multi_select: false
+    }
+  };
+};
+
+// packages/orchestration/dist/handlers/pre-impl-grounding.js
+var IMPACT_QUERY_SYMBOL_CAP = 10;
+function ensurePostSpecs2(state) {
+  return state.post_specs ?? initialPostSpecs();
+}
+function boundedAffectedSymbols(state) {
+  const techSpec = state.sections.find((s) => s.section_type === "technical_specification" && s.content);
+  if (!techSpec?.content)
+    return [];
+  const doc = parseAffectedSymbolsBlock(techSpec.content);
+  const names = doc.affected_symbols.map((s) => s.qualified_name);
+  return Array.from(new Set(names)).slice(0, IMPACT_QUERY_SYMBOL_CAP);
+}
+function advanceDeadEnd(state, message) {
+  return {
+    state: { ...state, current_step: "finalize" },
+    action: {
+      kind: "emit_message",
+      message: `${message} Implementation/testing/review/PR stages are not yet wired in this build \u2014 finalizing with PRD deliverables.`,
+      level: "info"
+    }
+  };
+}
+var handlePreImplGrounding = ({ state, result }) => {
+  const postSpecs = ensurePostSpecs2(state);
+  const symbols = boundedAffectedSymbols(state);
+  const expectedCorrelationId = preImplGroundingImpactCorrelationId(postSpecs.impact_queries.index);
+  if (result?.kind === "tool_result" && result.correlation_id.startsWith(PRE_IMPL_GROUNDING_IMPACT_PREFIX)) {
+    if (result.correlation_id !== expectedCorrelationId) {
+      return {
+        state: appendError(state, `[pre_impl_grounding] unexpected correlation_id '${result.correlation_id}' (expected '${expectedCorrelationId}'); re-issuing`, "structural"),
+        action: emitImpactCall(state, postSpecs, symbols)
+      };
+    }
+    const symbol = symbols[postSpecs.impact_queries.index];
+    const entry = result.success ? { qualified_name: symbol, success: true, data: result.data ?? {} } : { qualified_name: symbol, success: false, error: result.error ?? "unknown" };
+    const nextImpactQueries = {
+      ...postSpecs.impact_queries,
+      index: postSpecs.impact_queries.index + 1,
+      results: [...postSpecs.impact_queries.results, entry]
+    };
+    let nextState = {
+      ...state,
+      post_specs: { ...postSpecs, impact_queries: nextImpactQueries }
+    };
+    if (!result.success) {
+      nextState = appendError(nextState, `get_impact failed for '${symbol}': ${result.error ?? "unknown"}; continuing with partial grounding`, "upstream_failure");
+    }
+    return {
+      state: nextState,
+      action: {
+        kind: "emit_message",
+        message: `Blast-radius grounding: ${symbol} (${nextImpactQueries.index}/${symbols.length}).`
+      }
+    };
+  }
+  const graphPath = state.codebase_graph_path;
+  if (!graphPath || !state.affected_symbols_path || symbols.length === 0) {
+    return advanceDeadEnd({
+      ...state,
+      post_specs: {
+        ...postSpecs,
+        impact_queries: { ...postSpecs.impact_queries, done: true }
+      }
+    }, "No affected-symbols grounding available.");
+  }
+  if (postSpecs.impact_queries.index >= symbols.length) {
+    return advanceDeadEnd({
+      ...state,
+      post_specs: {
+        ...postSpecs,
+        impact_queries: { ...postSpecs.impact_queries, done: true }
+      }
+    }, `Pre-implementation grounding complete: ${symbols.length} symbol(s) queried.`);
+  }
+  return {
+    state: { ...state, post_specs: postSpecs },
+    action: emitImpactCall(state, postSpecs, symbols)
+  };
+};
+function emitImpactCall(state, postSpecs, symbols) {
+  const symbol = symbols[postSpecs.impact_queries.index];
+  return {
+    kind: "call_pipeline_tool",
+    tool_name: "get_impact",
+    arguments: {
+      graph_path: state.codebase_graph_path,
+      qualified_name: symbol
+    },
+    correlation_id: preImplGroundingImpactCorrelationId(postSpecs.impact_queries.index)
+  };
+}
+
+// packages/orchestration/dist/handlers/finalize.js
+var REMEMBER_CORRELATION_ID = "self_check_remember";
+var REMEMBER_TAGS = ["prd-gen", "prd-run"];
+var REMEMBER_SOURCE = "prd-gen:self_check";
+function buildPostSpecsSummary(state) {
+  const ps = state.post_specs;
+  if (!ps)
+    return "";
+  const lines = [`Post-specs decision: ${ps.decision}`];
+  if (ps.impact_queries.results.length > 0) {
+    const ok = ps.impact_queries.results.filter((r) => r.success).length;
+    lines.push(`Pre-implementation grounding: ${ps.impact_queries.results.length} symbol(s) queried (${ok} succeeded).`);
+    for (const r of ps.impact_queries.results) {
+      lines.push(`  - ${r.qualified_name}: ${r.success ? "ok" : `failed (${r.error ?? "unknown"})`}`);
+    }
+  }
+  return lines.join("\n");
+}
+function buildRememberContent(state, pending) {
+  const sectionsTotal = state.sections.filter((s) => s.section_type !== "jira_tickets").length;
+  const hasJiraTickets = state.sections.some((s) => s.section_type === "jira_tickets" && s.content);
+  const exportedFiles = state.written_files.length ? state.written_files.join("\n  - ") : "(none written)";
+  const postSpecsSummary = buildPostSpecsSummary(state);
+  return [
+    `PRD run complete: "${state.feature_description}"`,
+    `PRD context: ${state.prd_context ?? "unknown"}`,
+    `Sections: ${sectionsTotal} planned. JIRA tickets generated: ${hasJiraTickets ? "yes" : "no"}.`,
+    "",
+    pending.summary,
+    "",
+    ...postSpecsSummary ? [postSpecsSummary, ""] : [],
+    `Exported files (verifiable references):`,
+    `  - ${exportedFiles}`
+  ].join("\n");
+}
+function rememberAction(state, pending) {
+  return {
+    kind: "call_cortex_tool",
+    tool_name: "remember",
+    arguments: {
+      content: buildRememberContent(state, pending),
+      tags: REMEMBER_TAGS,
+      source: REMEMBER_SOURCE
+    },
+    correlation_id: REMEMBER_CORRELATION_ID
+  };
+}
+function doneAction(pending) {
+  return {
+    kind: "done",
+    summary: pending.summary,
+    artifacts: pending.artifacts,
+    verification: pending.verification
+  };
+}
+function emitRememberOrDone(state, pending) {
+  if (state.run_remembered) {
+    return {
+      state: { ...state, current_step: "complete", pending_completion: null },
+      action: doneAction(pending)
+    };
+  }
+  return {
+    state: { ...state, pending_completion: pending },
+    action: rememberAction(state, pending)
+  };
+}
+var handleFinalize = ({ state, result }) => {
+  const pending = state.pending_completion;
+  if (!pending) {
+    throw new Error("handleFinalize reached with pending_completion === null");
+  }
+  if (result?.kind === "tool_result" && result.correlation_id === REMEMBER_CORRELATION_ID) {
+    const nextState = result.success ? { ...state, run_remembered: true } : appendError({ ...state, run_remembered: true }, `remember failed: ${result.error ?? "unknown"}; run summary was not persisted to Cortex`, "upstream_failure");
+    return emitRememberOrDone(nextState, pending);
+  }
+  return { state, action: rememberAction(state, pending) };
+};
+
 // packages/orchestration/dist/runner.js
 var HANDLERS = {
   banner: handleBanner,
@@ -33621,6 +33887,9 @@ var HANDLERS = {
   jira_generation: handleJiraGeneration,
   file_export: handleFileExport,
   self_check: handleSelfCheck,
+  implementation_gate: handleImplementationGate,
+  pre_impl_grounding: handlePreImplGrounding,
+  finalize: handleFinalize,
   complete: ({ state }) => ({
     state,
     action: {
@@ -33887,6 +34156,7 @@ function makeCannedDispatcher(opts = {}) {
   const freeform_answer = opts.freeform_answer ?? "canned-answer";
   const graph_path = opts.graph_path ?? "/tmp/canned/graph";
   const fake_section_draft = opts.fake_section_draft ?? defaultFakeSectionDraft;
+  const implementation_gate_answer = opts.implementation_gate_answer ?? "PRD only";
   function pickFakeAgentResponse(invocation_id) {
     if (invocation_id.startsWith(SELF_CHECK_JUDGE_INV_PREFIX)) {
       return fakeJudgeVerdict();
@@ -33912,6 +34182,13 @@ function makeCannedDispatcher(opts = {}) {
         kind: "user_answer",
         question_id: action.question_id,
         selected: ["proceed"]
+      };
+    }
+    if (action.question_id === IMPLEMENTATION_GATE_QUESTION_ID) {
+      return {
+        kind: "user_answer",
+        question_id: action.question_id,
+        selected: [implementation_gate_answer]
       };
     }
     if (action.options && action.options.length > 0) {
@@ -33952,6 +34229,20 @@ function makeCannedDispatcher(opts = {}) {
           index: { node_count: 0, edge_count: 0, files_indexed: 0 },
           resolve: {},
           cluster: { community_count: 0, process_count: 0, modularity: 0 }
+        }
+      };
+    }
+    if (action.tool_name === "get_impact") {
+      return {
+        kind: "tool_result",
+        correlation_id: action.correlation_id,
+        success: true,
+        data: {
+          qualified_name: action.arguments.qualified_name,
+          callers: [],
+          importers: [],
+          users: [],
+          implementors: []
         }
       };
     }
