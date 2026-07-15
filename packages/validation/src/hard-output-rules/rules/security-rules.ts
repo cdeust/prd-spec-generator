@@ -1,10 +1,15 @@
 import type { HardOutputRuleViolation, SectionType } from "@prd-gen/core";
 import {
-  findAbsenceViolation,
   extractCodeBlocks,
-  hasExplicitOptOut,
+  findAbsenceViolation,
   makeViolation,
 } from "./helpers.js";
+import {
+  hasExplicitOptOut,
+  matchCount,
+  matchesAny,
+  phrases,
+} from "./lexicon.js";
 
 // Rule 25: No Hardcoded Secrets
 export function checkNoHardcodedSecrets(
@@ -58,13 +63,7 @@ export function checkNoHardcodedSecrets(
   }
 
   const lowered = content.toLowerCase();
-  const dangerousPhrases = [
-    "hardcode the password",
-    "hardcode the key",
-    "embed the secret",
-    "paste your api key",
-    "put your token directly",
-  ];
+  const dangerousPhrases = phrases("dangerousSecretPhrases");
   for (const phrase of dangerousPhrases) {
     if (lowered.includes(phrase)) {
       violations.push(
@@ -86,28 +85,12 @@ export function checkInputValidationRequired(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (hasExplicitOptOut(content, ["inputValidationTopic"])) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
-    [
-      "input validation",
-      "validate input",
-      "sanitize",
-      "sanitization",
-      "whitelist",
-      "allowlist",
-      "blocklist",
-      "reject invalid",
-      "schema validation",
-      "request validation",
-      "payload validation",
-      "type check",
-      "bounds check",
-      "length check",
-      "format validation",
-      "validate request",
-      "input filter",
-      "data validation",
-    ],
+    phrases("inputValidationSignals"),
     2,
     "input_validation_required",
     sectionType,
@@ -120,29 +103,10 @@ export function checkOutputEncodingInjectionPrevention(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  const lowered = content.toLowerCase();
-  const injectionSignals = [
-    "injection prevention",
-    "sql injection",
-    "xss",
-    "cross-site scripting",
-    "command injection",
-    "output encoding",
-    "escape",
-    "parameterized quer",
-    "prepared statement",
-    "orm",
-    "html encoding",
-    "content security policy",
-    "csp",
-    "sanitize output",
-    "template escaping",
-    "injection attack",
-  ];
-
-  const signalCount = injectionSignals.filter((s) =>
-    lowered.includes(s),
-  ).length;
+  if (hasExplicitOptOut(content, ["injectionTopic"])) {
+    return [];
+  }
+  const signalCount = matchCount(content, ["injectionSignals"]);
 
   if (signalCount < 2) {
     return [
@@ -196,58 +160,12 @@ export function checkAuthOnEveryEndpoint(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  if (
-    hasExplicitOptOut(content, [
-      "authentication",
-      "authorization",
-      "endpoint",
-      "auth strategy",
-      "caller identity",
-      "authentification",
-      "autorisation",
-      "point de terminaison",
-      "stratégie d'authentification",
-      "identité de l'appelant",
-    ])
-  ) {
+  if (hasExplicitOptOut(content, ["authTopic"])) {
     return [];
   }
-  const lowered = content.toLowerCase();
 
-  const authNSignals = [
-    "authentication",
-    "authenticate",
-    "login",
-    "sign in",
-    "jwt",
-    "oauth",
-    "api key",
-    "bearer token",
-    "session",
-    "identity",
-    "credential",
-    "mfa",
-    "multi-factor",
-    "sso",
-  ];
-
-  const authZSignals = [
-    "authorization",
-    "authorize",
-    "permission",
-    "role",
-    "rbac",
-    "abac",
-    "access control",
-    "privilege",
-    "scope",
-    "claim",
-    "policy",
-    "grant",
-  ];
-
-  const hasAuthN = authNSignals.some((s) => lowered.includes(s));
-  const hasAuthZ = authZSignals.some((s) => lowered.includes(s));
+  const hasAuthN = matchesAny(content, ["authNSignals"]);
+  const hasAuthZ = matchesAny(content, ["authZSignals"]);
 
   if (!hasAuthN || !hasAuthZ) {
     const missing: string[] = [];
@@ -270,33 +188,16 @@ export function checkSecuritySafeErrorHandling(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  const lowered = content.toLowerCase();
+  if (hasExplicitOptOut(content, ["safeErrorTopic"])) {
+    return [];
+  }
 
-  const safeErrorSignals = [
-    "no stack trace",
-    "hide internal",
-    "generic error",
-    "error message sanitiz",
-    "no implementation detail",
-    "user-facing error",
-    "error boundary",
-    "safe error",
-    "don't leak",
-    "do not expose",
-    "error abstraction",
-    "error mapping",
-    "client-safe",
-    "production error",
-  ];
-
-  const signalCount = safeErrorSignals.filter((s) =>
-    lowered.includes(s),
-  ).length;
+  const signalCount = matchCount(content, ["safeErrorSignals"]);
 
   if (signalCount < 1) {
     const hasErrorSecurity =
-      lowered.includes("error") &&
-      (lowered.includes("secur") || lowered.includes("sensitive"));
+      matchesAny(content, ["errorTermSignals"]) &&
+      matchesAny(content, ["securityOrSensitiveTermSignals"]);
     if (!hasErrorSecurity) {
       return [
         makeViolation(
@@ -320,51 +221,12 @@ export function checkCryptographicStandards(
   // was the only security rule in this file with NO opt-out escape, so a
   // local bash script with no encryption surface could never satisfy it
   // regardless of how it justified the non-applicability.
-  if (
-    hasExplicitOptOut(content, [
-      "encrypt",
-      "encryption",
-      "cryptograph",
-      "hash",
-      "key management",
-      "chiffrement",
-      "cryptographie",
-      "hachage",
-      "gestion des clés",
-    ])
-  ) {
+  if (hasExplicitOptOut(content, ["cryptoTopic"])) {
     return [];
   }
-  const lowered = content.toLowerCase();
   const violations: HardOutputRuleViolation[] = [];
 
-  const cryptoSignals = [
-    "encrypt",
-    "encryption",
-    "aes",
-    "rsa",
-    "tls",
-    "hash",
-    "bcrypt",
-    "argon2",
-    "scrypt",
-    "pbkdf2",
-    "hmac",
-    "sha-256",
-    "sha-384",
-    "sha-512",
-    "key management",
-    "key rotation",
-    "certificate",
-    "chiffrement",
-    "chiffré",
-    "hachage",
-    "gestion des clés",
-    "rotation des clés",
-    "certificat",
-  ];
-
-  const signalCount = cryptoSignals.filter((s) => lowered.includes(s)).length;
+  const signalCount = matchCount(content, ["cryptoSignals"]);
 
   if (signalCount < 2) {
     violations.push(
@@ -407,41 +269,12 @@ export function checkRateLimitingRequired(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  if (
-    hasExplicitOptOut(content, [
-      "rate limit",
-      "rate limiting",
-      "throttl",
-      "endpoint",
-      "abuse prevention",
-      "limitation de débit",
-      "limitation de taux",
-      "point de terminaison",
-      "prévention des abus",
-    ])
-  ) {
+  if (hasExplicitOptOut(content, ["rateLimitTopic"])) {
     return [];
   }
   return findAbsenceViolation(
     content,
-    [
-      "rate limit",
-      "rate-limit",
-      "throttl",
-      "request limit",
-      "quota",
-      "burst limit",
-      "sliding window",
-      "token bucket",
-      "leaky bucket",
-      "ddos",
-      "abuse prevention",
-      "requests per",
-      "calls per",
-      "limitation de débit",
-      "limitation de taux",
-      "limite de requêtes",
-    ],
+    phrases("rateLimitSignals"),
     1,
     "rate_limiting_required",
     sectionType,
@@ -454,44 +287,12 @@ export function checkSecureCommunication(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  if (
-    hasExplicitOptOut(content, [
-      "tls",
-      "https",
-      "network i/o",
-      "network",
-      "secure communication",
-      "transport",
-      "encrypted channel",
-      "réseau",
-      "communication sécurisée",
-      "canal chiffré",
-      "trafic réseau",
-    ])
-  ) {
+  if (hasExplicitOptOut(content, ["secureCommTopic"])) {
     return [];
   }
   return findAbsenceViolation(
     content,
-    [
-      "tls",
-      "https",
-      "ssl",
-      "transport layer security",
-      "encrypt in transit",
-      "encryption in transit",
-      "certificate",
-      "cert pinning",
-      "certificate pinning",
-      "mutual tls",
-      "mtls",
-      "secure channel",
-      "encrypted connection",
-      "chiffrement en transit",
-      "canal sécurisé",
-      "connexion chiffrée",
-      "certificat",
-    ],
+    phrases("secureCommSignals"),
     1,
     "secure_communication",
     sectionType,
