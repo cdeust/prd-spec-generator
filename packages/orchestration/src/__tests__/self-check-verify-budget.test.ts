@@ -149,7 +149,9 @@ describe("self-check judge-panel budget gate", () => {
       expect(inv.effort).toBe(DEFAULT_VERIFY_BUDGET.judge_effort);
     }
   });
+});
 
+describe("self-check judge-panel budget gate — over-cap decisions", () => {
   it("emits ask_user with the 3 budget options when the reduced count exceeds the cap", () => {
     // 28 FR claims (28*1) + 1 architecture claim (1*2) = 30 > cap (20) —
     // mirrors the e2e run_mrlqa0aj_u2rh15 scenario (29 claims).
@@ -193,7 +195,9 @@ describe("self-check judge-panel budget gate", () => {
     expect(claimIds.some((id) => id.startsWith("FR-"))).toBe(true);
     expect(claimIds.some((id) => id.startsWith("ARCH-"))).toBe(true);
   });
+});
 
+describe("self-check judge-panel budget gate — 'Full fleet' / 'Skip' decisions", () => {
   it("'Full fleet' answer dispatches the full reduced (uncapped) set", () => {
     const state = selfCheckState(28, true);
     const gated = dispatchAction(state);
@@ -230,7 +234,109 @@ describe("self-check judge-panel budget gate", () => {
     expect(out.state.verification_plan).toBeNull();
     expect(out.state.pending_completion?.verification?.claims_evaluated).toBe(0);
   });
+});
 
+/**
+ * Drive the budget gate to a "Reduced sample" dispatch. Extracted so the
+ * Phase B mismatch test body (below) stays under the §4.2 50-line function
+ * cap (craftsmanship-checker.sh FUNCTION_TOO_LONG).
+ *
+ * postcondition: verification_plan.sampled === true; invocations.length > 1
+ *                (so the mismatch test can drop one and still have signal).
+ */
+function dispatchSampledBatch() {
+  const state = selfCheckState(28, true);
+  const gated = dispatchAction(state);
+  expect(gated.action.kind).toBe("ask_user");
+
+  const sampleAnswer: ActionResult = {
+    kind: "user_answer",
+    question_id: VERIFY_BUDGET_QUESTION_ID,
+    selected: [VERIFY_BUDGET_OPTION_SAMPLE],
+  };
+  const dispatched = dispatchAction(gated.state, sampleAnswer);
+  expect(dispatched.action.kind).toBe("spawn_subagents");
+  if (dispatched.action.kind !== "spawn_subagents") throw new Error("unreachable");
+  expect(dispatched.state.verification_plan?.sampled).toBe(true);
+  return dispatched;
+}
+
+/**
+ * Build a Phase B batch whose invocation_ids diverge from the sampled
+ * snapshot: drop the FIRST sampled invocation's response (missing id) and
+ * inject one bogus id that was never dispatched (extra id).
+ */
+function buildMismatchedResponses(
+  sampledInvocations: readonly { readonly invocation_id: string }[],
+) {
+  const responses = sampledInvocations
+    .slice(1) // drop index 0 — simulates a missing response
+    .map((inv) => ({
+      invocation_id: inv.invocation_id,
+      raw_text: JSON.stringify({
+        verdict: "PASS",
+        rationale: "phase-B mismatch-test judge response",
+        caveats: [],
+        confidence: 0.75,
+      }),
+    }));
+  responses.push({
+    // Extra id never present in the dispatched invocation set.
+    invocation_id: "self_check_judge_9999",
+    raw_text: JSON.stringify({
+      verdict: "PASS",
+      rationale: "response for an invocation_id nobody dispatched",
+      caveats: [],
+      confidence: 0.75,
+    }),
+  });
+  return responses;
+}
+
+describe("self-check judge-panel budget gate — Phase B degradation (follow-up, e2e run_mrlqa0aj_u2rh15)", () => {
+  it(
+    "Phase B mismatch fallback: sampled snapshot + a batch response whose " +
+      "invocation_ids don't exactly match (extra/missing) degrades " +
+      "deterministically — missing responses become INCONCLUSIVE, extra " +
+      "responses are ignored (no crash, no double-count)",
+    () => {
+      const dispatched = dispatchSampledBatch();
+      const sampledInvocations = dispatched.action.invocations;
+      const sampledCount = sampledInvocations.length;
+      expect(sampledCount).toBeGreaterThan(1);
+
+      const batchResult: ActionResult = {
+        kind: "subagent_batch_result",
+        batch_id: dispatched.action.batch_id,
+        responses: buildMismatchedResponses(sampledInvocations),
+      };
+
+      const out = dispatchAction(dispatched.state, batchResult);
+
+      // No crash — the run still reaches a non-"failed" action.
+      expect(out.action.kind).not.toBe("failed");
+
+      const verification = out.state.pending_completion?.verification;
+      expect(verification).toBeDefined();
+
+      // No double-count: claims_evaluated is bounded by the SAMPLED claim
+      // count, never inflated by the bogus extra invocation_id (which has no
+      // corresponding entry in the snapshot and is simply never looked up).
+      expect(verification!.claims_evaluated).toBeLessThanOrEqual(sampledCount);
+      expect(verification!.claims_evaluated).toBeGreaterThan(0);
+
+      // The missing response (index 0's claim) resolves to INCONCLUSIVE,
+      // never silently dropped and never crashing the aggregation.
+      expect(verification!.distribution.INCONCLUSIVE).toBeGreaterThanOrEqual(1);
+
+      // verification_plan snapshot is cleared after Phase B, same as every
+      // other Phase B exit path (idempotent re-entry guard).
+      expect(out.state.verification_plan).toBeNull();
+    },
+  );
+});
+
+describe("self-check judge-panel budget gate — sampling determinism & host-skip degradation", () => {
   it("sampleWithinCap is deterministic and covers every distinct claim_type", () => {
     const claimTypes = [
       "fr_traceability",

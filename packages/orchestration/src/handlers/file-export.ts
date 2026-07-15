@@ -37,6 +37,7 @@ import {
   parseAffectedSymbolsBlock,
   stripAffectedSymbolsBlock,
   type AffectedSymbolsDocument,
+  type AgentIdentity,
   type SectionType,
 } from "@prd-gen/core";
 
@@ -187,39 +188,44 @@ const COMPANION_FILES: readonly CompanionFileSpec[] = [
 
 /**
  * precondition:  none.
- * postcondition: returns the core PRD file (always written), every
- *                companion/JIRA file THAT HAS CONTENT (no placeholders —
- *                see module doc), the affected-symbols sidecar when claims
- *                were parsed, and — iff at least one file was skipped —
- *                `00-run-notes.md` naming each skip and its reason.
+ * postcondition: returns the core PRD file (always written).
  */
-function buildFileSet(state: PipelineState): readonly PrdFile[] {
-  const slug = state.run_id.slice(0, 8);
-  const base = `${OUTPUT_DIR}/${slug}`;
-  const skipped: SkippedFile[] = [];
+function corePrdFile(state: PipelineState, base: string): PrdFile {
+  return {
+    path: `${base}/01-prd.md`,
+    content: () =>
+      [
+        `# PRD: ${state.feature_description}`,
+        "",
+        `Run ID: ${state.run_id}`,
+        `Context: ${state.prd_context ?? "unknown"}`,
+        "",
+        joinSections(state, [
+          "overview",
+          "goals",
+          "requirements",
+          "user_stories",
+          "technical_specification",
+          "acceptance_criteria",
+        ]),
+      ].join("\n"),
+  };
+}
 
-  const files: PrdFile[] = [
-    {
-      path: `${base}/01-prd.md`,
-      content: () =>
-        [
-          `# PRD: ${state.feature_description}`,
-          "",
-          `Run ID: ${state.run_id}`,
-          `Context: ${state.prd_context ?? "unknown"}`,
-          "",
-          joinSections(state, [
-            "overview",
-            "goals",
-            "requirements",
-            "user_stories",
-            "technical_specification",
-            "acceptance_criteria",
-          ]),
-        ].join("\n"),
-    },
-  ];
-
+/**
+ * precondition:  none.
+ * postcondition: returns every companion + JIRA file THAT HAS CONTENT (no
+ *                placeholders — see module doc); every skipped file (empty
+ *                content) is appended to `skipped` with its reason instead
+ *                (mutates the caller's array — a Move 5 concession kept
+ *                local to buildFileSet's single call site).
+ */
+function companionAndJiraFiles(
+  state: PipelineState,
+  base: string,
+  skipped: SkippedFile[],
+): PrdFile[] {
+  const files: PrdFile[] = [];
   for (const spec of COMPANION_FILES) {
     const content = joinSections(state, spec.sectionTypes);
     if (content) {
@@ -243,34 +249,72 @@ function buildFileSet(state: PipelineState): readonly PrdFile[] {
       reason: jiraSkipReason(state),
     });
   }
+  return files;
+}
 
+/**
+ * precondition:  none.
+ * postcondition: returns the affected-symbols sidecar file when ≥1 claim was
+ *                parsed; null otherwise (see module doc — a present-but-
+ *                empty sidecar would wrongly suppress AP's regex fallback).
+ */
+function affectedSymbolsFile(state: PipelineState, base: string): PrdFile | null {
   const affected = affectedSymbolsForState(state);
-  if (affected.affected_symbols.length > 0) {
-    files.push({
-      path: `${base}/${AFFECTED_SYMBOLS_FILENAME}`,
-      content: () => JSON.stringify(affected, null, 2),
-    });
-  }
+  if (affected.affected_symbols.length === 0) return null;
+  return {
+    path: `${base}/${AFFECTED_SYMBOLS_FILENAME}`,
+    content: () => JSON.stringify(affected, null, 2),
+  };
+}
 
-  if (skipped.length > 0) {
-    // Numbering-stable by construction: skipped filenames keep their
-    // originally-planned slot (e.g. 03-api-spec.md is simply absent, never
-    // renumbered), so run-notes lists exactly the gaps in the sequence.
-    const sorted = [...skipped].sort((a, b) => a.filename.localeCompare(b.filename));
-    files.push({
-      path: `${base}/${RUN_NOTES_FILENAME}`,
-      content: () =>
-        [
-          "# Run Notes",
-          "",
-          "The following deliverable files were not generated in this run:",
-          "",
-          ...sorted.map(
-            (s) => `- **${s.display}** (\`${s.filename}\`): ${SKIP_REASON_TEXT[s.reason]}.`,
-          ),
-        ].join("\n"),
-    });
-  }
+/**
+ * precondition:  none.
+ * postcondition: returns `00-run-notes.md` naming each skip and its reason
+ *                when `skipped` is non-empty; null otherwise. Numbering-
+ *                stable by construction: skipped filenames keep their
+ *                originally-planned slot (e.g. 03-api-spec.md is simply
+ *                absent, never renumbered), so run-notes lists exactly the
+ *                gaps in the sequence.
+ */
+function runNotesFile(base: string, skipped: readonly SkippedFile[]): PrdFile | null {
+  if (skipped.length === 0) return null;
+  const sorted = [...skipped].sort((a, b) => a.filename.localeCompare(b.filename));
+  return {
+    path: `${base}/${RUN_NOTES_FILENAME}`,
+    content: () =>
+      [
+        "# Run Notes",
+        "",
+        "The following deliverable files were not generated in this run:",
+        "",
+        ...sorted.map(
+          (s) => `- **${s.display}** (\`${s.filename}\`): ${SKIP_REASON_TEXT[s.reason]}.`,
+        ),
+      ].join("\n"),
+  };
+}
+
+/**
+ * precondition:  none.
+ * postcondition: returns the core PRD file (always written), every
+ *                companion/JIRA file THAT HAS CONTENT (no placeholders —
+ *                see module doc), the affected-symbols sidecar when claims
+ *                were parsed, and — iff at least one file was skipped —
+ *                `00-run-notes.md` naming each skip and its reason.
+ */
+function buildFileSet(state: PipelineState): readonly PrdFile[] {
+  const slug = state.run_id.slice(0, 8);
+  const base = `${OUTPUT_DIR}/${slug}`;
+  const skipped: SkippedFile[] = [];
+
+  const files: PrdFile[] = [corePrdFile(state, base)];
+  files.push(...companionAndJiraFiles(state, base, skipped));
+
+  const affected = affectedSymbolsFile(state, base);
+  if (affected) files.push(affected);
+
+  const runNotes = runNotesFile(base, skipped);
+  if (runNotes) files.push(runNotes);
 
   return files;
 }
@@ -385,13 +429,27 @@ function renderDistribution(
 
 /**
  * Per-claim judge verdicts. `judge_verdicts` is an OPTIONAL contract field
- * (see actions.ts VerificationSummarySchema doc) that self-check.ts does not
- * currently populate — self-check's finalize() folds JudgeVerdict[] into
- * `distribution` counts and discards the array. Rather than fabricate
- * per-claim data that does not exist in state, this renders an explicit,
- * honest gap notice when the field is absent (zetetic §8: no source, no
- * invented content) and a verbatim table when it IS present.
+ * (see actions.ts VerificationSummarySchema doc). self-check.ts's finalize()
+ * populates it whenever at least one judge verdict was produced; it is
+ * omitted for the genuinely-absent cases — the zero-claim fast path, or the
+ * user chose "Skip verification" at the budget gate (self-check-verify-
+ * budget.ts) — where no per-claim data exists to report. Rather than
+ * fabricate per-claim data that does not exist in state, this renders an
+ * explicit, honest gap notice when the field is absent (zetetic §8: no
+ * source, no invented content) and a verbatim table when it IS present.
  */
+/**
+ * `JudgeVerdict.judge` is a structured `AgentIdentity` (`{kind, name}`), not
+ * a string — rendering it with template-literal coercion produces
+ * "[object Object]" in the markdown table. `kind:name` (e.g.
+ * "genius:dijkstra") is a readable, unambiguous identity string; matches the
+ * `${kind}:${name}` shape `agentSubagentType` (core/domain/agent.ts) builds
+ * on before prefixing the host tool-name convention.
+ */
+function renderJudgeIdentity(judge: AgentIdentity): string {
+  return `${judge.kind}:${judge.name}`;
+}
+
 function renderJudgeVerdicts(
   verification: NonNullable<PipelineState["pending_completion"]>["verification"],
 ): string {
@@ -399,16 +457,17 @@ function renderJudgeVerdicts(
   if (!verdicts || verdicts.length === 0) {
     return (
       "_Per-claim judge verdicts are not present in this run's state — " +
-      "self_check currently aggregates verdicts into the distribution counts " +
-      "above only (see actions.ts VerificationSummarySchema.judge_verdicts). " +
-      "No per-claim data is fabricated here._"
+      "multi-judge verification did not run (zero-claim short-circuit) or was " +
+      "explicitly skipped at the budget gate (see actions.ts " +
+      "VerificationSummarySchema.judge_verdicts). No per-claim data is " +
+      "fabricated here._"
     );
   }
   const header = "| Claim ID | Judge | Verdict | Confidence | Rationale |";
   const sep = "|---|---|---|---|---|";
   const rows = verdicts.map(
     (v) =>
-      `| ${v.claim_id} | ${v.judge} | ${v.verdict} | ${v.confidence.toFixed(2)} | ${v.rationale.replace(/\|/g, "\\|")} |`,
+      `| ${v.claim_id} | ${renderJudgeIdentity(v.judge)} | ${v.verdict} | ${v.confidence.toFixed(2)} | ${v.rationale.replace(/\|/g, "\\|")} |`,
   );
   return [header, sep, ...rows].join("\n");
 }

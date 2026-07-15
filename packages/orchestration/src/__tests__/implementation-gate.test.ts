@@ -118,41 +118,46 @@ describe("implementation_gate — unrecognized answer fails closed", () => {
   });
 });
 
-describe("implementation_gate — verification-report export (root-cause fix)", () => {
-  /**
-   * A run directory is derivable (state.written_files carries 01-prd.md) —
-   * this is the case buildVerificationReportFile actually produces a file
-   * for. stateAtGate() alone (no written_files) exercises the graceful
-   * degrade already proven by the "ask_user on entry" test above.
-   */
-  function stateAtGateWithExportedPrd(): PipelineState {
-    const base = stateAtGate();
-    return {
-      ...base,
-      written_files: ["prd-output/impl_gate_001/01-prd.md"],
-      sections: [
-        {
-          section_type: "overview",
-          status: "passed",
-          attempt: 1,
-          violation_count: 2,
-          last_violations: ["missing acceptance criteria"],
-          content: "Overview content",
-        },
-      ],
-      pending_completion: {
-        summary: "Self-check complete.",
-        artifacts: ["overview: passed"],
-        verification: {
-          claims_evaluated: 2,
-          distribution: { PASS: 1, FAIL: 1 },
-          distribution_suspicious: false,
-          prd_graph_validation: { hallucinated_symbols: [] },
-        },
+/**
+ * A run directory is derivable (state.written_files carries 01-prd.md) —
+ * this is the case buildVerificationReportFile actually produces a file for.
+ * stateAtGate() alone (no written_files) exercises the graceful degrade
+ * already proven by the "ask_user on entry" test above.
+ *
+ * Module-scope (not nested inside a describe): shared by both the
+ * report-content describe block and the write-protocol describe block below
+ * (split to keep each describe under coding-standards.md §4.2's 50-line
+ * function cap — craftsmanship-checker.sh FUNCTION_TOO_LONG).
+ */
+function stateAtGateWithExportedPrd(): PipelineState {
+  const base = stateAtGate();
+  return {
+    ...base,
+    written_files: ["prd-output/impl_gate_001/01-prd.md"],
+    sections: [
+      {
+        section_type: "overview",
+        status: "passed",
+        attempt: 1,
+        violation_count: 2,
+        last_violations: ["missing acceptance criteria"],
+        content: "Overview content",
       },
-    };
-  }
+    ],
+    pending_completion: {
+      summary: "Self-check complete.",
+      artifacts: ["overview: passed"],
+      verification: {
+        claims_evaluated: 2,
+        distribution: { PASS: 1, FAIL: 1 },
+        distribution_suspicious: false,
+        prd_graph_validation: { hallucinated_symbols: [] },
+      },
+    },
+  };
+}
 
+describe("implementation_gate — verification-report export (root-cause fix)", () => {
   it("writes 10-verification-report.md BEFORE asking the implementation decision", () => {
     const out = step({ state: stateAtGateWithExportedPrd() });
     expect(out.action.kind).toBe("write_file");
@@ -172,7 +177,69 @@ describe("implementation_gate — verification-report export (root-cause fix)", 
       "Per-claim judge verdicts are not present",
     );
   });
+});
 
+/**
+ * stateAtGateWithExportedPrd() with 2 populated judge_verdicts — module scope
+ * so the describe block below stays under the §4.2 50-line function cap.
+ */
+function stateAtGateWithJudgeVerdicts(): PipelineState {
+  return {
+    ...stateAtGateWithExportedPrd(),
+    pending_completion: {
+      summary: "Self-check complete.",
+      artifacts: ["overview: passed"],
+      verification: {
+        claims_evaluated: 2,
+        distribution: { PASS: 1, FAIL: 1 },
+        distribution_suspicious: false,
+        judge_verdicts: [
+          {
+            judge: { kind: "genius", name: "dijkstra" },
+            claim_id: "FR-001",
+            verdict: "PASS",
+            rationale: "Requirement is fully specified and testable.",
+            caveats: [],
+            confidence: 0.9,
+          },
+          {
+            judge: { kind: "genius", name: "popper" },
+            claim_id: "FR-002",
+            verdict: "FAIL",
+            rationale: "No falsifiable acceptance criterion given.",
+            caveats: ["ambiguous_scope"],
+            confidence: 0.6,
+          },
+        ],
+      },
+    },
+  };
+}
+
+describe("implementation_gate — verification-report per-claim judge verdicts (follow-up, e2e run_mrlqa0aj_u2rh15)", () => {
+  it("renders real per-claim verdict rows when judge_verdicts is populated", () => {
+    const out = step({ state: stateAtGateWithJudgeVerdicts() });
+    expect(out.action.kind).toBe("write_file");
+    if (out.action.kind !== "write_file") return;
+
+    // Real verdict rows replace the honest gap notice.
+    expect(out.action.content).not.toContain(
+      "Per-claim judge verdicts are not present",
+    );
+    expect(out.action.content).toContain("| Claim ID | Judge | Verdict |");
+    expect(out.action.content).toContain("FR-001");
+    expect(out.action.content).toContain("PASS");
+    expect(out.action.content).toContain("dijkstra");
+    expect(out.action.content).toContain("FR-002");
+    expect(out.action.content).toContain("FAIL");
+    expect(out.action.content).toContain("popper");
+    expect(out.action.content).toContain(
+      "No falsifiable acceptance criterion given.",
+    );
+  });
+});
+
+describe("implementation_gate — verification-report write protocol", () => {
   it("records the report path and proceeds to ask_user once file_written arrives", () => {
     const seed = stateAtGateWithExportedPrd();
     const written = step({ state: seed });

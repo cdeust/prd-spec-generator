@@ -52,6 +52,34 @@ import { handlePrdValidation } from "./self-check-prd-validation.js";
 
 const VERIFY_BATCH_ID = "self_check_verify";
 
+/**
+ * Defensive char cap for a single JudgeVerdict.rationale persisted into
+ * `pending_completion.verification.judge_verdicts` (state serialized into
+ * MCP responses — see bounded-io.ts:MAX_RESPONSE_CHARS derivation). The judge
+ * prompt asks for "one paragraph" (judge-prompt.ts) — a few sentences, so 500
+ * chars matches the project's existing per-item convention for short
+ * judge/error text (bounded-io.ts:ERROR_MESSAGE_CHARS). At the 20-invocation
+ * default cap (DEFAULT_VERIFY_BUDGET.invocation_cap), 20 verdicts x ~600
+ * chars each (rationale + judge/claim_id/verdict/confidence/caveats
+ * overhead) is ~12,000 chars — well inside the 100,000-char budget alongside
+ * the rest of pending_completion.
+ * source: self-check-verify-budget.ts DEFAULT_VERIFY_BUDGET.invocation_cap
+ * (20) + bounded-io.ts ERROR_MESSAGE_CHARS convention (500).
+ */
+const JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS = 500;
+const JUDGE_VERDICT_RATIONALE_TRUNCATION_MARKER = "...";
+
+function truncateJudgeVerdictRationale(v: JudgeVerdict): JudgeVerdict {
+  return v.rationale.length > JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS
+    ? {
+        ...v,
+        rationale:
+          v.rationale.slice(0, JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS) +
+          JUDGE_VERDICT_RATIONALE_TRUNCATION_MARKER,
+      }
+    : v;
+}
+
 const RawVerdictSchema = z.object({
   verdict: VerdictSchema,
   rationale: z.string(),
@@ -225,6 +253,20 @@ function finalize(
           // VerificationSummarySchema.
           ...(state.prd_validation
             ? { prd_graph_validation: state.prd_validation }
+            : {}),
+          // Per-claim judge verdicts (VerificationSummarySchema.judge_verdicts,
+          // actions.ts). Omitted (undefined) when `verdicts` is empty — that is
+          // the genuinely-absent case (zero-claim fast path, or the user chose
+          // "Skip verification" at the budget gate) and file-export.ts's
+          // renderJudgeVerdicts() renders an honest gap notice for it. Non-empty
+          // arrays are persisted verbatim (rationale capped defensively — see
+          // JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS above) so
+          // 10-verification-report.md's "Per-Claim Judge Verdicts" table is
+          // real data, not a permanent gap.
+          // source: e2e run_mrlqa0aj_u2rh15 (2026-07-15) follow-up — see
+          // VerificationSummarySchema.judge_verdicts doc in actions.ts.
+          ...(verdicts.length > 0
+            ? { judge_verdicts: verdicts.map(truncateJudgeVerdictRationale) }
             : {}),
         },
       },
