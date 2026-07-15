@@ -12,6 +12,7 @@
  *   section-status.ts      — SectionStatusSchema
  *   verification-plan.ts   — VerificationPlanSnapshotSchema
  *   post-specs-state.ts    — PostSpecsStateSchema (Phases 3-5 post-specs loop)
+ *   verify-budget.ts        — VerifyBudgetConfigSchema (self-check judge-panel budget)
  *   core-state.ts           — ClarificationTurnSchema, PipelineStateSchema, PipelineState
  *   helpers.ts              — touch / appendError / newPipelineState
  * This barrel re-exports the full public surface so existing call sites keep
@@ -23,5 +24,6 @@ export * from "./bounded-io.js";
 export * from "./section-status.js";
 export * from "./verification-plan.js";
 export * from "./post-specs-state.js";
+export * from "./verify-budget.js";
 export * from "./core-state.js";
 export * from "./helpers.js";

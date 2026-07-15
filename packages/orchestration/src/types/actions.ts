@@ -78,6 +78,21 @@ export const SpawnSubagentsActionSchema = z.object({
       description: z.string(),
       prompt: z.string(),
       isolation: z.enum(["worktree", "none"]).default("none"),
+      /**
+       * Model the host SHOULD dispatch this invocation under. Optional and
+       * additive — a host that does not read this field falls back to its
+       * own default (typically the session model), so every producer that
+       * omits it is unaffected (backward-compatible). self-check.ts sets
+       * this on every judge invocation (default "haiku" — judging is
+       * read-and-compare work, not frontier reasoning; see
+       * types/state/verify-budget.ts).
+       */
+      model: z.string().optional(),
+      /**
+       * Extended-thinking effort the host SHOULD dispatch this invocation
+       * under. Optional and additive for the same reason as `model`.
+       */
+      effort: z.enum(["low", "medium", "high"]).optional(),
     }),
   ),
   /** Identifies the batch so the runner can route the batch result on submission. */

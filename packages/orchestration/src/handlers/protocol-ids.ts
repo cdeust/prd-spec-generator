@@ -146,3 +146,16 @@ export const PR_GATE_QUESTION_ID = "pr_gate";
  * step; a push/`gh pr create` failure degrades to `finalize`, per design §4).
  */
 export const PR_CREATION_INV_ID = "pr_creation_engineer";
+
+/**
+ * self-check.ts — `ask_user` question_id for the judge-panel budget gate
+ * (handlers/self-check-verify-budget.ts). Fires only when the reduced
+ * per-claim judge-request count exceeds `VerifyBudgetConfig.invocation_cap`.
+ * Named here (not inline) so canned-dispatcher.ts's default answer and any
+ * test driving the gate share the SAME literal — mirrors
+ * IMPLEMENTATION_GATE_QUESTION_ID / PR_GATE_QUESTION_ID's rationale.
+ *
+ * source: measured e2e run run_mrlqa0aj_u2rh15 (2026-07-15) — 89 uncapped
+ * judge invocations in one batch; see types/state/verify-budget.ts.
+ */
+export const VERIFY_BUDGET_QUESTION_ID = "self_check_verify_budget";

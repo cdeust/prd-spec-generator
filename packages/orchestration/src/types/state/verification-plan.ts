@@ -26,6 +26,19 @@ export const VerificationPlanSnapshotSchema = z
     claim_ids: z.array(z.string()),
     /** Judge identities, parallel to claim_ids by index. */
     judges: z.array(AgentIdentitySchema),
+    /**
+     * True when the dispatched set was produced by
+     * `sampleWithinCap` (handlers/self-check-verify-budget.ts) rather than
+     * the plain per-claim reduction. Phase B's rederivation
+     * (self-check.ts:parseVerdictsFromSnapshot) MUST apply the same
+     * transform the snapshot was built with, or the rederived plan will
+     * never match and every claim falls back to INCONCLUSIVE via the
+     * plan-mismatch path. Defaults false for backward compatibility with
+     * snapshots predating the budget gate.
+     *
+     * source: self-check budget gate (2026-07-15) — see verify-budget.ts.
+     */
+    sampled: z.boolean().default(false),
   })
   .refine((s) => s.claim_ids.length === s.judges.length, {
     message:
