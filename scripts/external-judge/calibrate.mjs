@@ -12,7 +12,11 @@
  * being structurally useless as a second opinion.
  *
  * Precondition: fixtures/ground-truth.json exists and matches the schema
- * documented in its own `provenance` field.
+ * documented in its own `provenance` field. Most claims embed their
+ * evidence inline; AC-008 instead carries `prompt_source` (a filename
+ * under fixtures/) so its prompt is built from the historical
+ * pre-correction PRD text — see `lib/prompt-builder.mjs`'s
+ * `resolveClaimEvidence` and `provenance.note_on_ac008`.
  * Postcondition: prints a report (agreement rate, confusion table, AC-008
  * catch flag, per-claim latency) to stdout. Exit code 0 iff agreement rate
  * over non-skipped claims >= --min-agreement AND at least one claim ran

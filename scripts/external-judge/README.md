@@ -32,9 +32,13 @@ scripts/external-judge/
     01-prd.md              real e2e PRD fixture (copied from session-optimizer
                             run_mrlqa0aj_u2rh15 — same fixture source as
                             packages/verification/src/__tests__/claim-tier.test.ts)
+    01-prd-precorrection-us01.md   AC-008 ONLY: historical/reconstructed
+                            pre-correction US-01 text (see "AC-008 is judged
+                            on historical text" below)
     10-verification-report.md   the real jury report this run's ground truth is
                             transcribed from
-    ground-truth.json      10 claims, claim-scoped evidence, recorded verdicts
+    ground-truth.json      10 claims, claim-scoped evidence (or prompt_source
+                            for AC-008), recorded verdicts
   __tests__/               node --test unit tests (no network)
 ```
 
@@ -132,6 +136,24 @@ ground-truth claims resolve to `PASS`, so a judge that always answers
 `PASS` scores 0.7 agreement — at the default threshold — while providing
 zero independent verification value. `calibrate.mjs` reports both numbers
 separately; do not admit a judge on agreement rate alone.
+
+**AC-008 is judged on historical text, not `fixtures/01-prd.md`.** Every
+other claim's evidence is a claim-scoped excerpt of `fixtures/01-prd.md`
+(the corrected PRD). AC-008 is the exception: its `ground-truth.json`
+entry carries a `prompt_source` field pointing at
+`fixtures/01-prd-precorrection-us01.md` instead of an inline `evidence`
+field, and `lib/prompt-builder.mjs`'s `resolveClaimEvidence` honors it.
+The reason is structural, not incidental — `fixtures/01-prd.md` as
+committed already contains the corrected, post-jury US-01 wording (the
+contradiction resolved), so a judge reading it can legitimately answer
+`PASS`, which would silently defeat condition 2 above: the calibration
+would no longer be testing whether the judge can catch a real
+uniform-vs-segmented-rendering contradiction, only whether it can read
+already-corrected text. `01-prd-precorrection-us01.md`'s own header
+documents exactly what is verbatim-quoted from git (two fragments, in
+`10-verification-report.md:24` and `01-prd.md:53`) versus reconstructed
+from those fragments — no git commit holds the full historical wording,
+so this is disclosed rather than presented as a recovered blob.
 
 ## Data-privacy note
 

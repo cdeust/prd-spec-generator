@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildClaimPrompt } from "../lib/prompt-builder.mjs";
+import { buildClaimPrompt, resolveClaimEvidence } from "../lib/prompt-builder.mjs";
 import { loadGroundTruth, summarize } from "../calibrate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -74,6 +74,58 @@ test("buildClaimPrompt: zero neighbor-claim leakage between UNRELATED claims (no
       `${ownerId}'s claim text leaked into unrelated claim ${strangerId}'s prompt`,
     );
   }
+});
+
+test("resolveClaimEvidence: honors prompt_source over an inline evidence field", () => {
+  const gt = loadGroundTruth(GROUND_TRUTH_PATH);
+  const ac008 = gt.claims.find((c) => c.claim_id === "AC-008");
+  assert.equal(ac008.prompt_source, "01-prd-precorrection-us01.md");
+  assert.equal(ac008.evidence, undefined, "AC-008 should source evidence from prompt_source, not an inline field");
+
+  const fileContent = readFileSync(join(__dirname, "..", "fixtures", ac008.prompt_source), "utf8");
+  assert.equal(resolveClaimEvidence(ac008), fileContent);
+
+  // prompt_source wins even if an inline evidence field is also present.
+  const withBoth = { ...ac008, evidence: "should be ignored" };
+  assert.equal(resolveClaimEvidence(withBoth), fileContent);
+});
+
+test("resolveClaimEvidence: falls back to the inline evidence field when prompt_source is absent", () => {
+  const gt = loadGroundTruth(GROUND_TRUTH_PATH);
+  const fr001 = gt.claims.find((c) => c.claim_id === "FR-001");
+  assert.equal(fr001.prompt_source, undefined);
+  assert.equal(resolveClaimEvidence(fr001), fr001.evidence);
+});
+
+test("resolveClaimEvidence: throws when a claim has neither prompt_source nor evidence", () => {
+  assert.throws(() => resolveClaimEvidence({ claim_id: "BOGUS" }), /neither prompt_source nor/);
+});
+
+test("buildClaimPrompt: AC-008's prompt is built from the historical pre-correction PRD text, not fixtures/01-prd.md, and contains the uniform-vs-segmented contradiction", () => {
+  const gt = loadGroundTruth(GROUND_TRUTH_PATH);
+  const ac008 = gt.claims.find((c) => c.claim_id === "AC-008");
+  const prompt = buildClaimPrompt(ac008);
+
+  // The historical uniform-fill wording (quoted verbatim in
+  // session-optimizer's 10-verification-report.md:24 and 01-prd.md:53)
+  // must be present — this is what a judge needs to detect the
+  // contradiction against FR-007/AC-008's segmented model.
+  assert.ok(
+    prompt.includes("toutes les cellules remplies"),
+    "AC-008 prompt is missing the historical uniform-fill wording — calibration would lose its primary discriminator",
+  );
+  // The canonical segmented-render requirement it contradicts must also
+  // be present in the same prompt.
+  assert.ok(prompt.includes("FR-007"));
+  assert.ok(prompt.includes("rendu segmenté multi-couleurs"));
+
+  // The corrected per-position wording from fixtures/01-prd.md must NOT
+  // be what AC-008 is judged against (that text resolves the
+  // contradiction and would let a judge legitimately PASS it).
+  assert.ok(
+    !prompt.includes("dont la position se situe dans la tranche"),
+    "AC-008 prompt leaked the corrected per-position wording from fixtures/01-prd.md — the discriminator is defused",
+  );
 });
 
 test("summarize: computes agreement rate, confusion table, and the AC-008 catch flag", () => {
