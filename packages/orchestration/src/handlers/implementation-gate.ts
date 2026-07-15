@@ -26,9 +26,8 @@
  * asking the "Implement / PRD only" question — it writes
  * `10-verification-report.md` via the SAME write_file protocol file_export
  * uses (one write_file per entry, `file_written` result required to
- * advance). The report's CONTENT logic lives in file-export.ts
- * (buildVerificationReportFile) — this module only sequences the write,
- * consistent with file-export.ts owning every PRD-deliverable export.
+ * advance). The report's CONTENT logic lives in verification-report.ts
+ * (buildVerificationReportFile) — this module only sequences the write.
  *
  * source: design-phases-3-5.md §2.2, §3 "implementation_gate".
  */
@@ -37,7 +36,7 @@ import type { StepHandler } from "../runner.js";
 import { type PipelineState } from "../types/state.js";
 import { initialPostSpecs, type PostSpecsState } from "../types/state/post-specs-state.js";
 import { IMPLEMENTATION_GATE_QUESTION_ID } from "./protocol-ids.js";
-import { buildVerificationReportFile, VERIFICATION_REPORT_FILENAME } from "./file-export.js";
+import { buildVerificationReportFile, VERIFICATION_REPORT_FILENAME } from "./verification-report.js";
 
 function ensurePostSpecs(state: PipelineState): PostSpecsState {
   return state.post_specs ?? initialPostSpecs();

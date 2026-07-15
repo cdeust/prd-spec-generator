@@ -23732,10 +23732,18 @@ var TeamAgentSchema = external_exports.enum([
 ]);
 var AgentIdentitySchema = external_exports.discriminatedUnion("kind", [
   external_exports.object({ kind: external_exports.literal("genius"), name: GeniusAgentSchema }),
-  external_exports.object({ kind: external_exports.literal("team"), name: TeamAgentSchema })
+  external_exports.object({ kind: external_exports.literal("team"), name: TeamAgentSchema }),
+  external_exports.object({ kind: external_exports.literal("rule"), name: external_exports.literal("rule-tier") })
 ]);
 function agentSubagentType(identity2) {
-  return identity2.kind === "genius" ? `zetetic-team-subagents:genius:${identity2.name}` : `zetetic-team-subagents:${identity2.name}`;
+  switch (identity2.kind) {
+    case "genius":
+      return `zetetic-team-subagents:genius:${identity2.name}`;
+    case "team":
+      return `zetetic-team-subagents:${identity2.name}`;
+    case "rule":
+      throw new Error("agentSubagentType: rule-tier is a synthetic verdict identity, never a dispatchable judge \u2014 this call indicates a mechanical claim leaked into judge selection.");
+  }
 }
 var ExternalGroundingTypeSchema = external_exports.enum([
   "schema",
@@ -23780,7 +23788,21 @@ var JudgeVerdictSchema = external_exports.object({
   verdict: VerdictSchema,
   rationale: external_exports.string(),
   caveats: external_exports.array(external_exports.string()).default([]),
-  confidence: external_exports.number().min(0).max(1)
+  confidence: external_exports.number().min(0).max(1),
+  /**
+   * Model the judge invocation was dispatched under (e.g. "haiku",
+   * "sonnet"). Optional and additive: undefined means either (a) this
+   * verdict predates the model-diversity feature, or (b) `judge.kind ===
+   * "rule"` — a rule-tier verdict was never model-dispatched at all.
+   * Populated by self-check.ts's `parseVerdicts` from the SAME
+   * `assignJudgeModels` mapping used to build the dispatched
+   * spawn_subagents invocation, so the reported model is always the model
+   * that actually judged the claim, never inferred after the fact.
+   *
+   * source: design-phases-3-5.md "Verification tiering & monoculture
+   * limits" — cross-model judge slots for architecture-tier claims.
+   */
+  model: external_exports.string().optional()
 });
 var JudgeRequestSchema = external_exports.object({
   judge: AgentIdentitySchema,
@@ -31268,10 +31290,46 @@ var VerifyBudgetConfigSchema = external_exports.object({
    * handlers/self-check-verify-budget.ts:buildBudgetGateQuestion.
    */
   invocation_cap: external_exports.number().int().positive(),
-  /** Model every judge invocation is dispatched under (spawn_subagents invocation.model). */
+  /**
+   * Model every NON-architecture judge invocation is dispatched under
+   * (spawn_subagents invocation.model). Also the fallback when
+   * `diversity_models` is empty (schema requires length >= 1; defensive
+   * only).
+   */
   judge_model: external_exports.string(),
   /** Effort level every judge invocation is dispatched under (spawn_subagents invocation.effort). */
-  judge_effort: external_exports.enum(["low", "medium", "high"])
+  judge_effort: external_exports.enum(["low", "medium", "high"]),
+  /**
+   * Model-diversity slots for "architecture"-typed claims (judge-
+   * selector.ts's highest-stakes panel, `architecture_judges_per_claim`
+   * judges by default). Each judge slot within an architecture claim's
+   * panel cycles through this list by index — judge 0 gets
+   * `diversity_models[0]`, judge 1 gets `diversity_models[1 %
+   * diversity_models.length]`, etc. — so the panel spans distinct
+   * PERSONAS (judge-selector.ts's PANELS) AND distinct underlying MODELS,
+   * not persona diversity alone.
+   *
+   * HONEST LIMIT (arXiv:2602.11865, DeepMind "Virtual Agent Economies" —
+   * the "Cognitive Monoculture" threat class): persona diversity is NOT
+   * model independence. Every entry in the default list ("haiku", "sonnet")
+   * is a Claude-family model sharing one vendor's pretraining corpus and
+   * alignment lineage — cycling between them mitigates only INTRA-family
+   * blind spots (the two models can still share a systematic misreading of
+   * the same claim). It does not, and cannot, close the monoculture gap
+   * that a genuinely independent (cross-vendor) verifier would. This field
+   * accepts arbitrary model-identifier strings specifically so a host with
+   * cross-vendor judge routing (e.g. a non-Claude model reachable through
+   * its own subagent_type) can close that gap WITHOUT a schema change —
+   * the type is `string`, not a Claude-model enum. Standard (non-
+   * architecture) subjective claims still dispatch a single judge under
+   * `judge_model` — diversity slots are reserved for the highest-stakes
+   * panel by design, not applied uniformly, to keep the invocation-count
+   * reduction this feature exists for (see module doc above).
+   *
+   * source: design-phases-3-5.md "Verification tiering & monoculture
+   * limits"; arXiv:2602.11865.
+   */
+  diversity_models: external_exports.array(external_exports.string()).min(1)
 });
 
 // packages/orchestration/dist/types/actions.js
@@ -33915,85 +33973,6 @@ var handleFileExport = ({ state, result }) => {
     }
   };
 };
-var VERIFICATION_REPORT_FILENAME = "10-verification-report.md";
-function runDirFromWrittenFiles(state) {
-  const prd = state.written_files.find((p) => /(^|\/)01-prd\.md$/.test(p));
-  if (!prd)
-    return null;
-  return prd.slice(0, prd.length - "/01-prd.md".length);
-}
-function renderSectionsSummary(state) {
-  if (state.sections.length === 0)
-    return "_No sections were tracked for this run._";
-  return state.sections.map((s) => {
-    const violations = s.last_violations.length > 0 ? `
-  Violations (last attempt): ${s.last_violations.join("; ")}` : "";
-    return `- **${SECTION_DISPLAY_NAMES[s.section_type] ?? s.section_type}**: ${s.status} (attempt ${s.attempt}, ${s.violation_count} violation(s) recorded)${violations}`;
-  }).join("\n");
-}
-function renderDistribution(verification) {
-  if (!verification) {
-    return "_No multi-judge verification ran for this document (zero-claim short-circuit or malformed input)._";
-  }
-  const dist = Object.entries(verification.distribution).map(([verdict, count2]) => `  - ${verdict}: ${count2}`).join("\n");
-  return [
-    `Claims evaluated: ${verification.claims_evaluated}`,
-    dist,
-    verification.distribution_suspicious ? "\u26A0 Distribution suspicious \u2014 100% PASS suggests confirmatory bias." : ""
-  ].filter((l) => l !== "").join("\n");
-}
-function renderJudgeIdentity(judge) {
-  return `${judge.kind}:${judge.name}`;
-}
-function renderJudgeVerdicts(verification) {
-  const verdicts = verification?.judge_verdicts;
-  if (!verdicts || verdicts.length === 0) {
-    return "_Per-claim judge verdicts are not present in this run's state \u2014 multi-judge verification did not run (zero-claim short-circuit) or was explicitly skipped at the budget gate (see actions.ts VerificationSummarySchema.judge_verdicts). No per-claim data is fabricated here._";
-  }
-  const header = "| Claim ID | Judge | Verdict | Confidence | Rationale |";
-  const sep = "|---|---|---|---|---|";
-  const rows = verdicts.map((v) => `| ${v.claim_id} | ${renderJudgeIdentity(v.judge)} | ${v.verdict} | ${v.confidence.toFixed(2)} | ${v.rationale.replace(/\|/g, "\\|")} |`);
-  return [header, sep, ...rows].join("\n");
-}
-function renderGraphValidation(verification) {
-  const report = verification?.prd_graph_validation;
-  if (!report) {
-    return "_No PRD-vs-graph validation ran for this run (no codebase graph was available)._";
-  }
-  return ["```json", JSON.stringify(report, null, 2), "```"].join("\n");
-}
-function buildVerificationReportFile(state) {
-  const pending = state.pending_completion;
-  if (!pending)
-    return null;
-  const dir = runDirFromWrittenFiles(state);
-  if (!dir)
-    return null;
-  return {
-    path: `${dir}/${VERIFICATION_REPORT_FILENAME}`,
-    content: () => [
-      `# Verification Report: ${state.feature_description}`,
-      "",
-      `Run ID: ${state.run_id}`,
-      "",
-      "## Section Statuses & Violations",
-      "",
-      renderSectionsSummary(state),
-      "",
-      "## Multi-Judge Verification Distribution",
-      "",
-      renderDistribution(pending.verification),
-      "",
-      "## Per-Claim Judge Verdicts",
-      "",
-      renderJudgeVerdicts(pending.verification),
-      "",
-      "## PRD-vs-Graph Validation",
-      "",
-      renderGraphValidation(pending.verification)
-    ].join("\n")
-  };
-}
 
 // packages/verification/dist/judge-selector.js
 function genius(name315) {
@@ -34328,6 +34307,61 @@ function dedupeById(claims) {
   return Array.from(seen.values());
 }
 
+// packages/verification/dist/claim-tier.js
+var MECHANICAL_ELIGIBLE_CLAIM_TYPES = /* @__PURE__ */ new Set([
+  "acceptance_criteria_completeness",
+  "test_coverage",
+  "data_model",
+  "story_point_arithmetic",
+  "performance"
+]);
+var EVIDENCE_INCLUDED_CLAIM_TYPES = /* @__PURE__ */ new Set([
+  "test_coverage",
+  "data_model"
+]);
+var MECHANICAL_METHOD_MARKERS = [
+  /\bgrep\b/i,
+  /\bdiff\w*\b/i,
+  // diff, diffe, diffé, diffing
+  /\bkcov\b/i,
+  /\bwc -l\b/i,
+  /\btime\b/i,
+  // `time <cmd>` / "exécution `time` moyennée"
+  /\bexit code\b/i,
+  /\bcode de sortie\b/i,
+  /\bsans erreur\b/i,
+  // deterministic exit-status check
+  /\bgate\s+g\d/i,
+  // named pass/fail gate, e.g. "gate G6"
+  /\bn['’]est\s+(?:pas\s+)?(?:présente?|trouvée?)\b/i,
+  // absence-of-pattern
+  /\baucune occurrence\b/i,
+  /\bcheck ?sum\b|\bsha256\b/i
+];
+function classifyClaimTier(claim) {
+  if (!MECHANICAL_ELIGIBLE_CLAIM_TYPES.has(claim.claim_type)) {
+    return "subjective";
+  }
+  const haystack = EVIDENCE_INCLUDED_CLAIM_TYPES.has(claim.claim_type) ? `${claim.text} ${claim.evidence}` : claim.text;
+  return MECHANICAL_METHOD_MARKERS.some((re2) => re2.test(haystack)) ? "mechanical" : "subjective";
+}
+
+// packages/verification/dist/mechanical-verdict.js
+var RULE_TIER_JUDGE = { kind: "rule", name: "rule-tier" };
+function buildMechanicalVerdict(claim) {
+  return {
+    judge: RULE_TIER_JUDGE,
+    claim_id: claim.claim_id,
+    verdict: "SPEC-COMPLETE",
+    rationale: "verification method is mechanical; execution happens at implementation time",
+    caveats: ["rule_tier"],
+    confidence: 1
+  };
+}
+function buildMechanicalVerdicts(claims) {
+  return claims.map(buildMechanicalVerdict);
+}
+
 // packages/verification/dist/consensus-strategy.js
 function agentKey(agent) {
   return `${agent.kind}:${agent.name}`;
@@ -34585,16 +34619,27 @@ function pickMaxVerdict2(d) {
 // packages/verification/dist/orchestrator.js
 function planSectionVerification(sectionType, content, options = {}) {
   const claims = extractClaims(sectionType, content);
-  const judge_requests = buildRequests(claims, options, content);
-  return { claims, judge_requests };
+  return buildPlan(claims, options, content);
 }
 function planDocumentVerification(sections, options = {}) {
   const claims = extractClaimsFromDocument(sections);
   const concatenated = sections.map((s) => `## ${s.type}
 
 ${s.content}`).join("\n\n");
-  const judge_requests = buildRequests(claims, options, concatenated);
-  return { claims, judge_requests };
+  return buildPlan(claims, options, concatenated);
+}
+function buildPlan(claims, options, prdExcerpt) {
+  const mechanical_claims = [];
+  const subjective_claims = [];
+  for (const claim of claims) {
+    if (classifyClaimTier(claim) === "mechanical") {
+      mechanical_claims.push(claim);
+    } else {
+      subjective_claims.push(claim);
+    }
+  }
+  const judge_requests = buildRequests(subjective_claims, options, prdExcerpt);
+  return { claims, judge_requests, mechanical_claims };
 }
 function buildRequests(claims, options, prdExcerpt) {
   const requests = [];
@@ -34765,7 +34810,11 @@ var DEFAULT_VERIFY_BUDGET = {
   architecture_judges_per_claim: 2,
   invocation_cap: 20,
   judge_model: "haiku",
-  judge_effort: "low"
+  judge_effort: "low",
+  // Cheapest distinct-model pair — see VerifyBudgetConfigSchema.diversity_models
+  // doc (types/state/verify-budget.ts) for the monoculture-mitigation rationale
+  // and its honest limit (both are Claude-family models).
+  diversity_models: ["haiku", "sonnet"]
 };
 function resolveVerifyBudget(override) {
   return override ?? DEFAULT_VERIFY_BUDGET;
@@ -34803,6 +34852,16 @@ function sampleWithinCap(requests, cap) {
     included.add(req);
   }
   return requests.filter((r) => included.has(r));
+}
+function assignJudgeModels(requests, config5) {
+  const models = config5.diversity_models.length > 0 ? config5.diversity_models : [config5.judge_model];
+  const seen = /* @__PURE__ */ new Map();
+  return requests.map((req) => {
+    const claimId = req.claim.claim_id;
+    const slot = seen.get(claimId) ?? 0;
+    seen.set(claimId, slot + 1);
+    return req.claim.claim_type === "architecture" ? models[slot % models.length] : models[0];
+  });
 }
 var VERIFY_BUDGET_OPTION_SAMPLE = "Reduced sample";
 var VERIFY_BUDGET_OPTION_FULL = "Full fleet";
@@ -34881,8 +34940,7 @@ function handlePrdValidation(state, result) {
   };
 }
 
-// packages/orchestration/dist/handlers/self-check.js
-var VERIFY_BATCH_ID = "self_check_verify";
+// packages/orchestration/dist/handlers/self-check-verdicts.js
 var JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS = 500;
 var JUDGE_VERDICT_RATIONALE_TRUNCATION_MARKER = "...";
 function truncateJudgeVerdictRationale(v) {
@@ -34900,27 +34958,13 @@ var RawVerdictSchema = external_exports.object({
 function invocationIdFor(idx) {
   return `${SELF_CHECK_JUDGE_INV_PREFIX}${idx.toString().padStart(4, "0")}`;
 }
-function gatherSections(state) {
-  return state.sections.filter((s) => s.content && s.section_type !== "jira_tickets").map((s) => ({ type: s.section_type, content: s.content }));
-}
-function buildVerifyAction(requests, config5) {
-  return {
-    kind: "spawn_subagents",
-    purpose: "judge",
-    batch_id: VERIFY_BATCH_ID,
-    invocations: requests.map((req, idx) => {
-      const built = buildJudgePrompt(req);
-      return {
-        invocation_id: invocationIdFor(idx),
-        subagent_type: agentSubagentType(req.judge),
-        description: built.description,
-        prompt: built.prompt,
-        isolation: "none",
-        model: config5.judge_model,
-        effort: config5.judge_effort
-      };
-    })
-  };
+function buildJudgeIndex(requests, config5) {
+  const models = assignJudgeModels(requests, config5);
+  return requests.map((request, idx) => ({
+    request,
+    invocation_id: invocationIdFor(idx),
+    model: models[idx]
+  }));
 }
 function parseVerdicts(index2, batchResult) {
   const byId = /* @__PURE__ */ new Map();
@@ -34944,7 +34988,8 @@ function parseVerdicts(index2, batchResult) {
         verdict: "INCONCLUSIVE",
         rationale: response?.error ?? "no response",
         caveats: ["judge_invocation_failed"],
-        confidence: 0
+        confidence: 0,
+        model: entry.model
       });
       continue;
     }
@@ -34957,7 +35002,8 @@ function parseVerdicts(index2, batchResult) {
         verdict: parsed.verdict,
         rationale: parsed.rationale,
         caveats: parsed.caveats,
-        confidence: parsed.confidence
+        confidence: parsed.confidence,
+        model: entry.model
       });
     } catch (err) {
       out.push({
@@ -34966,11 +35012,42 @@ function parseVerdicts(index2, batchResult) {
         verdict: "INCONCLUSIVE",
         rationale: `parse failure: ${err.message}`,
         caveats: ["parse_error"],
-        confidence: 0
+        confidence: 0,
+        model: entry.model
       });
     }
   }
   return out;
+}
+function computeMechanicalVerdicts(sections) {
+  const plan = planDocumentVerification(sections);
+  return buildMechanicalVerdicts(plan.mechanical_claims);
+}
+
+// packages/orchestration/dist/handlers/self-check.js
+var VERIFY_BATCH_ID = "self_check_verify";
+function gatherSections(state) {
+  return state.sections.filter((s) => s.content && s.section_type !== "jira_tickets").map((s) => ({ type: s.section_type, content: s.content }));
+}
+function buildVerifyAction(requests, config5) {
+  const models = assignJudgeModels(requests, config5);
+  return {
+    kind: "spawn_subagents",
+    purpose: "judge",
+    batch_id: VERIFY_BATCH_ID,
+    invocations: requests.map((req, idx) => {
+      const built = buildJudgePrompt(req);
+      return {
+        invocation_id: invocationIdFor(idx),
+        subagent_type: agentSubagentType(req.judge),
+        description: built.description,
+        prompt: built.prompt,
+        isolation: "none",
+        model: models[idx],
+        effort: config5.judge_effort
+      };
+    })
+  };
 }
 function finalize(state, verdicts = []) {
   const sections = gatherSections(state);
@@ -35053,18 +35130,19 @@ function handleSelfCheckPhaseA(state, result) {
     return finalize(state);
   }
   const plan = planDocumentVerification(sections);
+  const mechanicalVerdicts = buildMechanicalVerdicts(plan.mechanical_claims);
   if (plan.judge_requests.length === 0) {
-    return finalize(state);
+    return finalize(state, mechanicalVerdicts);
   }
   const config5 = resolveVerifyBudget(state.verify_budget);
   const reduced = reduceJudgeRequests(plan.judge_requests, config5);
   if (reduced.length === 0) {
-    return finalize(state);
+    return finalize(state, mechanicalVerdicts);
   }
   if (result?.kind === "user_answer" && result.question_id === VERIFY_BUDGET_QUESTION_ID) {
     const decision = verifyBudgetDecisionFromAnswer(result);
     if (decision === "skip") {
-      return finalize(state);
+      return finalize(state, mechanicalVerdicts);
     }
     const finalRequests = decision === "sample" ? sampleWithinCap(reduced, config5.invocation_cap) : reduced;
     return dispatchVerify(state, finalRequests, config5, decision === "sample");
@@ -35077,9 +35155,10 @@ function handleSelfCheckPhaseA(state, result) {
 function handleSelfCheckPhaseB(state, result) {
   const snapshot = state.verification_plan;
   if (!snapshot || snapshot.batch_id !== VERIFY_BATCH_ID) {
-    return finalize(state);
+    return finalize(state, computeMechanicalVerdicts(gatherSections(state)));
   }
   const verdicts = parseVerdictsFromSnapshot(snapshot, state, result);
+  const mechanicalVerdicts = computeMechanicalVerdicts(gatherSections(state));
   let stateAfter = { ...state, verification_plan: null };
   const mismatchSeen = /* @__PURE__ */ new Set();
   for (const v of verdicts) {
@@ -35090,7 +35169,7 @@ function handleSelfCheckPhaseB(state, result) {
       }
     }
   }
-  return finalize(stateAfter, verdicts);
+  return finalize(stateAfter, [...mechanicalVerdicts, ...verdicts]);
 }
 var handleSelfCheck = ({ state, result }) => {
   const validation = handlePrdValidation(state, result);
@@ -35111,11 +35190,7 @@ function parseVerdictsFromSnapshot(snapshot, state, batchResult) {
   const sameLength = rederived.length === snapshot.claim_ids.length;
   const sameOrder = sameLength && rederived.every((r, i2) => r.claim.claim_id === snapshot.claim_ids[i2]);
   if (sameOrder) {
-    const index2 = rederived.map((req, idx) => ({
-      request: req,
-      invocation_id: invocationIdFor(idx)
-    }));
-    return parseVerdicts(index2, batchResult);
+    return parseVerdicts(buildJudgeIndex(rederived, config5), batchResult);
   }
   const snapshotSet = new Set(snapshot.claim_ids);
   const rederivedIds = rederived.map((r) => r.claim.claim_id);
@@ -35137,6 +35212,120 @@ function parseVerdictsFromSnapshot(snapshot, state, batchResult) {
     });
   }
   return out;
+}
+
+// packages/orchestration/dist/handlers/verification-report.js
+var VERIFICATION_REPORT_FILENAME = "10-verification-report.md";
+function runDirFromWrittenFiles(state) {
+  const prd = state.written_files.find((p) => /(^|\/)01-prd\.md$/.test(p));
+  if (!prd)
+    return null;
+  return prd.slice(0, prd.length - "/01-prd.md".length);
+}
+function renderSectionsSummary(state) {
+  if (state.sections.length === 0)
+    return "_No sections were tracked for this run._";
+  return state.sections.map((s) => {
+    const violations = s.last_violations.length > 0 ? `
+  Violations (last attempt): ${s.last_violations.join("; ")}` : "";
+    return `- **${SECTION_DISPLAY_NAMES[s.section_type] ?? s.section_type}**: ${s.status} (attempt ${s.attempt}, ${s.violation_count} violation(s) recorded)${violations}`;
+  }).join("\n");
+}
+function renderDistribution(verification) {
+  if (!verification) {
+    return "_No multi-judge verification ran for this document (zero-claim short-circuit or malformed input)._";
+  }
+  const dist = Object.entries(verification.distribution).map(([verdict, count2]) => `  - ${verdict}: ${count2}`).join("\n");
+  return [
+    `Claims evaluated: ${verification.claims_evaluated}`,
+    dist,
+    verification.distribution_suspicious ? "\u26A0 Distribution suspicious \u2014 100% PASS suggests confirmatory bias." : ""
+  ].filter((l) => l !== "").join("\n");
+}
+function renderJudgeIdentity(judge) {
+  return `${judge.kind}:${judge.name}`;
+}
+function renderJudgeVerdicts(verification) {
+  const verdicts = verification?.judge_verdicts;
+  if (!verdicts || verdicts.length === 0) {
+    return "_Per-claim judge verdicts are not present in this run's state \u2014 multi-judge verification did not run (zero-claim short-circuit) or was explicitly skipped at the budget gate (see actions.ts VerificationSummarySchema.judge_verdicts). No per-claim data is fabricated here._";
+  }
+  const header = "| Claim ID | Judge | Model | Verdict | Confidence | Rationale |";
+  const sep = "|---|---|---|---|---|---|";
+  const rows = verdicts.map((v) => `| ${v.claim_id} | ${renderJudgeIdentity(v.judge)} | ${v.model ?? "\u2014"} | ${v.verdict} | ${v.confidence.toFixed(2)} | ${v.rationale.replace(/\|/g, "\\|")} |`);
+  return [header, sep, ...rows].join("\n");
+}
+function renderModelAgreementSummary(verification) {
+  const verdicts = verification?.judge_verdicts;
+  if (!verdicts || verdicts.length === 0) {
+    return "_No per-claim judge verdicts available to compute model agreement._";
+  }
+  const modelsByClaim = /* @__PURE__ */ new Map();
+  for (const v of verdicts) {
+    if (v.judge.kind === "rule" || !v.model)
+      continue;
+    const set2 = modelsByClaim.get(v.claim_id) ?? /* @__PURE__ */ new Set();
+    set2.add(v.model);
+    modelsByClaim.set(v.claim_id, set2);
+  }
+  if (modelsByClaim.size === 0) {
+    return "_No subjective (model-dispatched) claims in this run's judge_verdicts._";
+  }
+  let crossModel = 0;
+  let singleModel = 0;
+  for (const models of modelsByClaim.values()) {
+    if (models.size > 1)
+      crossModel += 1;
+    else
+      singleModel += 1;
+  }
+  return [
+    `Subjective claims with cross-model judge agreement: ${crossModel}`,
+    `Subjective claims judged by a single model only: ${singleModel}`
+  ].join("\n");
+}
+function renderGraphValidation(verification) {
+  const report = verification?.prd_graph_validation;
+  if (!report) {
+    return "_No PRD-vs-graph validation ran for this run (no codebase graph was available)._";
+  }
+  return ["```json", JSON.stringify(report, null, 2), "```"].join("\n");
+}
+function buildVerificationReportFile(state) {
+  const pending = state.pending_completion;
+  if (!pending)
+    return null;
+  const dir = runDirFromWrittenFiles(state);
+  if (!dir)
+    return null;
+  return {
+    path: `${dir}/${VERIFICATION_REPORT_FILENAME}`,
+    content: () => [
+      `# Verification Report: ${state.feature_description}`,
+      "",
+      `Run ID: ${state.run_id}`,
+      "",
+      "## Section Statuses & Violations",
+      "",
+      renderSectionsSummary(state),
+      "",
+      "## Multi-Judge Verification Distribution",
+      "",
+      renderDistribution(pending.verification),
+      "",
+      "## Per-Claim Judge Verdicts",
+      "",
+      renderJudgeVerdicts(pending.verification),
+      "",
+      "## Cross-Model Agreement",
+      "",
+      renderModelAgreementSummary(pending.verification),
+      "",
+      "## PRD-vs-Graph Validation",
+      "",
+      renderGraphValidation(pending.verification)
+    ].join("\n")
+  };
 }
 
 // packages/orchestration/dist/handlers/implementation-gate.js

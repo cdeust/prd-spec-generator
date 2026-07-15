@@ -34,6 +34,7 @@ import {
   VERIFY_BUDGET_OPTION_SKIP,
   DEFAULT_VERIFY_BUDGET,
   sampleWithinCap,
+  assignJudgeModels,
 } from "../handlers/self-check-verify-budget.js";
 import type { JudgeRequest } from "@prd-gen/core";
 
@@ -137,7 +138,7 @@ describe("self-check judge-panel budget gate", () => {
     expect(countsByClaim.get("ARCH-HEXAGONAL")).toBe(2);
   });
 
-  it("sets model and effort on every judge invocation", () => {
+  it("sets effort on every judge invocation; model uniform for non-architecture, diversified for architecture", () => {
     const state = selfCheckState(2, true);
     const out = dispatchAction(state);
 
@@ -145,9 +146,82 @@ describe("self-check judge-panel budget gate", () => {
     if (out.action.kind !== "spawn_subagents") throw new Error("unreachable");
     expect(out.action.invocations.length).toBeGreaterThan(0);
     for (const inv of out.action.invocations) {
-      expect(inv.model).toBe(DEFAULT_VERIFY_BUDGET.judge_model);
       expect(inv.effort).toBe(DEFAULT_VERIFY_BUDGET.judge_effort);
+      expect(inv.model).toBeDefined();
     }
+
+    // Non-architecture (FR-*) invocations dispatch under diversity_models[0]
+    // (the "standard subjective claims keep 1 haiku judge" default).
+    const snapshot = out.state.verification_plan!;
+    const frInvocations = out.action.invocations.filter((_, idx) =>
+      snapshot.claim_ids[idx].startsWith("FR-"),
+    );
+    for (const inv of frInvocations) {
+      expect(inv.model).toBe(DEFAULT_VERIFY_BUDGET.diversity_models[0]);
+    }
+
+    // The architecture claim's 2 judges cycle through diversity_models —
+    // one distinct model per slot, not the single judge_model default.
+    const archInvocations = out.action.invocations.filter((_, idx) =>
+      snapshot.claim_ids[idx].startsWith("ARCH-"),
+    );
+    expect(archInvocations).toHaveLength(2);
+    expect(archInvocations.map((inv) => inv.model)).toEqual(
+      DEFAULT_VERIFY_BUDGET.diversity_models,
+    );
+  });
+});
+
+describe("self-check judge-panel budget gate — model-diversity slots (arXiv:2602.11865 mitigation)", () => {
+  it("assignJudgeModels: architecture claims cycle diversity_models per judge slot; other claims use diversity_models[0]", () => {
+    const requests: JudgeRequest[] = [
+      {
+        judge: { kind: "genius", name: "aristotle" },
+        claim: { claim_id: "FR-001", claim_type: "fr_traceability", text: "t", evidence: "e" },
+        context: { codebase_excerpts: [], memory_excerpts: [] },
+      },
+      {
+        judge: { kind: "genius", name: "liskov" },
+        claim: { claim_id: "ARCH-001", claim_type: "architecture", text: "t", evidence: "e" },
+        context: { codebase_excerpts: [], memory_excerpts: [] },
+      },
+      {
+        judge: { kind: "genius", name: "simon" },
+        claim: { claim_id: "ARCH-001", claim_type: "architecture", text: "t", evidence: "e" },
+        context: { codebase_excerpts: [], memory_excerpts: [] },
+      },
+      {
+        judge: { kind: "genius", name: "alexander" },
+        claim: { claim_id: "ARCH-001", claim_type: "architecture", text: "t", evidence: "e" },
+        context: { codebase_excerpts: [], memory_excerpts: [] },
+      },
+    ];
+    const models = assignJudgeModels(requests, DEFAULT_VERIFY_BUDGET);
+    expect(models[0]).toBe(DEFAULT_VERIFY_BUDGET.diversity_models[0]); // FR-001, slot 0
+    expect(models[1]).toBe(DEFAULT_VERIFY_BUDGET.diversity_models[0]); // ARCH-001 slot 0
+    expect(models[2]).toBe(DEFAULT_VERIFY_BUDGET.diversity_models[1]); // ARCH-001 slot 1
+    // Cycles back to slot 0's model when architecture_judges_per_claim
+    // exceeds diversity_models.length.
+    expect(models[3]).toBe(DEFAULT_VERIFY_BUDGET.diversity_models[0]); // ARCH-001 slot 2
+  });
+
+  it("diversity slots count toward invocation_cap; every claim keeps >= 1 judge before ask_user fires", () => {
+    // 18 FR claims (18*1) + 1 architecture claim (1*2) = 20 == cap exactly —
+    // no gate fires; the architecture claim's 2 diversity-model slots were
+    // already counted in the 20, not added on top of it.
+    const state = selfCheckState(18, true);
+    const out = dispatchAction(state);
+    expect(out.action.kind).toBe("spawn_subagents");
+    if (out.action.kind !== "spawn_subagents") throw new Error("unreachable");
+    expect(out.action.invocations).toHaveLength(20);
+
+    // Every distinct claim_id present in the dispatched snapshot has at
+    // least 1 judge — reduceJudgeRequests' invariant (limits >= 1).
+    const snapshot = out.state.verification_plan!;
+    const counts = new Map<string, number>();
+    for (const id of snapshot.claim_ids) counts.set(id, (counts.get(id) ?? 0) + 1);
+    expect(counts.size).toBe(19); // 18 FR + 1 ARCH
+    for (const count of counts.values()) expect(count).toBeGreaterThanOrEqual(1);
   });
 });
 

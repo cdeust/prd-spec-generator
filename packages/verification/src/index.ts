@@ -12,6 +12,14 @@ export {
   extractClaimsFromDocument,
 } from "./claim-extractor.js";
 
+// Claim verification tiering
+export { classifyClaimTier, type ClaimTier } from "./claim-tier.js";
+export {
+  buildMechanicalVerdict,
+  buildMechanicalVerdicts,
+  RULE_TIER_JUDGE,
+} from "./mechanical-verdict.js";
+
 // Consensus
 export {
   consensus,

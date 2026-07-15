@@ -226,7 +226,7 @@ describe("implementation_gate — verification-report per-claim judge verdicts (
     expect(out.action.content).not.toContain(
       "Per-claim judge verdicts are not present",
     );
-    expect(out.action.content).toContain("| Claim ID | Judge | Verdict |");
+    expect(out.action.content).toContain("| Claim ID | Judge | Model | Verdict |");
     expect(out.action.content).toContain("FR-001");
     expect(out.action.content).toContain("PASS");
     expect(out.action.content).toContain("dijkstra");

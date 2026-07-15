@@ -205,3 +205,65 @@ Each PR keeps `implementation_gate`'s `"prd_only"` path fully functional, so the
 5. **`review` loop retries re-spawn the engineer on the *same* worktree** — confirm this is
    desired (incremental fix-up) vs a fresh worktree per attempt (clean-room retry); the design
    above assumes same-worktree continuation, unverified against engineer-agent conventions.
+
+## 7. Verification tiering & monoculture limits
+
+Follow-up to commit 60cb9a4's budget-gated haiku panel (§0 above): the panel itself, even
+reduced to 1-2 judges/claim under haiku/low, is still N invocations of ONE underlying model
+queried under different persona system prompts (`judge-selector.ts`'s `PANELS`: dijkstra,
+liskov, mendeleev, ...). This is persona diversity, not model independence — the DeepMind
+"virtual agent economies" paper (arXiv:2602.11865) names exactly this failure mode
+**Cognitive Monoculture**: when every agent in a system shares one vendor's pretraining corpus
+and alignment lineage, their errors correlate — a systematic blind spot in the underlying model
+resurfaces under every persona wearing it, so an apparent "N independent verifiers" signal can
+be one data point read N times. Measured evidence for the risk being real, not hypothetical:
+in e2e run run_mrlqa0aj_u2rh15, both the `liskov` and `architect` judges independently scored
+the same ports/adapters architecture claim PASS with the IDENTICAL 0.60 confidence and the same
+caveat text — consistent with one underlying judgment surfacing twice under two persona labels,
+not two independent readings.
+
+**Two changes ship together to attack this from both ends** (packages/verification/src/
+claim-tier.ts, mechanical-verdict.ts; packages/orchestration/src/handlers/
+self-check-verify-budget.ts's `diversity_models`):
+
+1. **Claim tiering** — a claim whose OWN TEXT names a deterministically executable
+   verification method (grep/diff/`time`/kcov/exit-status/absence-of-pattern/a named gate — see
+   claim-tier.ts's `MECHANICAL_METHOD_MARKERS`) never needed a judge's semantic reading in the
+   first place; a rule-checkable claim asked a judge to answer SPEC-COMPLETE-or-not on a
+   question a script answers at implementation time. These claims (classified "mechanical")
+   skip the panel entirely — self-check.ts synthesizes the verdict directly
+   (mechanical-verdict.ts's `RULE_TIER_JUDGE`, `{kind:"rule",name:"rule-tier"}`). Calibrated
+   against run_mrlqa0aj_u2rh15's real 29 claims (16 AC + 12 FR + 1 ARCH): 7 of 16 acceptance
+   criteria (AC-010..016) name an explicit method and classify mechanical; the other 22 claims
+   (including AC-008 — the one claim the real panel actually caught a FAIL on) classify
+   subjective and still get judged. Invocation count on that calibration fixture: 30 → 23
+   (post-60cb9a4 reduced/budgeted baseline vs post-tiering), zero of which were spent asking an
+   LLM to confirm a grep result.
+2. **Model-diversity slots** — for the 22 remaining subjective claims, persona diversity alone
+   doesn't close the monoculture gap. `VerifyBudgetConfig.diversity_models` (default
+   `["haiku", "sonnet"]`) gives "architecture"-typed claims (judge-selector.ts's highest-stakes
+   panel, `architecture_judges_per_claim` judges by default — 2) one judge per model in the
+   list, cycling by slot index — so that panel spans distinct personas AND distinct underlying
+   models, not personas alone. Standard subjective claims keep 1 judge under
+   `diversity_models[0]`; diversifying every claim would undo the invocation-count win §0 and
+   this section both exist for. `JudgeVerdict.model` (core/domain/agent.ts) now records which
+   model actually judged each claim, and `10-verification-report.md`'s per-claim table renders
+   it, so a "PASS, 2 judges, 1 model" run is now visually distinguishable from a "PASS, 2
+   judges, 2 models" run.
+
+**Honest limit (do not overclaim):** every entry in the default `diversity_models` list is a
+Claude-family model — cycling between them mitigates INTRA-family blind spots only; two
+Claude-family models can still share a systematic misreading the same claim triggers in both.
+This is NOT cross-vendor independence, and nothing in this design claims otherwise. The field
+type is `string`, not a Claude-model enum, specifically so a host with cross-vendor judge
+routing (a non-Claude model reachable through its own `subagent_type`) can close that gap
+WITHOUT a schema change — but closing it is out of scope here; it requires host-side routing
+this repo does not own. The monoculture risk for standard (non-architecture) subjective claims
+is UNCHANGED by this PR (they still get 1 judge, 1 model) — the mitigation is deliberately
+scoped to the highest-stakes panel, not applied uniformly, because uniform diversification would
+double the subjective-claim invocation count and defeat the budget-gate rationale of 60cb9a4.
+
+source: arXiv:2602.11865 (DeepMind, "virtual agent economies," Cognitive Monoculture threat
+class); e2e run run_mrlqa0aj_u2rh15 (2026-07-15, liskov/architect duplicate-confidence
+observation); commit 60cb9a4 (budget-gated haiku panel, the baseline this section reduces
+further).

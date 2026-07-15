@@ -37,7 +37,6 @@ import {
   parseAffectedSymbolsBlock,
   stripAffectedSymbolsBlock,
   type AffectedSymbolsDocument,
-  type AgentIdentity,
   type SectionType,
 } from "@prd-gen/core";
 
@@ -45,7 +44,7 @@ const OUTPUT_DIR = "prd-output";
 const AFFECTED_SYMBOLS_FILENAME = "stage-5.affected_symbols.json";
 const RUN_NOTES_FILENAME = "00-run-notes.md";
 
-interface PrdFile {
+export interface PrdFile {
   readonly path: string;
   readonly content: () => string;
 }
@@ -376,156 +375,8 @@ export const handleFileExport: StepHandler = ({ state, result }) => {
   };
 };
 
-// ─── Verification-report export (Move 5: kept as its own concern) ─────────
-
-const VERIFICATION_REPORT_FILENAME = "10-verification-report.md";
-
-/**
- * precondition:  `state.written_files` contains at least one exported file
- *                (file_export has run) whose path ends in the 01-prd.md
- *                slug so the report lands in the same run directory.
- * postcondition: returns null when `state.written_files` is empty (no run
- *                directory can be derived); otherwise the directory prefix
- *                shared by every exported PRD file.
- */
-function runDirFromWrittenFiles(state: PipelineState): string | null {
-  const prd = state.written_files.find((p) => /(^|\/)01-prd\.md$/.test(p));
-  if (!prd) return null;
-  return prd.slice(0, prd.length - "/01-prd.md".length);
-}
-
-function renderSectionsSummary(state: PipelineState): string {
-  if (state.sections.length === 0) return "_No sections were tracked for this run._";
-  return state.sections
-    .map((s) => {
-      const violations =
-        s.last_violations.length > 0
-          ? `\n  Violations (last attempt): ${s.last_violations.join("; ")}`
-          : "";
-      return `- **${SECTION_DISPLAY_NAMES[s.section_type] ?? s.section_type}**: ${s.status} (attempt ${s.attempt}, ${s.violation_count} violation(s) recorded)${violations}`;
-    })
-    .join("\n");
-}
-
-function renderDistribution(
-  verification: NonNullable<PipelineState["pending_completion"]>["verification"],
-): string {
-  if (!verification) {
-    return "_No multi-judge verification ran for this document (zero-claim short-circuit or malformed input)._";
-  }
-  const dist = Object.entries(verification.distribution)
-    .map(([verdict, count]) => `  - ${verdict}: ${count}`)
-    .join("\n");
-  return [
-    `Claims evaluated: ${verification.claims_evaluated}`,
-    dist,
-    verification.distribution_suspicious
-      ? "⚠ Distribution suspicious — 100% PASS suggests confirmatory bias."
-      : "",
-  ]
-    .filter((l) => l !== "")
-    .join("\n");
-}
-
-/**
- * Per-claim judge verdicts. `judge_verdicts` is an OPTIONAL contract field
- * (see actions.ts VerificationSummarySchema doc). self-check.ts's finalize()
- * populates it whenever at least one judge verdict was produced; it is
- * omitted for the genuinely-absent cases — the zero-claim fast path, or the
- * user chose "Skip verification" at the budget gate (self-check-verify-
- * budget.ts) — where no per-claim data exists to report. Rather than
- * fabricate per-claim data that does not exist in state, this renders an
- * explicit, honest gap notice when the field is absent (zetetic §8: no
- * source, no invented content) and a verbatim table when it IS present.
- */
-/**
- * `JudgeVerdict.judge` is a structured `AgentIdentity` (`{kind, name}`), not
- * a string — rendering it with template-literal coercion produces
- * "[object Object]" in the markdown table. `kind:name` (e.g.
- * "genius:dijkstra") is a readable, unambiguous identity string; matches the
- * `${kind}:${name}` shape `agentSubagentType` (core/domain/agent.ts) builds
- * on before prefixing the host tool-name convention.
- */
-function renderJudgeIdentity(judge: AgentIdentity): string {
-  return `${judge.kind}:${judge.name}`;
-}
-
-function renderJudgeVerdicts(
-  verification: NonNullable<PipelineState["pending_completion"]>["verification"],
-): string {
-  const verdicts = verification?.judge_verdicts;
-  if (!verdicts || verdicts.length === 0) {
-    return (
-      "_Per-claim judge verdicts are not present in this run's state — " +
-      "multi-judge verification did not run (zero-claim short-circuit) or was " +
-      "explicitly skipped at the budget gate (see actions.ts " +
-      "VerificationSummarySchema.judge_verdicts). No per-claim data is " +
-      "fabricated here._"
-    );
-  }
-  const header = "| Claim ID | Judge | Verdict | Confidence | Rationale |";
-  const sep = "|---|---|---|---|---|";
-  const rows = verdicts.map(
-    (v) =>
-      `| ${v.claim_id} | ${renderJudgeIdentity(v.judge)} | ${v.verdict} | ${v.confidence.toFixed(2)} | ${v.rationale.replace(/\|/g, "\\|")} |`,
-  );
-  return [header, sep, ...rows].join("\n");
-}
-
-function renderGraphValidation(
-  verification: NonNullable<PipelineState["pending_completion"]>["verification"],
-): string {
-  const report = verification?.prd_graph_validation;
-  if (!report) {
-    return "_No PRD-vs-graph validation ran for this run (no codebase graph was available)._";
-  }
-  return ["```json", JSON.stringify(report, null, 2), "```"].join("\n");
-}
-
-/**
- * precondition:  `state.pending_completion !== null` (self-check's
- *                finalize() has run).
- * postcondition: returns the 10-verification-report.md PrdFile with section
- *                statuses+violations, the verification distribution,
- *                per-claim judge verdicts (verbatim when present, an
- *                honest gap notice otherwise), and prd_graph_validation
- *                findings; returns null when no run directory can be
- *                derived (file_export never wrote 01-prd.md) or
- *                pending_completion is absent — degrades gracefully rather
- *                than blocking the pipeline on a missing report.
- */
-export function buildVerificationReportFile(state: PipelineState): PrdFile | null {
-  const pending = state.pending_completion;
-  if (!pending) return null;
-  const dir = runDirFromWrittenFiles(state);
-  if (!dir) return null;
-
-  return {
-    path: `${dir}/${VERIFICATION_REPORT_FILENAME}`,
-    content: () =>
-      [
-        `# Verification Report: ${state.feature_description}`,
-        "",
-        `Run ID: ${state.run_id}`,
-        "",
-        "## Section Statuses & Violations",
-        "",
-        renderSectionsSummary(state),
-        "",
-        "## Multi-Judge Verification Distribution",
-        "",
-        renderDistribution(pending.verification),
-        "",
-        "## Per-Claim Judge Verdicts",
-        "",
-        renderJudgeVerdicts(pending.verification),
-        "",
-        "## PRD-vs-Graph Validation",
-        "",
-        renderGraphValidation(pending.verification),
-      ].join("\n"),
-  };
-}
-
-/** Filename constant re-exported for callers that need to test for presence. */
-export { VERIFICATION_REPORT_FILENAME };
+// Verification-report export (10-verification-report.md) moved to
+// verification-report.ts (§4.1 500-line file cap / Move 5: it renders an
+// already-fully-computed piece of state, a distinct concern from this
+// file's file-WRITING protocol). `PrdFile` below is exported for that
+// module to consume.

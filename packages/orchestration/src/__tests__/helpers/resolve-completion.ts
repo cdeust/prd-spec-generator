@@ -16,7 +16,7 @@
  * Must match:
  *   - handlers/protocol-ids.ts:IMPLEMENTATION_GATE_QUESTION_ID
  *   - handlers/finalize.ts:REMEMBER_CORRELATION_ID
- *   - handlers/file-export.ts:VERIFICATION_REPORT_FILENAME
+ *   - handlers/verification-report.ts:VERIFICATION_REPORT_FILENAME
  */
 
 import { expect } from "vitest";

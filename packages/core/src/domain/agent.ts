@@ -76,9 +76,25 @@ export const TeamAgentSchema = z.enum([
 ]);
 export type TeamAgent = z.infer<typeof TeamAgentSchema>;
 
+/**
+ * Third identity kind: the deterministic rule-tier "judge" — not an LLM
+ * invocation at all. Emitted for claims classified `claim-tier.ts`'s
+ * "mechanical" (verification method is grep/diff/time/kcov/exact-string —
+ * deterministically executable, no semantic judgment needed) so those
+ * claims still produce a `JudgeVerdict` record (for `judge_verdicts`
+ * reporting and `consensus()` aggregation) WITHOUT dispatching a
+ * spawn_subagents invocation. `agentSubagentType` refuses this kind — a
+ * rule-tier identity must never reach the host's Agent tool.
+ *
+ * source: design-phases-3-5.md "Verification tiering & monoculture limits"
+ * (arXiv:2602.11865 "Cognitive Monoculture" — persona-diverse judges on one
+ * underlying model are not independent verifiers; rule-checkable claims
+ * should not consume a judge invocation at all).
+ */
 export const AgentIdentitySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("genius"), name: GeniusAgentSchema }),
   z.object({ kind: z.literal("team"), name: TeamAgentSchema }),
+  z.object({ kind: z.literal("rule"), name: z.literal("rule-tier") }),
 ]);
 export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
 
@@ -92,9 +108,23 @@ export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
  * in lockstep.
  */
 export function agentSubagentType(identity: AgentIdentity): string {
-  return identity.kind === "genius"
-    ? `zetetic-team-subagents:genius:${identity.name}`
-    : `zetetic-team-subagents:${identity.name}`;
+  switch (identity.kind) {
+    case "genius":
+      return `zetetic-team-subagents:genius:${identity.name}`;
+    case "team":
+      return `zetetic-team-subagents:${identity.name}`;
+    case "rule":
+      // Programming-error guard, not expected control flow (§7.2 exception
+      // exemption: "only exceptional conditions"). A rule-tier identity is
+      // never placed into a JudgeRequest (claim-tier.ts's mechanical claims
+      // are filtered out of buildRequests before judge selection runs), so
+      // this call site should be unreachable. Throwing here converts a
+      // silent wrong dispatch (spawning "zetetic-team-subagents:rule-tier",
+      // an agent that doesn't exist) into a loud one.
+      throw new Error(
+        "agentSubagentType: rule-tier is a synthetic verdict identity, never a dispatchable judge — this call indicates a mechanical claim leaked into judge selection.",
+      );
+  }
 }
 
 // ─── External grounding ──────────────────────────────────────────────────────
@@ -173,6 +203,20 @@ export const JudgeVerdictSchema = z.object({
   rationale: z.string(),
   caveats: z.array(z.string()).default([]),
   confidence: z.number().min(0).max(1),
+  /**
+   * Model the judge invocation was dispatched under (e.g. "haiku",
+   * "sonnet"). Optional and additive: undefined means either (a) this
+   * verdict predates the model-diversity feature, or (b) `judge.kind ===
+   * "rule"` — a rule-tier verdict was never model-dispatched at all.
+   * Populated by self-check.ts's `parseVerdicts` from the SAME
+   * `assignJudgeModels` mapping used to build the dispatched
+   * spawn_subagents invocation, so the reported model is always the model
+   * that actually judged the claim, never inferred after the fact.
+   *
+   * source: design-phases-3-5.md "Verification tiering & monoculture
+   * limits" — cross-model judge slots for architecture-tier claims.
+   */
+  model: z.string().optional(),
 });
 export type JudgeVerdict = z.infer<typeof JudgeVerdictSchema>;
 

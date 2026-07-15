@@ -35,6 +35,10 @@ export const DEFAULT_VERIFY_BUDGET: VerifyBudgetConfig = {
   invocation_cap: 20,
   judge_model: "haiku",
   judge_effort: "low",
+  // Cheapest distinct-model pair — see VerifyBudgetConfigSchema.diversity_models
+  // doc (types/state/verify-budget.ts) for the monoculture-mitigation rationale
+  // and its honest limit (both are Claude-family models).
+  diversity_models: ["haiku", "sonnet"],
 };
 
 /**
@@ -133,6 +137,51 @@ export function sampleWithinCap(
     included.add(req);
   }
   return requests.filter((r) => included.has(r));
+}
+
+/**
+ * Assign a dispatch model to each request in `requests`, in order.
+ *
+ * "architecture"-typed claims cycle through `config.diversity_models` — one
+ * distinct model per judge slot WITHIN that claim's panel (slot index
+ * modulo `diversity_models.length`), so an architecture claim's panel spans
+ * both distinct personas (judge-selector.ts's PANELS) and distinct model
+ * families, not personas alone — see VerifyBudgetConfigSchema.diversity_models
+ * doc for the monoculture-mitigation rationale and its honest limit.
+ * Every other claim_type dispatches its single judge under
+ * `config.diversity_models[0]` (falls back to `config.judge_model` if
+ * `diversity_models` is empty — defensive; the schema requires length >= 1).
+ *
+ * precondition:  `requests` is the FINAL invocation set (post-reduction,
+ *                post-sampling) — same precondition as buildVerifyAction/
+ *                dispatchVerify. Same-claim requests remain CONTIGUOUS in
+ *                `requests` (reduceJudgeRequests/sampleWithinCap only ever
+ *                drop entries, never reorder — see their own postcondition
+ *                comments), which is what makes the per-claim slot-index
+ *                counter below correct without needing the full plan.
+ * postcondition: result.length === requests.length, index-aligned with
+ *                `requests`. Deterministic replay for identical inputs.
+ *
+ * invariant (loop): `seen.get(claimId)` is the count of requests for
+ *                    `claimId` already assigned a model; termination at
+ *                    `requests.length`.
+ */
+export function assignJudgeModels(
+  requests: readonly JudgeRequest[],
+  config: VerifyBudgetConfig,
+): readonly string[] {
+  const models = config.diversity_models.length > 0
+    ? config.diversity_models
+    : [config.judge_model];
+  const seen = new Map<string, number>();
+  return requests.map((req) => {
+    const claimId = req.claim.claim_id;
+    const slot = seen.get(claimId) ?? 0;
+    seen.set(claimId, slot + 1);
+    return req.claim.claim_type === "architecture"
+      ? models[slot % models.length]
+      : models[0];
+  });
 }
 
 /** ask_user option labels — shared between the gate builder and the answer parser. */

@@ -31,70 +31,28 @@ import {
   planDocumentVerification,
   concludeDocument,
   buildJudgePrompt,
+  buildMechanicalVerdicts,
 } from "@prd-gen/verification";
-import {
-  VerdictSchema,
-  agentSubagentType,
-  extractJsonObject,
-  type JudgeRequest,
-  type JudgeVerdict,
-} from "@prd-gen/core";
-import { z } from "zod";
-import { SELF_CHECK_JUDGE_INV_PREFIX, VERIFY_BUDGET_QUESTION_ID } from "./protocol-ids.js";
+import { agentSubagentType, type JudgeRequest, type JudgeVerdict } from "@prd-gen/core";
+import { VERIFY_BUDGET_QUESTION_ID } from "./protocol-ids.js";
 import {
   resolveVerifyBudget,
   reduceJudgeRequests,
   sampleWithinCap,
   buildBudgetGateQuestion,
   verifyBudgetDecisionFromAnswer,
+  assignJudgeModels,
 } from "./self-check-verify-budget.js";
 import { handlePrdValidation } from "./self-check-prd-validation.js";
+import {
+  invocationIdFor,
+  buildJudgeIndex,
+  parseVerdicts,
+  computeMechanicalVerdicts,
+  truncateJudgeVerdictRationale,
+} from "./self-check-verdicts.js";
 
 const VERIFY_BATCH_ID = "self_check_verify";
-
-/**
- * Defensive char cap for a single JudgeVerdict.rationale persisted into
- * `pending_completion.verification.judge_verdicts` (state serialized into
- * MCP responses — see bounded-io.ts:MAX_RESPONSE_CHARS derivation). The judge
- * prompt asks for "one paragraph" (judge-prompt.ts) — a few sentences, so 500
- * chars matches the project's existing per-item convention for short
- * judge/error text (bounded-io.ts:ERROR_MESSAGE_CHARS). At the 20-invocation
- * default cap (DEFAULT_VERIFY_BUDGET.invocation_cap), 20 verdicts x ~600
- * chars each (rationale + judge/claim_id/verdict/confidence/caveats
- * overhead) is ~12,000 chars — well inside the 100,000-char budget alongside
- * the rest of pending_completion.
- * source: self-check-verify-budget.ts DEFAULT_VERIFY_BUDGET.invocation_cap
- * (20) + bounded-io.ts ERROR_MESSAGE_CHARS convention (500).
- */
-const JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS = 500;
-const JUDGE_VERDICT_RATIONALE_TRUNCATION_MARKER = "...";
-
-function truncateJudgeVerdictRationale(v: JudgeVerdict): JudgeVerdict {
-  return v.rationale.length > JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS
-    ? {
-        ...v,
-        rationale:
-          v.rationale.slice(0, JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS) +
-          JUDGE_VERDICT_RATIONALE_TRUNCATION_MARKER,
-      }
-    : v;
-}
-
-const RawVerdictSchema = z.object({
-  verdict: VerdictSchema,
-  rationale: z.string(),
-  caveats: z.array(z.string()).default([]),
-  confidence: z.number().min(0).max(1),
-});
-
-interface JudgeIndexEntry {
-  request: JudgeRequest;
-  invocation_id: string;
-}
-
-function invocationIdFor(idx: number): string {
-  return `${SELF_CHECK_JUDGE_INV_PREFIX}${idx.toString().padStart(4, "0")}`;
-}
 
 function gatherSections(state: PipelineState) {
   // Exclude jira_tickets — generated outside the section validation loop;
@@ -110,15 +68,19 @@ function gatherSections(state: PipelineState) {
  *                sampled or explicitly overridden. This function performs
  *                no further filtering.
  * postcondition: one spawn_subagents invocation per request, in the same
- *                order, each carrying `model`/`effort` from `config` — no
- *                judge invocation is dispatched under the session model by
- *                default (source: measured e2e run run_mrlqa0aj_u2rh15;
- *                see self-check-verify-budget.ts module doc).
+ *                order, each carrying `model`/`effort` — `model` comes from
+ *                assignJudgeModels (architecture claims cycle through
+ *                `config.diversity_models`; every other claim dispatches
+ *                under `config.diversity_models[0]`) — no judge invocation
+ *                is dispatched under the session model by default (source:
+ *                measured e2e run run_mrlqa0aj_u2rh15; see
+ *                self-check-verify-budget.ts module doc).
  */
 function buildVerifyAction(
   requests: readonly JudgeRequest[],
   config: VerifyBudgetConfig,
 ): NextAction {
+  const models = assignJudgeModels(requests, config);
   return {
     kind: "spawn_subagents",
     purpose: "judge",
@@ -131,68 +93,11 @@ function buildVerifyAction(
         description: built.description,
         prompt: built.prompt,
         isolation: "none" as const,
-        model: config.judge_model,
+        model: models[idx],
         effort: config.judge_effort,
       };
     }),
   };
-}
-
-function parseVerdicts(
-  index: ReadonlyArray<JudgeIndexEntry>,
-  batchResult: Extract<ActionResult, { kind: "subagent_batch_result" }>,
-): JudgeVerdict[] {
-  // Detect duplicate invocation_ids — silent overwrite would lose verdicts.
-  // Replace any duplicate with an explicit error response so the affected
-  // claims surface as INCONCLUSIVE rather than silently keeping last-write.
-  const byId = new Map<string, (typeof batchResult.responses)[number]>();
-  for (const r of batchResult.responses) {
-    if (byId.has(r.invocation_id)) {
-      byId.set(r.invocation_id, {
-        invocation_id: r.invocation_id,
-        error: `duplicate invocation_id in batch: ${r.invocation_id}`,
-      });
-    } else {
-      byId.set(r.invocation_id, r);
-    }
-  }
-  const out: JudgeVerdict[] = [];
-  for (const entry of index) {
-    const response = byId.get(entry.invocation_id);
-    if (!response || response.error || !response.raw_text) {
-      out.push({
-        judge: entry.request.judge,
-        claim_id: entry.request.claim.claim_id,
-        verdict: "INCONCLUSIVE",
-        rationale: response?.error ?? "no response",
-        caveats: ["judge_invocation_failed"],
-        confidence: 0,
-      });
-      continue;
-    }
-    try {
-      const obj = extractJsonObject(response.raw_text);
-      const parsed = RawVerdictSchema.parse(obj);
-      out.push({
-        judge: entry.request.judge,
-        claim_id: entry.request.claim.claim_id,
-        verdict: parsed.verdict,
-        rationale: parsed.rationale,
-        caveats: parsed.caveats,
-        confidence: parsed.confidence,
-      });
-    } catch (err) {
-      out.push({
-        judge: entry.request.judge,
-        claim_id: entry.request.claim.claim_id,
-        verdict: "INCONCLUSIVE",
-        rationale: `parse failure: ${(err as Error).message}`,
-        caveats: ["parse_error"],
-        confidence: 0,
-      });
-    }
-  }
-  return out;
 }
 
 function finalize(
@@ -342,20 +247,24 @@ function handleSelfCheckPhaseA(
   }
 
   const plan = planDocumentVerification(sections);
+  // Mechanical-tier claims (claim-tier.ts) never enter judge_requests — they
+  // get a rule-tier verdict directly, regardless of which fast-path/dispatch
+  // branch the subjective-tier claims below take.
+  const mechanicalVerdicts = buildMechanicalVerdicts(plan.mechanical_claims);
   if (plan.judge_requests.length === 0) {
-    return finalize(state);
+    return finalize(state, mechanicalVerdicts);
   }
 
   const config = resolveVerifyBudget(state.verify_budget);
   const reduced = reduceJudgeRequests(plan.judge_requests, config);
   if (reduced.length === 0) {
-    return finalize(state);
+    return finalize(state, mechanicalVerdicts);
   }
 
   if (result?.kind === "user_answer" && result.question_id === VERIFY_BUDGET_QUESTION_ID) {
     const decision = verifyBudgetDecisionFromAnswer(result);
     if (decision === "skip") {
-      return finalize(state);
+      return finalize(state, mechanicalVerdicts);
     }
     const finalRequests =
       decision === "sample" ? sampleWithinCap(reduced, config.invocation_cap) : reduced;
@@ -385,9 +294,14 @@ function handleSelfCheckPhaseB(
 ) {
   const snapshot = state.verification_plan;
   if (!snapshot || snapshot.batch_id !== VERIFY_BATCH_ID) {
-    return finalize(state);
+    return finalize(state, computeMechanicalVerdicts(gatherSections(state)));
   }
   const verdicts = parseVerdictsFromSnapshot(snapshot, state, result);
+  // Mechanical-tier claims (claim-tier.ts) were excluded from the dispatched
+  // panel entirely (Phase A) — recompute their rule-tier verdicts here (pure
+  // function of state.sections, unchanged since Phase A) so they're present
+  // in `judge_verdicts` alongside the judge-parsed subjective verdicts.
+  const mechanicalVerdicts = computeMechanicalVerdicts(gatherSections(state));
 
   // Surface plan-mismatch diagnostics into state.errors so they're
   // observable to operators and tests. The caveats carry the mismatchKind
@@ -410,7 +324,7 @@ function handleSelfCheckPhaseB(
     }
   }
 
-  return finalize(stateAfter, verdicts);
+  return finalize(stateAfter, [...mechanicalVerdicts, ...verdicts]);
 }
 
 export const handleSelfCheck: StepHandler = ({ state, result }) => {
@@ -479,11 +393,7 @@ function parseVerdictsFromSnapshot(
     rederived.every((r, i) => r.claim.claim_id === snapshot.claim_ids[i]);
 
   if (sameOrder) {
-    const index: JudgeIndexEntry[] = rederived.map((req, idx) => ({
-      request: req,
-      invocation_id: invocationIdFor(idx),
-    }));
-    return parseVerdicts(index, batchResult);
+    return parseVerdicts(buildJudgeIndex(rederived, config), batchResult);
   }
 
   // Diagnose the mismatch reason — set vs order — for the caller to persist.

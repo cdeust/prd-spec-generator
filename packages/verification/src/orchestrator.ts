@@ -27,6 +27,7 @@ import type {
 } from "@prd-gen/core";
 import { extractClaims, extractClaimsFromDocument } from "./claim-extractor.js";
 import { selectJudges } from "./judge-selector.js";
+import { classifyClaimTier } from "./claim-tier.js";
 import {
   consensus,
   type ConsensusConfig,
@@ -34,8 +35,18 @@ import {
 } from "./consensus.js";
 
 export interface VerificationPlan {
+  /** Every claim extracted from the document/section, both tiers. */
   readonly claims: readonly Claim[];
+  /** Judge requests for "subjective"-tier claims only — see claim-tier.ts. */
   readonly judge_requests: readonly JudgeRequest[];
+  /**
+   * Claims classified "mechanical" (claim-tier.ts) — no JudgeRequest exists
+   * for these; the caller synthesizes a rule-tier verdict directly
+   * (mechanical-verdict.ts) instead of dispatching a judge invocation.
+   *
+   * source: design-phases-3-5.md "Verification tiering & monoculture limits".
+   */
+  readonly mechanical_claims: readonly Claim[];
 }
 
 export interface VerificationReport {
@@ -125,8 +136,7 @@ export function planSectionVerification(
   options: PlanOptions = {},
 ): VerificationPlan {
   const claims = extractClaims(sectionType, content);
-  const judge_requests = buildRequests(claims, options, content);
-  return { claims, judge_requests };
+  return buildPlan(claims, options, content);
 }
 
 export function planDocumentVerification(
@@ -137,8 +147,33 @@ export function planDocumentVerification(
   const concatenated = sections
     .map((s) => `## ${s.type}\n\n${s.content}`)
     .join("\n\n");
-  const judge_requests = buildRequests(claims, options, concatenated);
-  return { claims, judge_requests };
+  return buildPlan(claims, options, concatenated);
+}
+
+/**
+ * precondition:  `claims` is every claim extracted from the section/document
+ *                (both tiers, un-filtered).
+ * postcondition: `judge_requests` is built ONLY from "subjective"-tier
+ *                claims (claim-tier.ts); `mechanical_claims` carries the
+ *                rest, in extraction order, for the caller to synthesize
+ *                rule-tier verdicts from (mechanical-verdict.ts).
+ */
+function buildPlan(
+  claims: readonly Claim[],
+  options: PlanOptions,
+  prdExcerpt: string,
+): VerificationPlan {
+  const mechanical_claims: Claim[] = [];
+  const subjective_claims: Claim[] = [];
+  for (const claim of claims) {
+    if (classifyClaimTier(claim) === "mechanical") {
+      mechanical_claims.push(claim);
+    } else {
+      subjective_claims.push(claim);
+    }
+  }
+  const judge_requests = buildRequests(subjective_claims, options, prdExcerpt);
+  return { claims, judge_requests, mechanical_claims };
 }
 
 function buildRequests(

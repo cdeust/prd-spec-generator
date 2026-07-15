@@ -35,9 +35,45 @@ export const VerifyBudgetConfigSchema = z.object({
    * handlers/self-check-verify-budget.ts:buildBudgetGateQuestion.
    */
   invocation_cap: z.number().int().positive(),
-  /** Model every judge invocation is dispatched under (spawn_subagents invocation.model). */
+  /**
+   * Model every NON-architecture judge invocation is dispatched under
+   * (spawn_subagents invocation.model). Also the fallback when
+   * `diversity_models` is empty (schema requires length >= 1; defensive
+   * only).
+   */
   judge_model: z.string(),
   /** Effort level every judge invocation is dispatched under (spawn_subagents invocation.effort). */
   judge_effort: z.enum(["low", "medium", "high"]),
+  /**
+   * Model-diversity slots for "architecture"-typed claims (judge-
+   * selector.ts's highest-stakes panel, `architecture_judges_per_claim`
+   * judges by default). Each judge slot within an architecture claim's
+   * panel cycles through this list by index — judge 0 gets
+   * `diversity_models[0]`, judge 1 gets `diversity_models[1 %
+   * diversity_models.length]`, etc. — so the panel spans distinct
+   * PERSONAS (judge-selector.ts's PANELS) AND distinct underlying MODELS,
+   * not persona diversity alone.
+   *
+   * HONEST LIMIT (arXiv:2602.11865, DeepMind "Virtual Agent Economies" —
+   * the "Cognitive Monoculture" threat class): persona diversity is NOT
+   * model independence. Every entry in the default list ("haiku", "sonnet")
+   * is a Claude-family model sharing one vendor's pretraining corpus and
+   * alignment lineage — cycling between them mitigates only INTRA-family
+   * blind spots (the two models can still share a systematic misreading of
+   * the same claim). It does not, and cannot, close the monoculture gap
+   * that a genuinely independent (cross-vendor) verifier would. This field
+   * accepts arbitrary model-identifier strings specifically so a host with
+   * cross-vendor judge routing (e.g. a non-Claude model reachable through
+   * its own subagent_type) can close that gap WITHOUT a schema change —
+   * the type is `string`, not a Claude-model enum. Standard (non-
+   * architecture) subjective claims still dispatch a single judge under
+   * `judge_model` — diversity slots are reserved for the highest-stakes
+   * panel by design, not applied uniformly, to keep the invocation-count
+   * reduction this feature exists for (see module doc above).
+   *
+   * source: design-phases-3-5.md "Verification tiering & monoculture
+   * limits"; arXiv:2602.11865.
+   */
+  diversity_models: z.array(z.string()).min(1),
 });
 export type VerifyBudgetConfig = z.infer<typeof VerifyBudgetConfigSchema>;
