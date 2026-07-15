@@ -1,30 +1,27 @@
 # session-optimizer PRD excerpt (pre-correction) — issue #4 / run_mrlqa0aj_u2rh15
 
-Historical/reconstructed excerpt used ONLY for claim AC-008's calibration
-prompt — see `fixtures/ground-truth.json`'s `provenance.note_on_ac008` for
-full sourcing (what is verbatim-quoted from git vs. reconstructed, and
-why). Every other claim in this fixture set is prompted from the
+Historical excerpt used ONLY for claim AC-008's calibration prompt — see
+`fixtures/ground-truth.json`'s `provenance.note_on_ac008` for sourcing.
+The US-01 block below is the VERBATIM pre-correction text as originally
+written by the generating pipeline run (run_mrlqa0aj_u2rh15) and judged
+by the e2e jury: the file was committed to git only after correction, but
+the original write is preserved in the generating session's transcript
+(host-verified against the exact Write payload that created
+session-optimizer/prd-output/run_mrlq/01-prd.md, and consistent with the
+two fragments quoted in 10-verification-report.md and the correction
+note). Every other claim in this fixture set is prompted from the
 corrected `fixtures/01-prd.md`.
 
-### US-01 — Paliers discrets remplaçant le dégradé continu (texte pré-correction, avant round d'implémentation issue #4)
+### US-01 — Paliers discrets remplaçant le dégradé continu
 
-En tant que développeur utilisateur de Claude Code, je veux que la jauge
-de contexte affiche 4 paliers de couleur discrets au lieu d'un dégradé
-RGB continu, afin de percevoir immédiatement dans quelle tranche de
-consommation je me trouve sans avoir à interpréter une teinte
-intermédiaire ambiguë.
+En tant que développeur utilisateur de Claude Code, je veux que la jauge de contexte affiche 4 paliers de couleur discrets au lieu d'un dégradé RGB continu, afin de percevoir immédiatement dans quelle tranche de consommation je me trouve sans avoir à interpréter une teinte intermédiaire ambiguë.
 
-- AC-001 : Étant donné un pourcentage de contexte dans la tranche 0-49 %,
-  toutes les cellules remplies de la jauge sont rendues dans la couleur
-  ink-muted (HEAT_1).
-- AC-002 : Étant donné un pourcentage de contexte dans la tranche 50-74 %,
-  toutes les cellules remplies de la jauge sont rendues en ink (HEAT_2).
-- AC-003 : Étant donné un pourcentage de contexte dans la tranche 75-89 %,
-  toutes les cellules remplies de la jauge sont rendues en terracotta
-  atténué (HEAT_3).
-- AC-004 : Étant donné un pourcentage de contexte dans la tranche
-  90-100 %, toutes les cellules remplies de la jauge sont rendues en
-  terracotta plein (HEAT_4).
+- AC-001 : Pour un pourcentage d'entrée compris entre 0 et 49 inclus, toutes les cellules remplies de la jauge sont rendues dans la couleur ink-muted (aucune cellule terracotta ou ink pleine n'apparaît).
+- AC-002 : Pour un pourcentage d'entrée compris entre 50 et 74 inclus, les cellules remplies sont rendues en ink.
+- AC-003 : Pour un pourcentage d'entrée compris entre 75 et 89 inclus, les cellules remplies sont rendues en terracotta atténué.
+- AC-004 : Pour un pourcentage d'entrée compris entre 90 et 100 inclus, les cellules remplies sont rendues en terracotta plein (option gras activée).
+- AC-005 : La fonction `grad_rgb` (ou son équivalent renommé) ne calcule plus d'interpolation continue de composantes RGB ; elle retourne l'un des 4 triplets de couleur fixes correspondant au palier déterminé par le pourcentage.
+- AC-006 : Les bornes exactes 49→50, 74→75 et 89→90 déclenchent un changement de palier visible (test unitaire ou script de vérification manuelle sur ces 3 valeurs pivot).
 
 ## Requirements (excerpt — FR-007, canonical, unchanged by the correction)
 
