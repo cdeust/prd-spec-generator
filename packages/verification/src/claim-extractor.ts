@@ -21,12 +21,74 @@ type Extractor = (ctx: ExtractContext) => readonly Claim[];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function snippet(content: string, line: string, before = 2, after = 2): string {
+/**
+ * A markdown heading always starts a new unit of content — no claim's
+ * evidence window may cross one. Used as a generic boundary in addition to
+ * any type-specific `boundaryRe` (see `snippet` below).
+ */
+const HEADING_RE = /^\s{0,3}#{1,6}\s/;
+
+/**
+ * precondition:  `content` is the full section text; `line` is the matched
+ *                text of the CURRENT claim (its full source line, for the
+ *                line-anchored extractors that call this — see call sites).
+ *                `boundaryRe`, when given, is the SAME line-anchored regex
+ *                the caller used to find claims of this kind (e.g.
+ *                AC_LINE_RE for acceptance criteria) — any other line
+ *                matching it marks the start of a NEIGHBORING claim.
+ * postcondition: returns a contiguous slice of `content`'s lines, at most
+ *                `before` lines before and `after` lines after the line
+ *                matching `line`, but NEVER crossing a markdown heading or
+ *                (when `boundaryRe` is given) a neighboring claim's start
+ *                line — so one claim's evidence can never contain another
+ *                claim's text. Root fix for the AC-009/AC-010 leak
+ *                documented in claim-tier.ts's module doc: a fixed-size
+ *                window that ignored claim boundaries used to bleed the
+ *                next bullet's wording into the current claim's evidence.
+ */
+function snippet(
+  content: string,
+  line: string,
+  before = 2,
+  after = 2,
+  boundaryRe?: RegExp,
+): string {
   const lines = content.split(/\r?\n/);
   const idx = lines.findIndex((l) => l.trim() === line.trim());
   if (idx === -1) return line;
-  const start = Math.max(0, idx - before);
-  const end = Math.min(lines.length, idx + after + 1);
+
+  // `boundaryRe` may carry the /g flag (e.g. SP_TOTAL_RE, matched elsewhere
+  // via matchAll): reset lastIndex before each probe so a global regex's
+  // internal search cursor from a previous line can't suppress a match on
+  // this one (RegExp.prototype.test is stateful across calls when /g is set).
+  const isBoundary = (l: string): boolean => {
+    if (HEADING_RE.test(l)) return true;
+    if (boundaryRe === undefined) return false;
+    boundaryRe.lastIndex = 0;
+    return boundaryRe.test(l);
+  };
+
+  // invariant: [start, idx) contains no boundary line; terminates because
+  // the loop only ever narrows `start` upward and stops at idx-before or
+  // the nearest preceding boundary, whichever is closer to idx.
+  let start = Math.max(0, idx - before);
+  for (let i = idx - 1; i >= start; i--) {
+    if (isBoundary(lines[i])) {
+      start = i + 1;
+      break;
+    }
+  }
+
+  // invariant: (idx, end) contains no boundary line; terminates for the
+  // symmetric reason.
+  let end = Math.min(lines.length, idx + after + 1);
+  for (let i = idx + 1; i < end; i++) {
+    if (isBoundary(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+
   return lines.slice(start, end).join("\n");
 }
 
@@ -51,7 +113,7 @@ const extractRequirements: Extractor = ({ content, section_type }) => {
       claim_id: id,
       claim_type: "fr_traceability",
       text: `Functional requirement: ${text}`,
-      evidence: snippet(content, m[0]),
+      evidence: snippet(content, m[0], 2, 2, FR_LINE_RE),
       source_section: section_type,
     });
   }
@@ -72,7 +134,7 @@ const extractAcceptanceCriteria: Extractor = ({ content, section_type }) => {
       claim_id: id,
       claim_type: "acceptance_criteria_completeness",
       text: `Acceptance criterion: ${text}`,
-      evidence: snippet(content, m[0]),
+      evidence: snippet(content, m[0], 2, 2, AC_LINE_RE),
       source_section: section_type,
     });
   }
@@ -231,7 +293,7 @@ const extractRisks: Extractor = ({ content, section_type }) => {
       claim_id: `RISK-${counter.toString().padStart(2, "0")}`,
       claim_type: "risk",
       text: m[1].trim(),
-      evidence: snippet(content, m[0]),
+      evidence: snippet(content, m[0], 2, 2, RISK_LINE_RE),
       source_section: section_type,
     });
   }
@@ -251,7 +313,7 @@ const extractStoryPoints: Extractor = ({ content, section_type }) => {
       claim_id: `SP-TOTAL-${counter.toString().padStart(2, "0")}`,
       claim_type: "story_point_arithmetic",
       text: `Story-point total claim: ${m[0]}`,
-      evidence: snippet(content, m[0]),
+      evidence: snippet(content, m[0], 2, 2, SP_TOTAL_RE),
       source_section: section_type,
     });
   }

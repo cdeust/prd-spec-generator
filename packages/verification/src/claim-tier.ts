@@ -14,21 +14,32 @@
  *
  * Classification is CONSERVATIVE by construction: a claim only becomes
  * "mechanical" when (a) its claim_type is one of the types where an atomic,
- * single-fact deterministic check is plausible, AND (b) its own text (plus
- * evidence, for the two claim_types — test_coverage, data_model — whose
- * `text` is a short label and whose verification detail actually lives in
- * `evidence`; see EVIDENCE_INCLUDED_CLAIM_TYPES) names an explicit
- * deterministic verification method (grep, diff, time, kcov, wc -l,
- * exit-code, absence-of-pattern, checksum, or a named gate). Absent either
- * condition, the claim stays "subjective" — when unsure, judge it.
- * "architecture" and "fr_traceability" claims are ALWAYS
- * subjective regardless of text content: an architecture claim ("ports and
- * adapters") and a requirement's design intent ("replace X with Y") both
- * require judging WHETHER an implementation satisfies an intent, not just
- * whether a literal pattern is present in the diff — a mechanical check
- * can confirm the pattern is present/absent but cannot confirm intent
+ * single-fact deterministic check is plausible, AND (b) its own text PLUS
+ * evidence together name an explicit deterministic verification method
+ * (grep, diff, time, kcov, wc -l, exit-code, absence-of-pattern, checksum,
+ * or a named gate). Absent either condition, the claim stays "subjective" —
+ * when unsure, judge it. "architecture" and "fr_traceability" claims are
+ * ALWAYS subjective regardless of text content: an architecture claim
+ * ("ports and adapters") and a requirement's design intent ("replace X with
+ * Y") both require judging WHETHER an implementation satisfies an intent,
+ * not just whether a literal pattern is present in the diff — a mechanical
+ * check can confirm the pattern is present/absent but cannot confirm intent
  * satisfaction, so routing them to the mechanical tier would silently
  * downgrade a judgment call to a rubber stamp.
+ *
+ * `evidence` is included uniformly for every mechanical-eligible claim type
+ * (no more per-type carve-out — see git history for the retired
+ * EVIDENCE_INCLUDED_CLAIM_TYPES workaround). That carve-out existed solely
+ * because claim-extractor.ts's `snippet()` used a fixed-size line window
+ * that ignored claim boundaries: two AC/NFR bullets separated by a single
+ * blank line could leak an ADJACENT claim's wording into THIS claim's
+ * evidence (calibrated failure case: AC-009's evidence used to contain
+ * AC-010's "...n'est présente..." marker text, which would have
+ * false-positived AC-009 to "mechanical"). `snippet()` now bounds every
+ * evidence window at the neighboring claim's own start line (and at
+ * markdown headings) — see claim-extractor.ts's `snippet` doc comment and
+ * its regression test — so a claim's `evidence` can no longer contain
+ * another claim's text, and the workaround's premise no longer holds.
  *
  * Calibrated against the 29 real claims of e2e run run_mrlqa0aj_u2rh15
  * (16 acceptance criteria + 12 functional requirements + 1 architecture
@@ -70,29 +81,6 @@ const MECHANICAL_ELIGIBLE_CLAIM_TYPES: ReadonlySet<Claim["claim_type"]> = new Se
 ]);
 
 /**
- * Claim types whose `evidence` field is safe to include in the marker scan.
- * For these types, `text` is a short label (e.g. "Schema definition: users",
- * "Test function: test_login") and the verification-relevant detail lives
- * in `evidence` (the DDL, the function body). EXCLUDED types
- * (acceptance_criteria_completeness, story_point_arithmetic, performance)
- * carry their full assertion in `text` already — including `evidence` for
- * those risks cross-claim contamination: claim-extractor.ts's `snippet()`
- * grabs a ±2-line window around the matched line, and consecutive AC/NFR
- * bullets separated by a single blank line can leak an ADJACENT claim's
- * wording into THIS claim's evidence. Calibrated on AC-009 (run
- * run_mrlqa0aj_u2rh15's PRD): its own text names no verification method,
- * but AC-010's line ("...n'est présente...") sits inside AC-009's 2-line
- * evidence window and would false-positive it to "mechanical" if evidence
- * were included — the conservative failure mode (Move 3: when unsure,
- * judge it) is to exclude evidence for these types rather than risk
- * silently downgrading a subjective claim.
- */
-const EVIDENCE_INCLUDED_CLAIM_TYPES: ReadonlySet<Claim["claim_type"]> = new Set([
-  "test_coverage",
-  "data_model",
-]);
-
-/**
  * Explicit deterministic-verification-method markers. Matched against
  * `claim.text + " " + claim.evidence` (case-insensitive). Each marker names
  * a literal tool, command, or absence-of-pattern assertion a script can
@@ -125,9 +113,7 @@ export function classifyClaimTier(claim: Claim): ClaimTier {
   if (!MECHANICAL_ELIGIBLE_CLAIM_TYPES.has(claim.claim_type)) {
     return "subjective";
   }
-  const haystack = EVIDENCE_INCLUDED_CLAIM_TYPES.has(claim.claim_type)
-    ? `${claim.text} ${claim.evidence}`
-    : claim.text;
+  const haystack = `${claim.text} ${claim.evidence}`;
   return MECHANICAL_METHOD_MARKERS.some((re) => re.test(haystack))
     ? "mechanical"
     : "subjective";

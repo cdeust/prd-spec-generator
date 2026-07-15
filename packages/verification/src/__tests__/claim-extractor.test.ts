@@ -61,4 +61,47 @@ describe("extractClaims", () => {
     const uniqueIds = new Set(ids);
     expect(ids.length).toBe(uniqueIds.size);
   });
+
+  // Root-cause regression for the AC-009/AC-010 near-miss (claim-tier.ts
+  // module doc): a fixed ±2-line window used to bleed a neighboring
+  // claim's text into the current claim's evidence when adjacent AC
+  // bullets are separated by a single blank line. `snippet()` must now
+  // bound the window at the next/previous claim's own start line.
+  it("does not leak an adjacent AC bullet's text into this claim's evidence", () => {
+    const content = `
+AC-008 : Étant donné une jauge dont le remplissage traverse plusieurs paliers, alors chaque cellule pleine est colorée individuellement selon son palier propre.
+
+AC-009 : Étant donné une jauge partiellement remplie, alors elle conserve le caractère OVERLAY existant.
+
+AC-010 : Étant donné le code source, quand on l'inspecte, alors aucune fonction lerp n'est présente.
+`.trim();
+    const claims = extractClaims("acceptance_criteria", content);
+    const ac009 = claims.find((c) => c.claim_id === "AC-009")!;
+    expect(ac009).toBeDefined();
+
+    // Neither neighbor's own claim-ID marker nor its distinguishing wording
+    // may appear in AC-009's evidence.
+    expect(ac009.evidence).not.toContain("AC-008");
+    expect(ac009.evidence).not.toContain("AC-010");
+    expect(ac009.evidence).not.toContain("colorée individuellement");
+    expect(ac009.evidence).not.toContain("aucune fonction lerp");
+    expect(ac009.evidence).toContain("AC-009");
+    expect(ac009.evidence).toContain("OVERLAY");
+  });
+
+  it("bounds requirement evidence at the neighboring FR row (dense table)", () => {
+    const content = `
+| ID | Requirement |
+|----|-------------|
+| FR-001 | First requirement, distinct wording alpha. |
+| FR-002 | Second requirement, distinct wording beta. |
+| FR-003 | Third requirement, distinct wording gamma. |
+`.trim();
+    const claims = extractClaims("requirements", content);
+    const fr002 = claims.find((c) => c.claim_id === "FR-002")!;
+    expect(fr002).toBeDefined();
+    expect(fr002.evidence).not.toContain("wording alpha");
+    expect(fr002.evidence).not.toContain("wording gamma");
+    expect(fr002.evidence).toContain("wording beta");
+  });
 });

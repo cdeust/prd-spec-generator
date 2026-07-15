@@ -34055,13 +34055,34 @@ function selectJudges(claim) {
 }
 
 // packages/verification/dist/claim-extractor.js
-function snippet2(content, line, before = 2, after = 2) {
+var HEADING_RE = /^\s{0,3}#{1,6}\s/;
+function snippet2(content, line, before = 2, after = 2, boundaryRe) {
   const lines = content.split(/\r?\n/);
   const idx = lines.findIndex((l) => l.trim() === line.trim());
   if (idx === -1)
     return line;
-  const start = Math.max(0, idx - before);
-  const end = Math.min(lines.length, idx + after + 1);
+  const isBoundary = (l) => {
+    if (HEADING_RE.test(l))
+      return true;
+    if (boundaryRe === void 0)
+      return false;
+    boundaryRe.lastIndex = 0;
+    return boundaryRe.test(l);
+  };
+  let start = Math.max(0, idx - before);
+  for (let i2 = idx - 1; i2 >= start; i2--) {
+    if (isBoundary(lines[i2])) {
+      start = i2 + 1;
+      break;
+    }
+  }
+  let end = Math.min(lines.length, idx + after + 1);
+  for (let i2 = idx + 1; i2 < end; i2++) {
+    if (isBoundary(lines[i2])) {
+      end = i2;
+      break;
+    }
+  }
   return lines.slice(start, end).join("\n");
 }
 function* matchAllLines(re2, content) {
@@ -34083,7 +34104,7 @@ var extractRequirements = ({ content, section_type }) => {
       claim_id: id,
       claim_type: "fr_traceability",
       text: `Functional requirement: ${text}`,
-      evidence: snippet2(content, m[0]),
+      evidence: snippet2(content, m[0], 2, 2, FR_LINE_RE),
       source_section: section_type
     });
   }
@@ -34101,7 +34122,7 @@ var extractAcceptanceCriteria = ({ content, section_type }) => {
       claim_id: id,
       claim_type: "acceptance_criteria_completeness",
       text: `Acceptance criterion: ${text}`,
-      evidence: snippet2(content, m[0]),
+      evidence: snippet2(content, m[0], 2, 2, AC_LINE_RE),
       source_section: section_type
     });
   }
@@ -34246,7 +34267,7 @@ var extractRisks = ({ content, section_type }) => {
       claim_id: `RISK-${counter.toString().padStart(2, "0")}`,
       claim_type: "risk",
       text: m[1].trim(),
-      evidence: snippet2(content, m[0]),
+      evidence: snippet2(content, m[0], 2, 2, RISK_LINE_RE),
       source_section: section_type
     });
   }
@@ -34262,7 +34283,7 @@ var extractStoryPoints = ({ content, section_type }) => {
       claim_id: `SP-TOTAL-${counter.toString().padStart(2, "0")}`,
       claim_type: "story_point_arithmetic",
       text: `Story-point total claim: ${m[0]}`,
-      evidence: snippet2(content, m[0]),
+      evidence: snippet2(content, m[0], 2, 2, SP_TOTAL_RE),
       source_section: section_type
     });
   }
@@ -34315,10 +34336,6 @@ var MECHANICAL_ELIGIBLE_CLAIM_TYPES = /* @__PURE__ */ new Set([
   "story_point_arithmetic",
   "performance"
 ]);
-var EVIDENCE_INCLUDED_CLAIM_TYPES = /* @__PURE__ */ new Set([
-  "test_coverage",
-  "data_model"
-]);
 var MECHANICAL_METHOD_MARKERS = [
   /\bgrep\b/i,
   /\bdiff\w*\b/i,
@@ -34342,7 +34359,7 @@ function classifyClaimTier(claim) {
   if (!MECHANICAL_ELIGIBLE_CLAIM_TYPES.has(claim.claim_type)) {
     return "subjective";
   }
-  const haystack = EVIDENCE_INCLUDED_CLAIM_TYPES.has(claim.claim_type) ? `${claim.text} ${claim.evidence}` : claim.text;
+  const haystack = `${claim.text} ${claim.evidence}`;
   return MECHANICAL_METHOD_MARKERS.some((re2) => re2.test(haystack)) ? "mechanical" : "subjective";
 }
 
