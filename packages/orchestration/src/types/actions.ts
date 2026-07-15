@@ -201,6 +201,25 @@ export const VerificationSummarySchema = z.object({
    * array itself is never exported to a file or surfaced to the user.
    */
   judge_verdicts: z.array(JudgeVerdictSchema).optional(),
+  /**
+   * Total number of SUBJECTIVE-tier claims (claim-tier.ts) extracted for
+   * this run, BEFORE any budget-driven reduction/sampling
+   * (self-check-verify-budget.ts `reduceJudgeRequests`/`sampleWithinCap`).
+   * Distinct from `claims_evaluated` (which counts only claims that
+   * actually RECEIVED a verdict): `sampleWithinCap` can drop a subjective
+   * claim entirely when the judge-panel budget is exceeded, leaving it with
+   * NO verdict at all — that claim is still counted here, but absent from
+   * `judge_verdicts`. `handlers/verification-policy.ts`'s
+   * `min_subjective_sampled_ratio` gate needs both numbers to distinguish
+   * "sampled and judged" from "never dispatched at all" for a subjective
+   * claim. Mechanical-tier claims (claim-tier.ts) are excluded — they are
+   * rule-verdicted deterministically and never subject to sampling, so they
+   * can never be "unsampled". Defaults to 0 (mechanical-only or zero-claim
+   * documents, and any `done` predating this field).
+   *
+   * source: e2e run run_mrlqa0aj_u2rh15 (2026-07-15); design-phases-3-5.md §7.
+   */
+  total_subjective_claims: z.number().int().nonnegative().default(0),
 });
 export type VerificationSummary = z.infer<typeof VerificationSummarySchema>;
 

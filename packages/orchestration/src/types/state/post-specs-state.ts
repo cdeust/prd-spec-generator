@@ -162,6 +162,22 @@ export const PrStateSchema = z.object({
 });
 export type PrState = z.infer<typeof PrStateSchema>;
 
+/**
+ * Recorded human derogation/override when `implementation_gate`'s
+ * verification-policy evaluation (handlers/verification-policy.ts
+ * `evaluatePolicy`) was NOT "pass" and the human chose to implement anyway.
+ * `null` when no derogation was needed (policy status was "pass") or no
+ * decision has been made yet. `10-verification-report.md`'s "Verification
+ * Policy" section renders this verbatim.
+ */
+export const PolicyDerogationSchema = z.object({
+  /** `evaluatePolicy`'s status at the moment the derogation was granted. */
+  policy_status: z.enum(["needs_attention", "blocked"]),
+  /** `evaluatePolicy`'s human-readable reasons at that moment, verbatim. */
+  reasons: z.array(z.string()),
+});
+export type PolicyDerogation = z.infer<typeof PolicyDerogationSchema>;
+
 export const PostSpecsStateSchema = z.object({
   /**
    * Set by `implementation_gate`'s ask_user answer. `"pending"` is the
@@ -169,6 +185,12 @@ export const PostSpecsStateSchema = z.object({
    * leaves decision at its schema default until the gate answers).
    */
   decision: z.enum(["pending", "implement", "prd_only"]).default("pending"),
+  /**
+   * Set by `implementation_gate` when `decision === "implement"` AND the
+   * verification-policy status was not "pass" — see `PolicyDerogationSchema`
+   * doc. `null` otherwise (policy passed cleanly, or no decision yet).
+   */
+  policy_derogation: PolicyDerogationSchema.nullable().default(null),
   /** PR 3b — wired by pre_impl_grounding.ts. */
   impact_queries: ImpactQueriesStateSchema.default({
     done: false,

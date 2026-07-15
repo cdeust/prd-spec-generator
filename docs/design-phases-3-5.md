@@ -267,3 +267,33 @@ source: arXiv:2602.11865 (DeepMind, "virtual agent economies," Cognitive Monocul
 class); e2e run run_mrlqa0aj_u2rh15 (2026-07-15, liskov/architect duplicate-confidence
 observation); commit 60cb9a4 (budget-gated haiku panel, the baseline this section reduces
 further).
+
+### 7.1 Host-side external judge executor (closes the cross-vendor gap noted above)
+
+The "non-Claude model reachable through its own `subagent_type`" gap named in §7's honest-limit
+paragraph is now closed on the host side: `scripts/external-judge/` (judge.mjs + calibrate.mjs)
+is a zero-dependency Node executor the host runs when a `spawn_subagents` invocation's `model`
+field names a non-Anthropic model. It POSTs the judge prompt to an OpenAI-compatible
+chat.completions endpoint (Gemini via AI Studio, Mistral via La Plateforme — both free-tier
+targets) and returns a `JudgeVerdict`-shaped JSON object, or an explicit
+`{status:"skipped", reason:"no credentials"}` when no API key is configured — it never
+fabricates a verdict. This repo (`packages/`) is unchanged by this addition: the executor is
+purely a host-invoked subprocess, not a new pipeline action kind or a `packages/verification`
+dependency.
+
+**Admission gate**: a judge model earns a `diversity_models` slot only after
+`scripts/external-judge/calibrate.mjs` (a) reaches ≥0.7 agreement against 10 claims with
+recorded ground-truth verdicts from run_mrlqa0aj_u2rh15's real jury, AND (b) actually returns
+`FAIL` on claim AC-008 — the run's one deliberate contradiction discriminator (§7's
+liskov/architect duplicate-confidence observation and the AC-008 FAIL are the same fixture run).
+Condition (b) exists because condition (a) alone is gameable: 7 of the 10 ground-truth claims
+are `PASS`, so an always-PASS judge clears the 0.7 bar while adding zero verification value.
+
+Full usage, provider setup (Gemini/Mistral free-tier key acquisition), the Mistral ~2 req/min
+client-side throttle, and the free-tier data-privacy caveat are in
+`scripts/external-judge/README.md`. Honest limit carried over from §7: cross-vendor ≠ perfect
+statistical independence (shared training-data provenance, correlated RLHF-era blind spots are
+still possible) — it breaks the single-family ceiling, it does not certify true independence.
+
+source: scripts/external-judge/ (this commit); fixtures/ground-truth.json provenance field
+(verbatim transcription of run_mrlqa0aj_u2rh15's 10-verification-report.md jury table).

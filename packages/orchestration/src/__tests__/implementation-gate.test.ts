@@ -217,25 +217,61 @@ function stateAtGateWithJudgeVerdicts(): PipelineState {
 }
 
 describe("implementation_gate — verification-report per-claim judge verdicts (follow-up, e2e run_mrlqa0aj_u2rh15)", () => {
-  it("renders real per-claim verdict rows when judge_verdicts is populated", () => {
-    const out = step({ state: stateAtGateWithJudgeVerdicts() });
-    expect(out.action.kind).toBe("write_file");
-    if (out.action.kind !== "write_file") return;
+  it("blocks on entry (a FAIL verdict is present — default policy block_on), then renders real per-claim verdict rows after the override", () => {
+    const seed = stateAtGateWithJudgeVerdicts();
+
+    // Entry: a FAIL verdict is present -> default policy (block_on:["FAIL"])
+    // blocks. The report is NOT written yet (see implementation-gate.ts
+    // module doc "WRITE TIMING") — the question itself already names the
+    // blocking claim.
+    const asked = step({ state: seed });
+    expect(asked.action.kind).toBe("ask_user");
+    if (asked.action.kind !== "ask_user") return;
+    expect(asked.action.description).toContain("FR-002");
+    const labels = asked.action.options?.map((o) => o.label) ?? [];
+    expect(labels).toEqual(["PRD only", "Override policy (explicit)"]);
+
+    const answered = step({
+      state: asked.state,
+      result: {
+        kind: "user_answer",
+        question_id: IMPLEMENTATION_GATE_QUESTION_ID,
+        selected: ["Override policy (explicit)"],
+      },
+    });
+    expect(answered.action.kind).toBe("write_file");
+    if (answered.action.kind !== "write_file") return;
 
     // Real verdict rows replace the honest gap notice.
-    expect(out.action.content).not.toContain(
+    expect(answered.action.content).not.toContain(
       "Per-claim judge verdicts are not present",
     );
-    expect(out.action.content).toContain("| Claim ID | Judge | Model | Verdict |");
-    expect(out.action.content).toContain("FR-001");
-    expect(out.action.content).toContain("PASS");
-    expect(out.action.content).toContain("dijkstra");
-    expect(out.action.content).toContain("FR-002");
-    expect(out.action.content).toContain("FAIL");
-    expect(out.action.content).toContain("popper");
-    expect(out.action.content).toContain(
+    expect(answered.action.content).toContain("| Claim ID | Judge | Model | Verdict |");
+    expect(answered.action.content).toContain("FR-001");
+    expect(answered.action.content).toContain("PASS");
+    expect(answered.action.content).toContain("dijkstra");
+    expect(answered.action.content).toContain("FR-002");
+    expect(answered.action.content).toContain("FAIL");
+    expect(answered.action.content).toContain("popper");
+    expect(answered.action.content).toContain(
       "No falsifiable acceptance criterion given.",
     );
+    // The recorded derogation is rendered in the same report.
+    expect(answered.action.content).toContain("derogation granted by user at gate");
+    expect(answered.state.post_specs?.policy_derogation?.policy_status).toBe("blocked");
+
+    const advanced = step({
+      state: answered.state,
+      result: {
+        kind: "file_written",
+        path: answered.action.path,
+        bytes: answered.action.content.length,
+      },
+    });
+    expect(advanced.state.post_specs?.decision).toBe("implement");
+    // Coalesces through pre_impl_grounding (no graph/sidecar in this
+    // fixture) into implementation — mirrors the "Implement branch" test.
+    expect(advanced.state.current_step).toBe("implementation");
   });
 });
 
@@ -273,5 +309,86 @@ describe("implementation_gate — verification-report write protocol", () => {
     };
     const out = step({ state: seed });
     expect(out.action.kind).toBe("ask_user");
+  });
+});
+
+/**
+ * stateAtGateWithExportedPrd() with an unsampled subjective claim (0 of 4
+ * subjective claims received a verdict) — triggers `needs_attention` under
+ * `DEFAULT_VERIFICATION_POLICY.on_unsampled_below_ratio === "ask"`, distinct
+ * from the `blocked` (FAIL) case exercised above.
+ */
+function stateAtGateWithUnsampledRatio(): PipelineState {
+  return {
+    ...stateAtGateWithExportedPrd(),
+    pending_completion: {
+      summary: "Self-check complete.",
+      artifacts: ["overview: passed"],
+      verification: {
+        claims_evaluated: 0,
+        distribution: {},
+        distribution_suspicious: false,
+        total_subjective_claims: 4,
+      },
+    },
+  };
+}
+
+describe("implementation_gate — policy-shaped gate (needs_attention)", () => {
+  it("offers the derogation-framed options and records the derogation on 'Implement anyway'", () => {
+    const asked = step({ state: stateAtGateWithUnsampledRatio() });
+    expect(asked.action.kind).toBe("ask_user");
+    if (asked.action.kind !== "ask_user") return;
+    const labels = asked.action.options?.map((o) => o.label) ?? [];
+    expect(labels).toEqual(["Implement anyway (dérogation explicite)", "PRD only"]);
+    expect(asked.action.description).toContain("0%");
+
+    const answered = step({
+      state: asked.state,
+      result: {
+        kind: "user_answer",
+        question_id: IMPLEMENTATION_GATE_QUESTION_ID,
+        selected: ["Implement anyway (dérogation explicite)"],
+      },
+    });
+    expect(answered.action.kind).toBe("write_file");
+    if (answered.action.kind !== "write_file") return;
+    expect(answered.action.content).toContain("derogation granted by user at gate");
+    expect(answered.state.post_specs?.policy_derogation?.policy_status).toBe(
+      "needs_attention",
+    );
+    expect(answered.state.post_specs?.decision).toBe("implement");
+  });
+
+  it("choosing 'PRD only' under needs_attention records NO derogation, but the (still non-'pass') decision is written to the report before advancing", () => {
+    const asked = step({ state: stateAtGateWithUnsampledRatio() });
+    const answered = step({
+      state: asked.state,
+      result: {
+        kind: "user_answer",
+        question_id: IMPLEMENTATION_GATE_QUESTION_ID,
+        selected: ["PRD only"],
+      },
+    });
+    // The report was never written pre-decision (status was not "pass") —
+    // it is written now, once, carrying the recorded "prd_only" decision.
+    expect(answered.action.kind).toBe("write_file");
+    if (answered.action.kind !== "write_file") return;
+    expect(answered.action.content).toContain(
+      'Human decision: prd_only (no derogation — implementation not selected).',
+    );
+    expect(answered.state.post_specs?.decision).toBe("prd_only");
+    expect(answered.state.post_specs?.policy_derogation).toBeNull();
+    expect(answered.state.current_step).toBe("implementation_gate");
+
+    const advanced = step({
+      state: answered.state,
+      result: {
+        kind: "file_written",
+        path: answered.action.path,
+        bytes: answered.action.content.length,
+      },
+    });
+    expect(advanced.state.current_step).toBe("finalize");
   });
 });

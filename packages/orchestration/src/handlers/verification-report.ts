@@ -11,6 +11,7 @@ import type { PipelineState } from "../types/state.js";
 import type { AgentIdentity } from "@prd-gen/core";
 import { SECTION_DISPLAY_NAMES } from "@prd-gen/core";
 import type { PrdFile } from "./file-export.js";
+import { evaluatePolicy, resolveVerificationPolicy } from "./verification-policy.js";
 
 const VERIFICATION_REPORT_FILENAME = "10-verification-report.md";
 
@@ -158,6 +159,60 @@ function renderGraphValidation(
 }
 
 /**
+ * The gap this section closes (2026-07-15, e2e run run_mrlqa0aj_u2rh15): a
+ * FAIL verdict and a reduced-jury sampling gap were both present in the
+ * distribution above, yet nothing in the pipeline stated whether that was
+ * acceptable — the human had to notice it themselves. This section always
+ * names the policy IN FORCE, the COMPUTED verdict, and the recorded human
+ * decision (or "awaiting gate answer" pre-decision), so the gap and its
+ * closure are both artifacts of record, not something a reader has to infer
+ * from the distribution counts above.
+ *
+ * precondition:  none — `state.pending_completion` may be absent (handled
+ *                by the caller's null-return before this is reached in
+ *                practice, but this function itself is total).
+ * postcondition: pure function of `state.verification_policy`,
+ *                `state.pending_completion?.verification`, and
+ *                `state.post_specs?.decision`/`policy_derogation`.
+ */
+function renderPolicySection(state: PipelineState): string {
+  const policy = resolveVerificationPolicy(state.verification_policy);
+  const verdict = evaluatePolicy(state.pending_completion?.verification, policy);
+
+  const policyLine =
+    `Policy in force: block_on=[${policy.block_on.join(", ")}], ` +
+    `min_subjective_sampled_ratio=${(policy.min_subjective_sampled_ratio * 100).toFixed(0)}%, ` +
+    `on_unsampled_below_ratio=${policy.on_unsampled_below_ratio}, ` +
+    `on_cross_model_disagreement=${policy.on_cross_model_disagreement}`;
+
+  const findingsLine =
+    verdict.reasons.length > 0
+      ? `Findings: ${verdict.reasons.join(" ")}`
+      : "Findings: none — no claim triggered block_on, ratio, or disagreement gates.";
+
+  const decision = state.post_specs?.decision ?? "pending";
+  const derogation = state.post_specs?.policy_derogation;
+  let decisionLine: string;
+  if (decision === "pending") {
+    decisionLine = "Human decision: pending (gate not yet answered).";
+  } else if (derogation) {
+    decisionLine = `Human decision: ${decision} — derogation granted by user at gate (policy status was "${derogation.policy_status}").`;
+  } else if (decision === "implement") {
+    decisionLine = "Human decision: implement (policy status was \"pass\" — no derogation required).";
+  } else {
+    decisionLine = "Human decision: prd_only (no derogation — implementation not selected).";
+  }
+
+  return [
+    `**Computed status: ${verdict.status}**`,
+    "",
+    policyLine,
+    findingsLine,
+    decisionLine,
+  ].join("\n");
+}
+
+/**
  * precondition:  `state.pending_completion !== null` (self-check's
  *                finalize() has run).
  * postcondition: returns the 10-verification-report.md PrdFile with section
@@ -183,6 +238,10 @@ export function buildVerificationReportFile(state: PipelineState): PrdFile | nul
         `# Verification Report: ${state.feature_description}`,
         "",
         `Run ID: ${state.run_id}`,
+        "",
+        "## Verification Policy",
+        "",
+        renderPolicySection(state),
         "",
         "## Section Statuses & Violations",
         "",

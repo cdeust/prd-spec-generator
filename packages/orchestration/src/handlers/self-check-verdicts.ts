@@ -186,3 +186,22 @@ export function computeMechanicalVerdicts(
   const plan = planDocumentVerification(sections);
   return buildMechanicalVerdicts(plan.mechanical_claims);
 }
+
+/**
+ * Distinct SUBJECTIVE-tier claim count (claim-tier.ts) — the denominator
+ * `handlers/verification-policy.ts`'s `min_subjective_sampled_ratio` gate
+ * needs. `judge_requests` carries one entry per (claim, judge) pair BEFORE
+ * budget reduction/sampling (orchestrator.ts `buildRequests`) — a claim with
+ * a 5-judge architecture panel appears 5 times — so the distinct claim_id
+ * count, not `requests.length`, is the claim count.
+ *
+ * precondition:  `requests` is `planDocumentVerification(sections)
+ *                .judge_requests` — the FULL, pre-reduction plan (NOT the
+ *                reduced/sampled dispatch set) — see
+ *                `VerificationSummarySchema.total_subjective_claims` doc for
+ *                why the denominator must be the pre-sampling total.
+ * postcondition: pure function; returns 0 for an empty plan.
+ */
+export function countSubjectiveClaims(requests: readonly JudgeRequest[]): number {
+  return new Set(requests.map((r) => r.claim.claim_id)).size;
+}

@@ -49,6 +49,7 @@ import {
   buildJudgeIndex,
   parseVerdicts,
   computeMechanicalVerdicts,
+  countSubjectiveClaims,
   truncateJudgeVerdictRationale,
 } from "./self-check-verdicts.js";
 
@@ -103,6 +104,7 @@ function buildVerifyAction(
 function finalize(
   state: PipelineState,
   verdicts: readonly JudgeVerdict[] = [],
+  totalSubjectiveClaims = 0,
 ) {
   const sections = gatherSections(state);
   const docReport = validateDocument(sections);
@@ -173,6 +175,10 @@ function finalize(
           ...(verdicts.length > 0
             ? { judge_verdicts: verdicts.map(truncateJudgeVerdictRationale) }
             : {}),
+          // Pre-sampling subjective-claim denominator for
+          // handlers/verification-policy.ts's unsampled-ratio gate — see
+          // VerificationSummarySchema.total_subjective_claims doc.
+          total_subjective_claims: totalSubjectiveClaims,
         },
       },
       current_step: "implementation_gate" as const,
@@ -251,20 +257,26 @@ function handleSelfCheckPhaseA(
   // get a rule-tier verdict directly, regardless of which fast-path/dispatch
   // branch the subjective-tier claims below take.
   const mechanicalVerdicts = buildMechanicalVerdicts(plan.mechanical_claims);
+  // Pre-reduction/pre-sampling subjective-claim count — the denominator
+  // handlers/verification-policy.ts's unsampled-ratio gate needs (see
+  // VerificationSummarySchema.total_subjective_claims doc). Computed once,
+  // from the FULL plan, so every finalize() call below (regardless of which
+  // reduction/sampling/skip branch is taken) reports the SAME denominator.
+  const totalSubjectiveClaims = countSubjectiveClaims(plan.judge_requests);
   if (plan.judge_requests.length === 0) {
-    return finalize(state, mechanicalVerdicts);
+    return finalize(state, mechanicalVerdicts, totalSubjectiveClaims);
   }
 
   const config = resolveVerifyBudget(state.verify_budget);
   const reduced = reduceJudgeRequests(plan.judge_requests, config);
   if (reduced.length === 0) {
-    return finalize(state, mechanicalVerdicts);
+    return finalize(state, mechanicalVerdicts, totalSubjectiveClaims);
   }
 
   if (result?.kind === "user_answer" && result.question_id === VERIFY_BUDGET_QUESTION_ID) {
     const decision = verifyBudgetDecisionFromAnswer(result);
     if (decision === "skip") {
-      return finalize(state, mechanicalVerdicts);
+      return finalize(state, mechanicalVerdicts, totalSubjectiveClaims);
     }
     const finalRequests =
       decision === "sample" ? sampleWithinCap(reduced, config.invocation_cap) : reduced;
@@ -292,9 +304,16 @@ function handleSelfCheckPhaseB(
   state: PipelineState,
   result: Extract<ActionResult, { kind: "subagent_batch_result" }>,
 ) {
+  const sections = gatherSections(state);
+  // Recomputed (not persisted in the snapshot) — pure function of
+  // `state.sections`, unchanged since Phase A, same rederivation strategy
+  // `parseVerdictsFromSnapshot` already relies on below.
+  const totalSubjectiveClaims = countSubjectiveClaims(
+    planDocumentVerification(sections).judge_requests,
+  );
   const snapshot = state.verification_plan;
   if (!snapshot || snapshot.batch_id !== VERIFY_BATCH_ID) {
-    return finalize(state, computeMechanicalVerdicts(gatherSections(state)));
+    return finalize(state, computeMechanicalVerdicts(sections), totalSubjectiveClaims);
   }
   const verdicts = parseVerdictsFromSnapshot(snapshot, state, result);
   // Mechanical-tier claims (claim-tier.ts) were excluded from the dispatched
@@ -324,7 +343,7 @@ function handleSelfCheckPhaseB(
     }
   }
 
-  return finalize(stateAfter, [...mechanicalVerdicts, ...verdicts]);
+  return finalize(stateAfter, [...mechanicalVerdicts, ...verdicts], totalSubjectiveClaims);
 }
 
 export const handleSelfCheck: StepHandler = ({ state, result }) => {

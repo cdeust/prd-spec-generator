@@ -89,6 +89,10 @@ describe("self-check mechanical-tier claims", () => {
     expect(verification).toBeDefined();
     expect(verification!.claims_evaluated).toBe(4);
     expect(verification!.distribution["SPEC-COMPLETE"]).toBe(4);
+    // All-mechanical document -> zero SUBJECTIVE claims. total_subjective_claims
+    // (handlers/verification-policy.ts's unsampled-ratio denominator) must be
+    // 0, not 4 — mechanical claims never count toward the subjective tier.
+    expect(verification!.total_subjective_claims).toBe(0);
 
     const verdicts = verification!.judge_verdicts;
     expect(verdicts).toBeDefined();
@@ -143,6 +147,9 @@ describe("self-check mechanical-tier claims", () => {
     expect(verification!.claims_evaluated).toBe(6);
     expect(verification!.distribution["SPEC-COMPLETE"]).toBe(4);
     expect(verification!.distribution.PASS).toBe(2);
+    // Denominator excludes the 4 mechanical claims — only the 2 subjective
+    // ACs (AC-001, AC-002) count.
+    expect(verification!.total_subjective_claims).toBe(2);
     const ruleVerdicts = verification!.judge_verdicts!.filter(
       (v) => v.judge.kind === "rule",
     );
@@ -188,5 +195,10 @@ describe("self-check mechanical-tier claims", () => {
     expect(verification!.judge_verdicts!.every((v) => v.judge.kind === "rule")).toBe(
       true,
     );
+    // The 2 subjective claims still count in the denominator — they were
+    // extracted, just never dispatched (user chose "Skip verification").
+    // handlers/verification-policy.ts's evaluatePolicy would report these as
+    // 100% unsampled, not "0 subjective claims existed".
+    expect(verification!.total_subjective_claims).toBe(2);
   });
 });
