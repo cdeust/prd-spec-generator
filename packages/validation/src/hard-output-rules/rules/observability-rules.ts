@@ -64,6 +64,11 @@ export function checkDistributedTracing(
       "single process",
       "cross-service",
       "second hop",
+      "traçage distribué",
+      "traçage",
+      "identifiant de corrélation",
+      "processus unique",
+      "monoprocessus",
     ])
   ) {
     return [];
@@ -85,6 +90,9 @@ export function checkDistributedTracing(
       "x-correlation-id",
       "end-to-end trac",
       "cross-service trac",
+      "identifiant de corrélation",
+      "traçage distribué",
+      "propagation de trace",
     ],
     1,
     "distributed_tracing",

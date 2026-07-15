@@ -203,6 +203,11 @@ export function checkAuthOnEveryEndpoint(
       "endpoint",
       "auth strategy",
       "caller identity",
+      "authentification",
+      "autorisation",
+      "point de terminaison",
+      "stratégie d'authentification",
+      "identité de l'appelant",
     ])
   ) {
     return [];
@@ -311,6 +316,25 @@ export function checkCryptographicStandards(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  // source: bug found 2026-07-15, e2e run run_mrlqa0aj_u2rh15 — this rule
+  // was the only security rule in this file with NO opt-out escape, so a
+  // local bash script with no encryption surface could never satisfy it
+  // regardless of how it justified the non-applicability.
+  if (
+    hasExplicitOptOut(content, [
+      "encrypt",
+      "encryption",
+      "cryptograph",
+      "hash",
+      "key management",
+      "chiffrement",
+      "cryptographie",
+      "hachage",
+      "gestion des clés",
+    ])
+  ) {
+    return [];
+  }
   const lowered = content.toLowerCase();
   const violations: HardOutputRuleViolation[] = [];
 
@@ -332,6 +356,12 @@ export function checkCryptographicStandards(
     "key management",
     "key rotation",
     "certificate",
+    "chiffrement",
+    "chiffré",
+    "hachage",
+    "gestion des clés",
+    "rotation des clés",
+    "certificat",
   ];
 
   const signalCount = cryptoSignals.filter((s) => lowered.includes(s)).length;
@@ -384,6 +414,10 @@ export function checkRateLimitingRequired(
       "throttl",
       "endpoint",
       "abuse prevention",
+      "limitation de débit",
+      "limitation de taux",
+      "point de terminaison",
+      "prévention des abus",
     ])
   ) {
     return [];
@@ -404,6 +438,9 @@ export function checkRateLimitingRequired(
       "abuse prevention",
       "requests per",
       "calls per",
+      "limitation de débit",
+      "limitation de taux",
+      "limite de requêtes",
     ],
     1,
     "rate_limiting_required",
@@ -426,6 +463,10 @@ export function checkSecureCommunication(
       "secure communication",
       "transport",
       "encrypted channel",
+      "réseau",
+      "communication sécurisée",
+      "canal chiffré",
+      "trafic réseau",
     ])
   ) {
     return [];
@@ -446,6 +487,10 @@ export function checkSecureCommunication(
       "mtls",
       "secure channel",
       "encrypted connection",
+      "chiffrement en transit",
+      "canal sécurisé",
+      "connexion chiffrée",
+      "certificat",
     ],
     1,
     "secure_communication",

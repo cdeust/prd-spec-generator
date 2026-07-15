@@ -30,6 +30,10 @@ export function checkNoMagicNumbers(
     }
   }
 
+  // source: bug found 2026-07-15, e2e run run_mrlqa0aj_u2rh15 — a French
+  // technical_specification section wrote "constantes nommées" verbatim
+  // (the literal French translation of "named constant") and was still
+  // flagged, because these signals were English-only.
   const lowered = content.toLowerCase();
   const constantSignals = [
     "named constant",
@@ -41,6 +45,12 @@ export function checkNoMagicNumbers(
     "no magic number",
     "extract constant",
     "configuration value",
+    "constante nommée",
+    "constantes nommées",
+    "variable nommée",
+    "aucun nombre magique",
+    "extraire en constante",
+    "valeur de configuration",
   ];
 
   const hasConstantGuidance = constantSignals.some((s) =>
@@ -157,6 +167,10 @@ export function checkConsistentNaming(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  // source: bug found 2026-07-15, e2e run run_mrlqa0aj_u2rh15 — a French
+  // technical_specification section wrote "conventions de nommage"
+  // verbatim (the literal French translation of "naming convention") and
+  // was still flagged, because these signals were English-only.
   return findAbsenceViolation(
     content,
     [
@@ -176,6 +190,13 @@ export function checkConsistentNaming(
       "no abbreviation",
       "full word",
       "consistent naming",
+      "convention de nommage",
+      "conventions de nommage",
+      "règle de nommage",
+      "nom descriptif",
+      "nom explicite",
+      "nommage cohérent",
+      "pas d'abréviation",
     ],
     1,
     "consistent_naming",

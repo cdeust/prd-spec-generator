@@ -268,6 +268,12 @@ export function checkConsentAndErasureSupport(
       "gdpr",
       "privacy compliance",
       "user data",
+      "consentement",
+      "effacement",
+      "données personnelles",
+      "rgpd",
+      "conformité vie privée",
+      "données utilisateur",
     ])
   ) {
     return [];
@@ -282,6 +288,9 @@ export function checkConsentAndErasureSupport(
     "privacy preference",
     "data subject",
     "lawful basis",
+    "consentement",
+    "base légale",
+    "personne concernée",
   ];
 
   const erasureSignals = [
@@ -297,6 +306,10 @@ export function checkConsentAndErasureSupport(
     "anonymize on delete",
     "account deletion",
     "data removal",
+    "droit à l'effacement",
+    "droit à l'oubli",
+    "suppression des données",
+    "suppression du compte",
   ];
 
   const hasConsent = consentSignals.some((s) => lowered.includes(s));

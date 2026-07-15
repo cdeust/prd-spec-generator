@@ -354,3 +354,223 @@ exposes a per-rule extension point for future kinds.
     ).toBe(true);
   });
 });
+
+describe("validateSection — French (FR) technical_specification, bilingual detection", () => {
+  // source: bug found 2026-07-15 during e2e run run_mrlqa0aj_u2rh15 — a
+  // technical_specification section written in FRENCH for a local bash
+  // script (no network, no storage, no PII) failed cryptographic_standards,
+  // rate_limiting_required, secure_communication, consent_and_erasure_
+  // support, and distributed_tracing across 3 attempts because both the
+  // opt-out markers and the topic signals fed to hasExplicitOptOut were
+  // English-only. Separately, no_magic_numbers and consistent_naming were
+  // flagged even though the spec covered them VERBATIM in French
+  // ("constantes nommées", "conventions de nommage") — the keyword signal
+  // lists were English-only too.
+
+  function frenchTechSpecWithOptOuts(): string {
+    return `## Spécification Technique
+
+### Préoccupations transversales
+
+#### Chiffrement
+Chiffrement : non applicable — aucun appel réseau, aucune donnée à chiffrer,
+le script ne manipule que des fichiers locaux.
+
+#### Limitation de débit
+Limitation de débit : non applicable — aucun point de terminaison exposé,
+le script s'exécute en local sans surface d'attaque réseau.
+
+#### Communication sécurisée
+Communication sécurisée : sans objet — aucun trafic réseau, le script ne
+réalise aucun appel réseau vers l'extérieur.
+
+#### Traçage distribué
+Traçage distribué : non applicable — processus unique, exécution locale
+sans second saut, monoprocessus par construction.
+
+#### Consentement et effacement
+Consentement et effacement des données (RGPD) : non applicable — aucune
+donnée personnelle n'est traitée par ce script.
+
+### Constantes et nommage
+
+Toutes les valeurs de configuration sont extraites en constantes nommées
+(exemple : \`readonly MAX_RETRY_COUNT=5\`) plutôt que codées en dur. Les
+conventions de nommage imposent des noms descriptifs en snake_case pour
+les fonctions bash et les variables.
+
+\`\`\`bash
+readonly MAX_RETRY_COUNT=5
+readonly DEFAULT_TIMEOUT=9
+\`\`\`
+`;
+  }
+
+  it("does NOT flag the five service-shaped rules when opted out in French", () => {
+    const report = validateSection(
+      frenchTechSpecWithOptOuts(),
+      "technical_specification",
+    );
+    const ruleNames = new Set(report.violations.map((v) => v.rule));
+    for (const name of [
+      "cryptographic_standards",
+      "rate_limiting_required",
+      "secure_communication",
+      "distributed_tracing",
+      "consent_and_erasure_support",
+    ] as const) {
+      expect(ruleNames.has(name)).toBe(false);
+    }
+  });
+
+  it("does NOT flag no_magic_numbers or consistent_naming when covered verbatim in French", () => {
+    const report = validateSection(
+      frenchTechSpecWithOptOuts(),
+      "technical_specification",
+    );
+    const ruleNames = new Set(report.violations.map((v) => v.rule));
+    expect(ruleNames.has("no_magic_numbers")).toBe(false);
+    expect(ruleNames.has("consistent_naming")).toBe(false);
+  });
+
+  it("STILL flags cryptographic_standards in French when no opt-out marker is present", () => {
+    // Pins the fix's scope: mentioning the topic is not enough, and the
+    // newly-added opt-out escape must not become an unconditional pass.
+    const noOptOut = `## Spécification Technique
+
+Le script échange des données avec un serveur distant via une connexion
+réseau standard, sans détail de chiffrement.
+`;
+    const report = validateSection(noOptOut, "technical_specification");
+    const ruleNames = new Set(report.violations.map((v) => v.rule));
+    expect(ruleNames.has("cryptographic_standards")).toBe(true);
+  });
+});
+
+describe("validateSection — regression: English opt-out and keyword detection unchanged", () => {
+  // A3 (regression leg): the bilingual fix must not weaken or remove any
+  // English-language detection path that existed before it.
+
+  it("cryptographic_standards is still satisfied by English crypto signals (no opt-out needed)", () => {
+    const content = `## Technical Specification
+
+Encryption strategy: AES-256 for data at rest, bcrypt for password hashing,
+TLS 1.3 for transport, with a documented key rotation policy.
+`;
+    const report = validateSection(content, "technical_specification");
+    const ruleNames = new Set(report.violations.map((v) => v.rule));
+    expect(ruleNames.has("cryptographic_standards")).toBe(false);
+  });
+
+  it("cryptographic_standards is still exempted by an English 'N/A — by construction' opt-out", () => {
+    const content = `## Technical Specification
+
+Encryption: N/A — by construction, the tool performs no network I/O and
+handles no data requiring encryption at rest or in transit.
+`;
+    const report = validateSection(content, "technical_specification");
+    const ruleNames = new Set(report.violations.map((v) => v.rule));
+    expect(ruleNames.has("cryptographic_standards")).toBe(false);
+  });
+
+  it("no_magic_numbers and consistent_naming are still satisfied by the original English signals", () => {
+    const content = `## Technical Specification
+
+All configuration values are extracted to named constants
+(e.g. \`MAX_RETRY_COUNT\`) rather than hardcoded. Naming convention:
+descriptive snake_case names for shell functions and variables.
+
+\`\`\`bash
+readonly MAX_RETRY_COUNT=5
+\`\`\`
+`;
+    const report = validateSection(content, "technical_specification");
+    const ruleNames = new Set(report.violations.map((v) => v.rule));
+    expect(ruleNames.has("no_magic_numbers")).toBe(false);
+    expect(ruleNames.has("consistent_naming")).toBe(false);
+  });
+});
+
+describe("validateSection — test_traceability_integrity, bash function syntax", () => {
+  // source: bug found 2026-07-15 during e2e run run_mrlqa0aj_u2rh15 — a
+  // testing section defined every coverage-table test as a bash function
+  // (`test_xxx() { ... }` and `function test_xxx() { ... }`), inside a
+  // ```bash fence and an untagged fence respectively, but the detector
+  // only recognized the Swift-style `func test_xxx(` keyword form.
+
+  function bashTestingSection(): string {
+    return `## Testing
+
+| Test | Scenario | Expected |
+|---|---|---|
+| test_help_flag | Runs with --help | Prints usage and exits 0 |
+| test_missing_arg | Runs with no argument | Prints error and exits 1 |
+
+\`\`\`bash
+test_help_flag() {
+  run_script --help
+  assert_exit_code 0
+}
+\`\`\`
+
+\`\`\`
+function test_missing_arg() {
+  run_script
+  assert_exit_code 1
+}
+\`\`\`
+`;
+  }
+
+  it("resolves both bash function syntaxes — zero traceability violations", () => {
+    const report = validateSection(bashTestingSection(), "testing");
+    const traceViolations = report.violations.filter(
+      (v) => v.rule === "test_traceability_integrity",
+    );
+    expect(traceViolations).toEqual([]);
+  });
+
+  it("still flags a coverage-table test with NO matching definition of any syntax", () => {
+    const missing = `## Testing
+
+| Test | Scenario | Expected |
+|---|---|---|
+| test_help_flag | Runs with --help | Prints usage and exits 0 |
+| test_orphaned | Never implemented | n/a |
+
+\`\`\`bash
+test_help_flag() {
+  run_script --help
+  assert_exit_code 0
+}
+\`\`\`
+`;
+    const report = validateSection(missing, "testing");
+    const traceViolations = report.violations.filter(
+      (v) => v.rule === "test_traceability_integrity",
+    );
+    expect(traceViolations.length).toBe(1);
+    expect(traceViolations[0]?.offendingContent).toBe("test_orphaned");
+  });
+
+  it("regression: the original Swift-style 'func test_xxx(' syntax is still detected", () => {
+    const content = `## Testing
+
+| Test | Scenario | Expected |
+|---|---|---|
+| testLoginSucceeds | Valid credentials | Returns session token |
+
+\`\`\`swift
+func testLoginSucceeds() throws {
+  let result = try login(validCredentials)
+  XCTAssertNotNil(result.token)
+}
+\`\`\`
+`;
+    const report = validateSection(content, "testing");
+    const traceViolations = report.violations.filter(
+      (v) => v.rule === "test_traceability_integrity",
+    );
+    expect(traceViolations).toEqual([]);
+  });
+});

@@ -117,10 +117,21 @@ export function extractCodeBlocks(content: string): string[] {
  * adding "N/A — local CLI, no network surface" prose, but the validator's
  * keyword check ignored those acknowledgements and demanded the prescribed
  * ceremonial keywords. This helper closes that gap.
+ *
+ * source: bug found 2026-07-15 during e2e run run_mrlqa0aj_u2rh15 — a
+ * technical_specification section written in FRENCH (target: local bash
+ * script, no network/storage/PII) failed the same rule family because
+ * every opt-out marker below was English-only. "Non applicable — aucun
+ * appel réseau" acknowledges the topic and opts out exactly like "N/A — no
+ * network calls" does, but shares no substring with any English marker.
+ * Detection must be bilingual (FR/EN) rather than assume the PRD's
+ * generation language, since prd-spec-generator supports non-English
+ * targets end to end (see packages/core PRD language handling).
  */
 const OPT_OUT_WINDOW = 240;
 
 const OPT_OUT_MARKERS: readonly string[] = [
+  // English
   "n/a",
   "not applicable",
   "by construction",
@@ -141,6 +152,29 @@ const OPT_OUT_MARKERS: readonly string[] = [
   "absent surface",
   "no attack surface",
   "out of scope",
+  // French — literal translations of the English markers above.
+  "non applicable",
+  "n'est pas applicable",
+  "sans objet",
+  "hors champ",
+  "hors périmètre",
+  "hors du périmètre",
+  "de par sa construction",
+  "par construction",
+  "aucun réseau",
+  "pas de réseau",
+  "aucun appel réseau",
+  "aucune base de données",
+  "aucun point de terminaison",
+  "pas de point de terminaison",
+  "aucune interface publique",
+  "aucune surface publique",
+  "aucun utilisateur",
+  "aucun appelant",
+  "aucun service distant",
+  "aucune api",
+  "surface d'attaque absente",
+  "aucune surface d'attaque",
 ];
 
 export function hasExplicitOptOut(
