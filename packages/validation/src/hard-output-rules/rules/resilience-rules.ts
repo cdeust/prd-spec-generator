@@ -1,58 +1,18 @@
 import type { HardOutputRuleViolation, SectionType } from "@prd-gen/core";
-import {
-  findAbsenceViolation,
-  hasExplicitOptOut,
-  makeViolation,
-} from "./helpers.js";
+import { findAbsenceViolation, makeViolation } from "./helpers.js";
+import { hasExplicitOptOut, matchesAny, phrases } from "./lexicon.js";
 
 // Rule 39: Structured Error Handling
 export function checkStructuredErrorHandling(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  if (
-    hasExplicitOptOut(content, [
-      "error",
-      "exception",
-      "error handling",
-      "error propagation",
-      "swallowed exception",
-    ])
-  ) {
+  if (hasExplicitOptOut(content, ["errorHandlingTopic"])) {
     return [];
   }
-  const lowered = content.toLowerCase();
 
-  const domainErrorSignals = [
-    "domain error",
-    "error type",
-    "error enum",
-    "error class",
-    "custom exception",
-    "business exception",
-    "typed error",
-    "error hierarchy",
-    "error code",
-    "error catalog",
-  ];
-
-  const propagationSignals = [
-    "error propagation",
-    "error boundary",
-    "error handling strategy",
-    "catch and rethrow",
-    "error translation",
-    "error mapping",
-    "exception filter",
-    "global error handler",
-    "error middleware",
-    "no swallow",
-    "never swallow",
-    "always propagate",
-  ];
-
-  const hasDomainErrors = domainErrorSignals.some((s) => lowered.includes(s));
-  const hasPropagation = propagationSignals.some((s) => lowered.includes(s));
+  const hasDomainErrors = matchesAny(content, ["domainErrorSignals"]);
+  const hasPropagation = matchesAny(content, ["propagationSignals"]);
 
   if (!hasDomainErrors && !hasPropagation) {
     return [
@@ -72,36 +32,12 @@ export function checkResiliencePatterns(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  if (
-    hasExplicitOptOut(content, [
-      "resilience",
-      "circuit breaker",
-      "retry",
-      "external dependency",
-      "remote call",
-      "transient",
-    ])
-  ) {
+  if (hasExplicitOptOut(content, ["resiliencePatternsTopic"])) {
     return [];
   }
   return findAbsenceViolation(
     content,
-    [
-      "circuit breaker",
-      "retry",
-      "exponential backoff",
-      "timeout",
-      "bulkhead",
-      "rate limit",
-      "failure isolation",
-      "fault tolerance",
-      "resilience",
-      "health check",
-      "dead letter",
-      "fallback",
-      "backpressure",
-      "load shedding",
-    ],
+    phrases("resiliencePatternsSignals"),
     2,
     "resilience_patterns",
     sectionType,
@@ -114,33 +50,12 @@ export function checkGracefulDegradation(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  if (
-    hasExplicitOptOut(content, [
-      "graceful degradation",
-      "degradation",
-      "fallback",
-      "dependency failure",
-      "cascading failure",
-    ])
-  ) {
+  if (hasExplicitOptOut(content, ["gracefulDegradationTopic"])) {
     return [];
   }
   return findAbsenceViolation(
     content,
-    [
-      "graceful degradation",
-      "degrade gracefully",
-      "fallback",
-      "fail gracefully",
-      "partial failure",
-      "degraded mode",
-      "offline mode",
-      "cache fallback",
-      "default response",
-      "service unavailable",
-      "cascading failure",
-      "blast radius",
-    ],
+    phrases("gracefulDegradationSignals"),
     1,
     "graceful_degradation",
     sectionType,
@@ -153,39 +68,12 @@ export function checkTransactionBoundaries(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  if (
-    hasExplicitOptOut(content, [
-      "transaction",
-      "rollback",
-      "atomic",
-      "multi-step",
-      "read-only",
-      "no writes",
-      "database",
-    ])
-  ) {
+  if (hasExplicitOptOut(content, ["transactionBoundariesTopic"])) {
     return [];
   }
   return findAbsenceViolation(
     content,
-    [
-      "transaction",
-      "transactional",
-      "atomicity",
-      "atomic operation",
-      "isolation level",
-      "rollback",
-      "commit",
-      "saga",
-      "compensating transaction",
-      "eventual consistency",
-      "two-phase commit",
-      "optimistic lock",
-      "pessimistic lock",
-      "idempoten",
-      "exactly-once",
-      "at-least-once",
-    ],
+    phrases("transactionBoundariesSignals"),
     2,
     "transaction_boundaries",
     sectionType,
@@ -198,35 +86,12 @@ export function checkConsistentErrorFormat(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  if (
-    hasExplicitOptOut(content, [
-      "error format",
-      "error response",
-      "error envelope",
-      "error code",
-      "error catalog",
-    ])
-  ) {
+  if (hasExplicitOptOut(content, ["errorFormatTopic"])) {
     return [];
   }
   return findAbsenceViolation(
     content,
-    [
-      "error format",
-      "error response format",
-      "error schema",
-      "error contract",
-      "rfc 7807",
-      "problem detail",
-      "error code",
-      "error_code",
-      "error response structure",
-      "standardized error",
-      "consistent error",
-      "error envelope",
-      "error body",
-      "machine-readable error",
-    ],
+    phrases("errorFormatSignals"),
     1,
     "consistent_error_format",
     sectionType,

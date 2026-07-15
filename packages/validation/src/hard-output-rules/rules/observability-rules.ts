@@ -1,41 +1,22 @@
 import type { HardOutputRuleViolation, SectionType } from "@prd-gen/core";
+import { findAbsenceViolation, makeViolation } from "./helpers.js";
 import {
-  findAbsenceViolation,
   hasExplicitOptOut,
-  makeViolation,
-} from "./helpers.js";
+  matchCount,
+  matchesAny,
+  phrases,
+} from "./lexicon.js";
 
 // Rule 59: Structured Logging
 export function checkStructuredLogging(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  const lowered = content.toLowerCase();
-
-  const formatSignals = [
-    "structured log",
-    "json log",
-    "log format",
-    "log schema",
-    "log standard",
-    "log framework",
-  ];
-
-  const levelSignals = [
-    "log level",
-    "debug",
-    "info",
-    "warn",
-    "error",
-    "trace",
-    "fatal",
-    "severity",
-    "verbosity",
-  ];
-
-  const hasFormat = formatSignals.some((s) => lowered.includes(s));
-  const hasLevels =
-    levelSignals.filter((s) => lowered.includes(s)).length >= 2;
+  if (hasExplicitOptOut(content, ["structuredLoggingTopic"])) {
+    return [];
+  }
+  const hasFormat = matchesAny(content, ["structuredLoggingFormatSignals"]);
+  const hasLevels = matchCount(content, ["structuredLoggingLevelSignals"]) >= 2;
 
   if (!hasFormat && !hasLevels) {
     return [
@@ -55,37 +36,12 @@ export function checkDistributedTracing(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  if (
-    hasExplicitOptOut(content, [
-      "distributed tracing",
-      "tracing",
-      "correlation id",
-      "single-process",
-      "single process",
-      "cross-service",
-      "second hop",
-    ])
-  ) {
+  if (hasExplicitOptOut(content, ["distributedTracingTopic"])) {
     return [];
   }
   return findAbsenceViolation(
     content,
-    [
-      "correlation id",
-      "trace id",
-      "request id",
-      "distributed trac",
-      "opentelemetry",
-      "jaeger",
-      "zipkin",
-      "trace context",
-      "span",
-      "trace propagat",
-      "x-request-id",
-      "x-correlation-id",
-      "end-to-end trac",
-      "cross-service trac",
-    ],
+    phrases("distributedTracingSignals"),
     1,
     "distributed_tracing",
     sectionType,
@@ -98,52 +54,16 @@ export function checkNoPIIInObservability(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
-  if (
-    hasExplicitOptOut(content, [
-      "pii",
-      "observability",
-      "personal data",
-      "logs",
-      "metrics",
-      "traces",
-      "dashboards",
-    ])
-  ) {
+  if (hasExplicitOptOut(content, ["piiObservabilityTopic"])) {
     return [];
   }
-  const lowered = content.toLowerCase();
 
-  const piiProtectionSignals = [
-    "no pii in log",
-    "no pii in metric",
-    "no pii in trace",
-    "mask sensitive",
-    "redact",
-    "scrub",
-    "sanitize log",
-    "filter pii",
-    "exclude sensitive",
-    "log safe",
-    "safe to log",
-    "no personal data in",
-  ];
-
-  const hasProtection = piiProtectionSignals.some((s) => lowered.includes(s));
+  const hasProtection = matchesAny(content, ["piiObservabilitySignals"]);
 
   const hasBroader =
-    (lowered.includes("pii") ||
-      lowered.includes("sensitive") ||
-      lowered.includes("personal data")) &&
-    (lowered.includes("log") ||
-      lowered.includes("metric") ||
-      lowered.includes("trace") ||
-      lowered.includes("monitor")) &&
-    (lowered.includes("never") ||
-      lowered.includes("must not") ||
-      lowered.includes("exclude") ||
-      lowered.includes("prevent") ||
-      lowered.includes("mask") ||
-      lowered.includes("redact"));
+    matchesAny(content, ["piiObservabilityBroaderTopicSignals"]) &&
+    matchesAny(content, ["piiObservabilitySurfaceSignals"]) &&
+    matchesAny(content, ["piiObservabilityActionSignals"]);
 
   if (!hasProtection && !hasBroader) {
     return [
@@ -163,25 +83,12 @@ export function checkAlertingThresholds(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (hasExplicitOptOut(content, ["alertingTopic"])) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
-    [
-      "alert",
-      "alerting",
-      "threshold",
-      "alarm",
-      "escalat",
-      "on-call",
-      "pagerduty",
-      "opsgenie",
-      "notification",
-      "sla breach",
-      "slo",
-      "warning threshold",
-      "critical threshold",
-      "runbook",
-      "incident response",
-    ],
+    phrases("alertingSignals"),
     2,
     "alerting_thresholds",
     sectionType,

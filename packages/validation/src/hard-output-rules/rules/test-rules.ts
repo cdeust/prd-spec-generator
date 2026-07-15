@@ -43,10 +43,38 @@ export function checkTestTraceabilityIntegrity(
 
   if (matrixTestNames.length === 0) return [];
 
-  const testFuncPattern = /func\s+(test\w+)\s*\(/g;
+  // source: bug found 2026-07-15, e2e run run_mrlqa0aj_u2rh15 — a testing
+  // section for a bash script defined every coverage-table test as
+  // `test_xxx() { ... }` and `function test_xxx() { ... }` inside fenced
+  // code blocks (```bash and untagged), but the old pattern only matched
+  // the Swift-style `func test_xxx(` keyword form, so every bash test was
+  // reported as "no matching func found" even though it was defined.
+  // Detection is language-agnostic: each pattern targets one function-
+  // definition syntax; a name is "defined" if ANY pattern matches it,
+  // independent of the fence's language tag (extractCodeBlocks is not
+  // needed here — code block bodies are already part of `content`).
+  const testFuncPatterns: readonly RegExp[] = [
+    // Swift/Kotlin: func test_xxx(...)
+    /func\s+(test\w+)\s*\(/g,
+    // JS/TS/PHP/bash named-function keyword: function test_xxx(...)
+    /function\s+(test\w+)\s*\(/g,
+    // Python: def test_xxx(...)
+    /def\s+(test\w+)\s*\(/g,
+    // Rust: fn test_xxx(...)
+    /fn\s+(test\w+)\s*\(/g,
+    // Bash implicit-function form: test_xxx() { ... } / test_xxx () { ... }
+    // (optional space before both the parens and the opening brace)
+    /(test\w+)\s*\(\s*\)\s*\{/g,
+    // Bash explicit "function" form without parens: function test_xxx { ... }
+    /function\s+(test\w+)\s*\{/g,
+  ];
+
   const definedTestNames = new Set<string>();
-  while ((match = testFuncPattern.exec(content)) !== null) {
-    definedTestNames.add(match[1]);
+  for (const pattern of testFuncPatterns) {
+    let funcMatch: RegExpExecArray | null;
+    while ((funcMatch = pattern.exec(content)) !== null) {
+      definedTestNames.add(funcMatch[1]);
+    }
   }
 
   const violations: HardOutputRuleViolation[] = [];

@@ -21,7 +21,11 @@
 
 import type { StepHandler } from "../runner.js";
 import type { ActionResult, NextAction } from "../types/actions.js";
-import { appendError, type PipelineState } from "../types/state.js";
+import {
+  appendError,
+  type PipelineState,
+  type VerifyBudgetConfig,
+} from "../types/state.js";
 import { validateDocument } from "@prd-gen/validation";
 import {
   planDocumentVerification,
@@ -36,102 +40,44 @@ import {
   type JudgeVerdict,
 } from "@prd-gen/core";
 import { z } from "zod";
-import { SELF_CHECK_JUDGE_INV_PREFIX } from "./protocol-ids.js";
+import { SELF_CHECK_JUDGE_INV_PREFIX, VERIFY_BUDGET_QUESTION_ID } from "./protocol-ids.js";
+import {
+  resolveVerifyBudget,
+  reduceJudgeRequests,
+  sampleWithinCap,
+  buildBudgetGateQuestion,
+  verifyBudgetDecisionFromAnswer,
+} from "./self-check-verify-budget.js";
+import { handlePrdValidation } from "./self-check-prd-validation.js";
 
 const VERIFY_BATCH_ID = "self_check_verify";
-const VALIDATE_PRD_CORRELATION_ID = "self_check_validate_prd_against_graph";
 
 /**
- * Locate the exported PRD path in state.written_files. file-export writes the
- * primary PRD as `<base>/01-prd.md`; we match on that suffix so the lookup is
- * resilient to the run-id-derived base prefix.
- *
- * source: file-export.ts buildFileSet — `${base}/01-prd.md` is the canonical
- * combined PRD document.
+ * Defensive char cap for a single JudgeVerdict.rationale persisted into
+ * `pending_completion.verification.judge_verdicts` (state serialized into
+ * MCP responses — see bounded-io.ts:MAX_RESPONSE_CHARS derivation). The judge
+ * prompt asks for "one paragraph" (judge-prompt.ts) — a few sentences, so 500
+ * chars matches the project's existing per-item convention for short
+ * judge/error text (bounded-io.ts:ERROR_MESSAGE_CHARS). At the 20-invocation
+ * default cap (DEFAULT_VERIFY_BUDGET.invocation_cap), 20 verdicts x ~600
+ * chars each (rationale + judge/claim_id/verdict/confidence/caveats
+ * overhead) is ~12,000 chars — well inside the 100,000-char budget alongside
+ * the rest of pending_completion.
+ * source: self-check-verify-budget.ts DEFAULT_VERIFY_BUDGET.invocation_cap
+ * (20) + bounded-io.ts ERROR_MESSAGE_CHARS convention (500).
  */
-function exportedPrdPath(state: PipelineState): string | null {
-  return state.written_files.find((p) => /(^|\/)01-prd\.md$/.test(p)) ?? null;
-}
+const JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS = 500;
+const JUDGE_VERDICT_RATIONALE_TRUNCATION_MARKER = "...";
 
-/**
- * Phase 0 — PRD-vs-graph validation. Runs once, before the judge phase, when
- * a code graph exists. Emits a call_pipeline_tool for
- * `validate_prd_against_graph` with { prd_path, graph_path }; processes the
- * result into state.prd_validation; sets prd_validated for idempotency.
- *
- * Skips gracefully (sets prd_validated, leaves prd_validation null) when there
- * is no graph_path or no exported PRD to validate — preserving the no-codebase
- * behavior exactly.
- *
- * precondition:  current_step === "self_check".
- * postcondition: either a call_pipeline_tool action (prd_validated unchanged,
- *                set by the result branch) OR prd_validated === true with the
- *                handler falling through to the existing judge phase.
- */
-function handlePrdValidation(
-  state: PipelineState,
-  result: ActionResult | undefined,
-):
-  | { state: PipelineState; action: NextAction }
-  | { state: PipelineState; fallthrough: true } {
-  // Result of the validate_prd_against_graph call.
-  if (
-    result?.kind === "tool_result" &&
-    result.correlation_id === VALIDATE_PRD_CORRELATION_ID
-  ) {
-    if (!result.success) {
-      // Validation is advisory — failure must not block self-check. Flag done,
-      // record the upstream issue, fall through to the judge phase.
-      return {
-        state: appendError(
-          { ...state, prd_validated: true },
-          `validate_prd_against_graph failed: ${result.error ?? "unknown"}; continuing without graph validation`,
-          "upstream_failure",
-        ),
-        fallthrough: true,
-      };
-    }
-    const report = (result.data ?? {}) as Record<string, unknown>;
-    return {
-      state: { ...state, prd_validation: report, prd_validated: true },
-      fallthrough: true,
-    };
-  }
-
-  // Already validated (or skipped) → fall through to the judge phase.
-  if (state.prd_validated) {
-    return { state, fallthrough: true };
-  }
-
-  const graphPath = state.codebase_graph_path;
-  const prdPath = exportedPrdPath(state);
-
-  // No graph or no exported PRD → skip gracefully and fall through.
-  if (!graphPath || !prdPath) {
-    return { state: { ...state, prd_validated: true }, fallthrough: true };
-  }
-
-  // Emit the validation call. prd_validated stays false until the result.
-  // affected_symbols_path is attached when file-export produced the
-  // stage-5.affected_symbols.json sidecar (Move: contract-first extraction
-  // beats regex fallback — source: stages/stage-6.md §4.2/§6.1). Omitted
-  // (not sent as null/empty string) when absent, so AP's own "path missing
-  // → regex fallback" branch fires exactly as designed.
-  return {
-    state,
-    action: {
-      kind: "call_pipeline_tool",
-      tool_name: "validate_prd_against_graph",
-      arguments: {
-        prd_path: prdPath,
-        graph_path: graphPath,
-        ...(state.affected_symbols_path
-          ? { affected_symbols_path: state.affected_symbols_path }
-          : {}),
-      },
-      correlation_id: VALIDATE_PRD_CORRELATION_ID,
-    },
-  };
+function truncateJudgeVerdictRationale(v: JudgeVerdict): JudgeVerdict {
+  return v.rationale.length > JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS
+    ? {
+        ...v,
+        rationale:
+          v.rationale.slice(0, JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS) +
+          JUDGE_VERDICT_RATIONALE_TRUNCATION_MARKER,
+      }
+    : v;
 }
 
 const RawVerdictSchema = z.object({
@@ -158,8 +104,20 @@ function gatherSections(state: PipelineState) {
     .map((s) => ({ type: s.section_type, content: s.content! }));
 }
 
+/**
+ * precondition:  `requests` is the FINAL invocation set — already reduced
+ *                (reduceJudgeRequests) and, if the budget gate fired,
+ *                sampled or explicitly overridden. This function performs
+ *                no further filtering.
+ * postcondition: one spawn_subagents invocation per request, in the same
+ *                order, each carrying `model`/`effort` from `config` — no
+ *                judge invocation is dispatched under the session model by
+ *                default (source: measured e2e run run_mrlqa0aj_u2rh15;
+ *                see self-check-verify-budget.ts module doc).
+ */
 function buildVerifyAction(
   requests: readonly JudgeRequest[],
+  config: VerifyBudgetConfig,
 ): NextAction {
   return {
     kind: "spawn_subagents",
@@ -173,6 +131,8 @@ function buildVerifyAction(
         description: built.description,
         prompt: built.prompt,
         isolation: "none" as const,
+        model: config.judge_model,
+        effort: config.judge_effort,
       };
     }),
   };
@@ -294,6 +254,20 @@ function finalize(
           ...(state.prd_validation
             ? { prd_graph_validation: state.prd_validation }
             : {}),
+          // Per-claim judge verdicts (VerificationSummarySchema.judge_verdicts,
+          // actions.ts). Omitted (undefined) when `verdicts` is empty — that is
+          // the genuinely-absent case (zero-claim fast path, or the user chose
+          // "Skip verification" at the budget gate) and file-export.ts's
+          // renderJudgeVerdicts() renders an honest gap notice for it. Non-empty
+          // arrays are persisted verbatim (rationale capped defensively — see
+          // JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS above) so
+          // 10-verification-report.md's "Per-Claim Judge Verdicts" table is
+          // real data, not a permanent gap.
+          // source: e2e run_mrlqa0aj_u2rh15 (2026-07-15) follow-up — see
+          // VerificationSummarySchema.judge_verdicts doc in actions.ts.
+          ...(verdicts.length > 0
+            ? { judge_verdicts: verdicts.map(truncateJudgeVerdictRationale) }
+            : {}),
         },
       },
       current_step: "implementation_gate" as const,
@@ -306,11 +280,62 @@ function finalize(
 }
 
 /**
- * Phase A — plan the multi-judge batch and dispatch it. If there's nothing
- * to verify (no claim-rich sections, or extractor produces zero claims),
- * finalize immediately on the fast path.
+ * Assemble the snapshot + spawn_subagents action for a final invocation set.
+ *
+ * precondition:  `requests` is non-empty and already reduced/sampled.
+ * postcondition: verification_plan.claim_ids/judges are parallel arrays,
+ *                index-aligned with the dispatched invocations (invariant
+ *                enforced by VerificationPlanSnapshotSchema's refine).
  */
-function handleSelfCheckPhaseA(state: PipelineState) {
+function dispatchVerify(
+  state: PipelineState,
+  requests: readonly JudgeRequest[],
+  config: VerifyBudgetConfig,
+  sampled: boolean,
+) {
+  return {
+    state: {
+      ...state,
+      verification_plan: {
+        batch_id: VERIFY_BATCH_ID,
+        claim_ids: requests.map((r) => r.claim.claim_id),
+        judges: requests.map((r) => r.judge),
+        sampled,
+      },
+    },
+    action: buildVerifyAction(requests, config),
+  };
+}
+
+/**
+ * Phase A — plan the multi-judge batch and dispatch it, subject to the
+ * judge-panel budget (self-check-verify-budget.ts). If there's nothing to
+ * verify (no claim-rich sections, or extractor produces zero claims),
+ * finalize immediately on the fast path.
+ *
+ * Budget gate: `planDocumentVerification` returns the FULL panel per claim
+ * (PANELS in judge-selector.ts — 2-5 judges/claim). `reduceJudgeRequests`
+ * cuts that to `config.judges_per_claim` (default 1; 2 for architecture
+ * claims) BEFORE any dispatch decision — the invocation count checked
+ * against `config.invocation_cap` is always the reduced count, never the
+ * full-panel count. When the reduced count still exceeds the cap, this
+ * function asks the user (VERIFY_BUDGET_QUESTION_ID) instead of dispatching,
+ * and re-enters here on the answer (`result.kind === "user_answer"` is
+ * routed to Phase A by handleSelfCheck's dispatcher below, since only
+ * `subagent_batch_result` routes to Phase B).
+ *
+ * precondition:  state.current_step === "self_check"; if `result` is
+ *                present it is either undefined, a stale/foreign
+ *                ActionResult, or the user_answer for
+ *                VERIFY_BUDGET_QUESTION_ID.
+ * postcondition: returns finalize(state) (zero-claim fast path), an
+ *                ask_user gate action (over-cap, no answer yet), or a
+ *                dispatchVerify() spawn_subagents action.
+ */
+function handleSelfCheckPhaseA(
+  state: PipelineState,
+  result: ActionResult | undefined,
+) {
   const sections = gatherSections(state);
   if (sections.length === 0) {
     return finalize(state);
@@ -321,17 +346,27 @@ function handleSelfCheckPhaseA(state: PipelineState) {
     return finalize(state);
   }
 
-  return {
-    state: {
-      ...state,
-      verification_plan: {
-        batch_id: VERIFY_BATCH_ID,
-        claim_ids: plan.judge_requests.map((r) => r.claim.claim_id),
-        judges: plan.judge_requests.map((r) => r.judge),
-      },
-    },
-    action: buildVerifyAction(plan.judge_requests),
-  };
+  const config = resolveVerifyBudget(state.verify_budget);
+  const reduced = reduceJudgeRequests(plan.judge_requests, config);
+  if (reduced.length === 0) {
+    return finalize(state);
+  }
+
+  if (result?.kind === "user_answer" && result.question_id === VERIFY_BUDGET_QUESTION_ID) {
+    const decision = verifyBudgetDecisionFromAnswer(result);
+    if (decision === "skip") {
+      return finalize(state);
+    }
+    const finalRequests =
+      decision === "sample" ? sampleWithinCap(reduced, config.invocation_cap) : reduced;
+    return dispatchVerify(state, finalRequests, config, decision === "sample");
+  }
+
+  if (reduced.length > config.invocation_cap) {
+    return { state, action: buildBudgetGateQuestion(reduced.length, config) };
+  }
+
+  return dispatchVerify(state, reduced, config, false);
 }
 
 /**
@@ -400,15 +435,25 @@ export const handleSelfCheck: StepHandler = ({ state, result }) => {
   ) {
     return handleSelfCheckPhaseB(stateAfterValidation, result);
   }
-  return handleSelfCheckPhaseA(stateAfterValidation);
+  return handleSelfCheckPhaseA(stateAfterValidation, result);
 };
 
 /**
  * Phase B verdict parsing using the persisted snapshot. We re-run
- * planDocumentVerification only to recover the JudgeRequest objects (judge
- * identities and claim metadata); the AUTHORITATIVE ordering comes from the
- * snapshot's claim_ids array. If the re-derived plan no longer matches, we
- * fall back to constructing minimal JudgeVerdicts from the snapshot ids.
+ * planDocumentVerification + the SAME budget reduction (and, when
+ * snapshot.sampled is true, the SAME sampleWithinCap transform) Phase A
+ * applied, only to recover the JudgeRequest objects (judge identities and
+ * claim metadata); the AUTHORITATIVE ordering comes from the snapshot's
+ * claim_ids array. If the re-derived plan no longer matches, we fall back to
+ * constructing minimal JudgeVerdicts from the snapshot ids.
+ *
+ * Rederiving with the SAME config the snapshot was built under is load-
+ * bearing: `state.verify_budget` does not change within a run (composition-
+ * root-injected once, before start_pipeline), so `resolveVerifyBudget`
+ * returns the identical config Phase A used — the reduction/sampling
+ * transform is therefore a pure, deterministic function of (sections,
+ * config, snapshot.sampled), reproducible here without persisting the
+ * intermediate JudgeRequest objects themselves.
  *
  * The snapshot now also carries judges[], so attribution survives the
  * fallback path without needing to invent a synthetic identity.
@@ -419,7 +464,14 @@ function parseVerdictsFromSnapshot(
   batchResult: Extract<ActionResult, { kind: "subagent_batch_result" }>,
 ): JudgeVerdict[] {
   const sections = gatherSections(state);
-  const rederived = planDocumentVerification(sections).judge_requests;
+  const config = resolveVerifyBudget(state.verify_budget);
+  const reduced = reduceJudgeRequests(
+    planDocumentVerification(sections).judge_requests,
+    config,
+  );
+  const rederived = snapshot.sampled
+    ? sampleWithinCap(reduced, config.invocation_cap)
+    : reduced;
 
   const sameLength = rederived.length === snapshot.claim_ids.length;
   const sameOrder =

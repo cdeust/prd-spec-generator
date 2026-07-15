@@ -24490,49 +24490,6 @@ function extractCodeBlocks(content) {
   }
   return blocks;
 }
-var OPT_OUT_WINDOW = 240;
-var OPT_OUT_MARKERS = [
-  "n/a",
-  "not applicable",
-  "by construction",
-  "no network",
-  "no database",
-  "no endpoint",
-  "no public surface",
-  "no public interface",
-  "no http",
-  "no rest",
-  "no graphql",
-  "no grpc",
-  "no users",
-  "no caller",
-  "no remote",
-  "no service",
-  "no api",
-  "absent surface",
-  "no attack surface",
-  "out of scope"
-];
-function hasExplicitOptOut(content, topicSignals) {
-  if (topicSignals.length === 0)
-    return false;
-  const lowered = content.toLowerCase();
-  for (const topic of topicSignals) {
-    const t = topic.toLowerCase();
-    let idx = lowered.indexOf(t);
-    while (idx !== -1) {
-      const start = Math.max(0, idx - OPT_OUT_WINDOW);
-      const end = Math.min(lowered.length, idx + t.length + OPT_OUT_WINDOW);
-      const window = lowered.substring(start, end);
-      for (const marker of OPT_OUT_MARKERS) {
-        if (window.includes(marker))
-          return true;
-      }
-      idx = lowered.indexOf(t, idx + t.length);
-    }
-  }
-  return false;
-}
 function extractTypeName(line) {
   const typeKeywords = [
     "struct",
@@ -24904,10 +24861,27 @@ function checkTestTraceabilityIntegrity(content, sectionType) {
   }
   if (matrixTestNames.length === 0)
     return [];
-  const testFuncPattern = /func\s+(test\w+)\s*\(/g;
+  const testFuncPatterns = [
+    // Swift/Kotlin: func test_xxx(...)
+    /func\s+(test\w+)\s*\(/g,
+    // JS/TS/PHP/bash named-function keyword: function test_xxx(...)
+    /function\s+(test\w+)\s*\(/g,
+    // Python: def test_xxx(...)
+    /def\s+(test\w+)\s*\(/g,
+    // Rust: fn test_xxx(...)
+    /fn\s+(test\w+)\s*\(/g,
+    // Bash implicit-function form: test_xxx() { ... } / test_xxx () { ... }
+    // (optional space before both the parens and the opening brace)
+    /(test\w+)\s*\(\s*\)\s*\{/g,
+    // Bash explicit "function" form without parens: function test_xxx { ... }
+    /function\s+(test\w+)\s*\{/g
+  ];
   const definedTestNames = /* @__PURE__ */ new Set();
-  while ((match = testFuncPattern.exec(content)) !== null) {
-    definedTestNames.add(match[1]);
+  for (const pattern of testFuncPatterns) {
+    let funcMatch;
+    while ((funcMatch = pattern.exec(content)) !== null) {
+      definedTestNames.add(funcMatch[1]);
+    }
   }
   const violations = [];
   for (const matrixName of matrixTestNames) {
@@ -25284,6 +25258,1400 @@ function checkDocumentACToTestCoverage(sections) {
   return [];
 }
 
+// packages/validation/dist/hard-output-rules/rules/lexicon-shared.js
+var SHARED_LEXICON = {
+  // -----------------------------------------------------------------------
+  // Opt-out escape — shared by every rule that supports an explicit N/A.
+  // -----------------------------------------------------------------------
+  optOut: {
+    en: [
+      "n/a",
+      "not applicable",
+      "by construction",
+      "no network",
+      "no database",
+      "no endpoint",
+      "no public surface",
+      "no public interface",
+      "no http",
+      "no rest",
+      "no graphql",
+      "no grpc",
+      "no users",
+      "no caller",
+      "no remote",
+      "no service",
+      "no api",
+      "absent surface",
+      "no attack surface",
+      "out of scope"
+    ],
+    fr: [
+      "non applicable",
+      "n'est pas applicable",
+      "sans objet",
+      "hors champ",
+      "hors p\xE9rim\xE8tre",
+      "hors du p\xE9rim\xE8tre",
+      "de par sa construction",
+      "par construction",
+      "aucun r\xE9seau",
+      "pas de r\xE9seau",
+      "aucun appel r\xE9seau",
+      "aucune base de donn\xE9es",
+      "aucun point de terminaison",
+      "pas de point de terminaison",
+      "aucune interface publique",
+      "aucune surface publique",
+      "aucun utilisateur",
+      "aucun appelant",
+      "aucun service distant",
+      "aucune api",
+      "surface d'attaque absente",
+      "aucune surface d'attaque"
+    ]
+  },
+  errorTermSignals: {
+    en: ["error"],
+    fr: ["erreur"]
+  },
+  securityOrSensitiveTermSignals: {
+    en: ["secur", "sensitive"],
+    fr: ["s\xE9cur", "sensible"]
+  },
+  sensitiveTermSignals: {
+    en: ["sensitive"],
+    fr: ["sensible", "sensibles"]
+  },
+  logTermSignals: {
+    en: ["log"],
+    fr: ["journal", "journaux", "journalisation"]
+  },
+  negationActionSignals: {
+    en: ["never", "must not", "exclude", "prevent"],
+    fr: ["jamais", "ne doit pas", "exclure", "emp\xEAcher"]
+  }
+};
+
+// packages/validation/dist/hard-output-rules/rules/lexicon-security.js
+var SECURITY_LEXICON = {
+  authTopic: {
+    en: [
+      "authentication",
+      "authorization",
+      "endpoint",
+      "auth strategy",
+      "caller identity"
+    ],
+    fr: [
+      "authentification",
+      "autorisation",
+      "point de terminaison",
+      "strat\xE9gie d'authentification",
+      "identit\xE9 de l'appelant"
+    ]
+  },
+  authNSignals: {
+    en: [
+      "authentication",
+      "authenticate",
+      "login",
+      "sign in",
+      "jwt",
+      "oauth",
+      "api key",
+      "bearer token",
+      "session",
+      "identity",
+      "credential",
+      "mfa",
+      "multi-factor",
+      "sso"
+    ],
+    fr: [
+      "authentification",
+      "authentifier",
+      "connexion",
+      "se connecter",
+      "jeton porteur",
+      "session",
+      "identit\xE9",
+      "identifiants",
+      "authentification multifacteur",
+      "authentification \xE0 double facteur",
+      "authentification unique"
+    ]
+  },
+  authZSignals: {
+    en: [
+      "authorization",
+      "authorize",
+      "permission",
+      "role",
+      "rbac",
+      "abac",
+      "access control",
+      "privilege",
+      "scope",
+      "claim",
+      "policy",
+      "grant"
+    ],
+    fr: [
+      "autorisation",
+      "autoriser",
+      "permission",
+      "r\xF4le",
+      "contr\xF4le d'acc\xE8s",
+      "privil\xE8ge",
+      "p\xE9rim\xE8tre d'acc\xE8s",
+      "revendication",
+      "politique d'acc\xE8s",
+      "octroi"
+    ]
+  },
+  inputValidationTopic: {
+    en: ["input validation", "external input", "user input", "request"],
+    fr: [
+      "validation des entr\xE9es",
+      "entr\xE9e externe",
+      "entr\xE9e utilisateur",
+      "requ\xEAte"
+    ]
+  },
+  inputValidationSignals: {
+    en: [
+      "input validation",
+      "validate input",
+      "sanitize",
+      "sanitization",
+      "whitelist",
+      "allowlist",
+      "blocklist",
+      "reject invalid",
+      "schema validation",
+      "request validation",
+      "payload validation",
+      "type check",
+      "bounds check",
+      "length check",
+      "format validation",
+      "validate request",
+      "input filter",
+      "data validation"
+    ],
+    fr: [
+      "validation des entr\xE9es",
+      "valider les entr\xE9es",
+      "assainir",
+      "assainissement",
+      "liste blanche",
+      "liste noire",
+      "rejeter les entr\xE9es invalides",
+      "validation de sch\xE9ma",
+      "validation de la requ\xEAte",
+      "validation du payload",
+      "v\xE9rification de type",
+      "v\xE9rification des limites",
+      "v\xE9rification de la longueur",
+      "validation du format",
+      "filtre d'entr\xE9e",
+      "validation des donn\xE9es"
+    ]
+  },
+  injectionTopic: {
+    en: ["injection", "output encoding", "xss", "sql"],
+    fr: ["injection", "encodage de sortie", "script intersite", "sql"]
+  },
+  injectionSignals: {
+    en: [
+      "injection prevention",
+      "sql injection",
+      "xss",
+      "cross-site scripting",
+      "command injection",
+      "output encoding",
+      "escape",
+      "parameterized quer",
+      "prepared statement",
+      "orm",
+      "html encoding",
+      "content security policy",
+      "csp",
+      "sanitize output",
+      "template escaping",
+      "injection attack"
+    ],
+    fr: [
+      "pr\xE9vention des injections",
+      "injection sql",
+      "script intersite",
+      "injection de commande",
+      "encodage de sortie",
+      "\xE9chappement",
+      "requ\xEAte param\xE9tr\xE9e",
+      "requ\xEAte pr\xE9par\xE9e",
+      "encodage html",
+      "politique de s\xE9curit\xE9 du contenu",
+      "assainir la sortie",
+      "\xE9chappement de gabarit",
+      "attaque par injection"
+    ]
+  },
+  safeErrorTopic: {
+    en: ["client-facing error", "error response", "error message", "error"],
+    fr: [
+      "erreur destin\xE9e au client",
+      "r\xE9ponse d'erreur",
+      "message d'erreur",
+      "erreur"
+    ]
+  },
+  safeErrorSignals: {
+    en: [
+      "no stack trace",
+      "hide internal",
+      "generic error",
+      "error message sanitiz",
+      "no implementation detail",
+      "user-facing error",
+      "error boundary",
+      "safe error",
+      "don't leak",
+      "do not expose",
+      "error abstraction",
+      "error mapping",
+      "client-safe",
+      "production error"
+    ],
+    fr: [
+      "pas de trace de pile",
+      "masquer les d\xE9tails internes",
+      "erreur g\xE9n\xE9rique",
+      "assainissement du message d'erreur",
+      "aucun d\xE9tail d'impl\xE9mentation",
+      "erreur destin\xE9e \xE0 l'utilisateur",
+      "erreur s\xE9curis\xE9e",
+      "ne pas divulguer",
+      "ne pas exposer",
+      "abstraction des erreurs",
+      "erreur adapt\xE9e au client",
+      "erreur de production"
+    ]
+  },
+  dangerousSecretPhrases: {
+    en: [
+      "hardcode the password",
+      "hardcode the key",
+      "embed the secret",
+      "paste your api key",
+      "put your token directly"
+    ],
+    fr: [
+      "coder en dur le mot de passe",
+      "coder en dur la cl\xE9",
+      "int\xE9grer le secret directement",
+      "coller votre cl\xE9 api directement",
+      "mettre votre jeton directement"
+    ]
+  },
+  cryptoTopic: {
+    en: ["encrypt", "encryption", "cryptograph", "hash", "key management"],
+    fr: ["chiffrement", "cryptographie", "hachage", "gestion des cl\xE9s"]
+  },
+  cryptoSignals: {
+    en: [
+      "encrypt",
+      "encryption",
+      "aes",
+      "rsa",
+      "tls",
+      "hash",
+      "bcrypt",
+      "argon2",
+      "scrypt",
+      "pbkdf2",
+      "hmac",
+      "sha-256",
+      "sha-384",
+      "sha-512",
+      "key management",
+      "key rotation",
+      "certificate"
+    ],
+    fr: [
+      "chiffrement",
+      "chiffr\xE9",
+      "hachage",
+      "gestion des cl\xE9s",
+      "rotation des cl\xE9s",
+      "certificat"
+    ]
+  },
+  rateLimitTopic: {
+    en: [
+      "rate limit",
+      "rate limiting",
+      "throttl",
+      "endpoint",
+      "abuse prevention"
+    ],
+    fr: [
+      "limitation de d\xE9bit",
+      "limitation de taux",
+      "point de terminaison",
+      "pr\xE9vention des abus"
+    ]
+  },
+  rateLimitSignals: {
+    en: [
+      "rate limit",
+      "rate-limit",
+      "throttl",
+      "request limit",
+      "quota",
+      "burst limit",
+      "sliding window",
+      "token bucket",
+      "leaky bucket",
+      "ddos",
+      "abuse prevention",
+      "requests per",
+      "calls per"
+    ],
+    fr: ["limitation de d\xE9bit", "limitation de taux", "limite de requ\xEAtes"]
+  },
+  secureCommTopic: {
+    en: [
+      "tls",
+      "https",
+      "network i/o",
+      "network",
+      "secure communication",
+      "transport",
+      "encrypted channel"
+    ],
+    fr: [
+      "r\xE9seau",
+      "communication s\xE9curis\xE9e",
+      "canal chiffr\xE9",
+      "trafic r\xE9seau"
+    ]
+  },
+  secureCommSignals: {
+    en: [
+      "tls",
+      "https",
+      "ssl",
+      "transport layer security",
+      "encrypt in transit",
+      "encryption in transit",
+      "certificate",
+      "cert pinning",
+      "certificate pinning",
+      "mutual tls",
+      "mtls",
+      "secure channel",
+      "encrypted connection"
+    ],
+    fr: [
+      "chiffrement en transit",
+      "canal s\xE9curis\xE9",
+      "connexion chiffr\xE9e",
+      "certificat"
+    ]
+  }
+};
+
+// packages/validation/dist/hard-output-rules/rules/lexicon-data-protection.js
+var DATA_PROTECTION_LEXICON = {
+  dataClassificationTopic: {
+    en: [
+      "data classification",
+      "sensitivity",
+      "pii",
+      "personal data",
+      "sensitive data"
+    ],
+    fr: [
+      "classification des donn\xE9es",
+      "sensibilit\xE9",
+      "donn\xE9es personnelles",
+      "donn\xE9es sensibles"
+    ]
+  },
+  dataClassificationSignals: {
+    en: [
+      "data classification",
+      "classify",
+      "classification level",
+      "public data",
+      "internal data",
+      "confidential",
+      "restricted",
+      "sensitivity level",
+      "sensitivity class",
+      "data tier",
+      "data category",
+      "personal data",
+      "non-personal",
+      "pii",
+      "phi",
+      "pci",
+      "sensitive data"
+    ],
+    fr: [
+      "classification des donn\xE9es",
+      "classifier",
+      "niveau de classification",
+      "donn\xE9es publiques",
+      "donn\xE9es internes",
+      "confidentiel",
+      "restreint",
+      "niveau de sensibilit\xE9",
+      "cat\xE9gorie de donn\xE9es",
+      "donn\xE9es personnelles",
+      "non personnel",
+      "donn\xE9es sensibles"
+    ]
+  },
+  sensitiveDataTopic: {
+    en: [
+      "sensitive data",
+      "sensitive data protection",
+      "pii",
+      "personal data",
+      "credentials",
+      "secrets"
+    ],
+    fr: [
+      "donn\xE9es sensibles",
+      "protection des donn\xE9es sensibles",
+      "donn\xE9es personnelles",
+      "identifiants",
+      "secrets"
+    ]
+  },
+  encryptionAtRestSignals: {
+    en: [
+      "encrypt at rest",
+      "encryption at rest",
+      "field-level encryption",
+      "column encryption",
+      "database encryption",
+      "aes"
+    ],
+    fr: [
+      "chiffrement au repos",
+      "chiffrement au niveau du champ",
+      "chiffrement de colonne",
+      "chiffrement de la base de donn\xE9es"
+    ]
+  },
+  maskingSignals: {
+    en: [
+      "mask",
+      "anonymiz",
+      "pseudonymiz",
+      "redact",
+      "obfuscat",
+      "tokeniz",
+      "de-identif",
+      "data scrub"
+    ],
+    fr: [
+      "masquage",
+      "masquer",
+      "anonymis",
+      "pseudonymis",
+      "caviarder",
+      "obfusqu",
+      "tokenis",
+      "d\xE9-identifi",
+      "nettoyage des donn\xE9es"
+    ]
+  },
+  accessControlSignals: {
+    en: [
+      "row-level security",
+      "rls",
+      "column-level",
+      "field-level access",
+      "data access control",
+      "need-to-know",
+      "least privilege"
+    ],
+    fr: [
+      "s\xE9curit\xE9 au niveau des lignes",
+      "contr\xF4le au niveau de la colonne",
+      "acc\xE8s au niveau du champ",
+      "contr\xF4le d'acc\xE8s aux donn\xE9es",
+      "besoin d'en conna\xEEtre",
+      "moindre privil\xE8ge"
+    ]
+  },
+  noSensitiveInLogsTopic: {
+    en: [
+      "sensitive data",
+      "pii",
+      "personal data",
+      "log",
+      "credentials",
+      "tokens"
+    ],
+    fr: [
+      "donn\xE9es sensibles",
+      "donn\xE9es personnelles",
+      "journal",
+      "identifiants",
+      "jetons"
+    ]
+  },
+  noLogPIISignals: {
+    en: [
+      "no pii in log",
+      "mask in log",
+      "redact in log",
+      "filter sensitive",
+      "log sanitiz",
+      "scrub log",
+      "no sensitive data in log",
+      "log masking",
+      "exclude pii",
+      "strip pii",
+      "no personal data in log",
+      "structured log",
+      "safe logging"
+    ],
+    fr: [
+      "aucune donn\xE9e personnelle dans les journaux",
+      "masquer dans les journaux",
+      "caviarder dans les journaux",
+      "filtrer les donn\xE9es sensibles",
+      "assainissement des journaux",
+      "nettoyage des journaux",
+      "aucune donn\xE9e sensible dans les journaux",
+      "masquage des journaux",
+      "exclure les donn\xE9es personnelles",
+      "journalisation s\xE9curis\xE9e"
+    ]
+  },
+  dataMinimizationTopic: {
+    en: [
+      "data minimization",
+      "personal data",
+      "pii",
+      "user data",
+      "data collected"
+    ],
+    fr: [
+      "minimisation des donn\xE9es",
+      "donn\xE9es personnelles",
+      "donn\xE9es utilisateur",
+      "donn\xE9es collect\xE9es"
+    ]
+  },
+  dataMinimizationSignals: {
+    en: [
+      "data minimization",
+      "minimal data",
+      "minimise",
+      "collect only",
+      "store only",
+      "need-to-know",
+      "purpose limitation",
+      "data purpose",
+      "justified",
+      "necessary data",
+      "required fields only",
+      "no unnecessary",
+      "reduce data footprint"
+    ],
+    fr: [
+      "minimisation des donn\xE9es",
+      "donn\xE9es minimales",
+      "minimiser",
+      "collecter uniquement",
+      "stocker uniquement",
+      "besoin d'en conna\xEEtre",
+      "limitation de la finalit\xE9",
+      "finalit\xE9 des donn\xE9es",
+      "justifi\xE9",
+      "donn\xE9es n\xE9cessaires",
+      "champs requis uniquement",
+      "r\xE9duire l'empreinte des donn\xE9es"
+    ]
+  },
+  auditTrailTopic: {
+    en: [
+      "audit",
+      "audit trail",
+      "compliance",
+      "authentication events",
+      "data access"
+    ],
+    fr: [
+      "audit",
+      "piste d'audit",
+      "conformit\xE9",
+      "\xE9v\xE9nements d'authentification",
+      "acc\xE8s aux donn\xE9es"
+    ]
+  },
+  auditTrailSignals: {
+    en: [
+      "audit trail",
+      "audit log",
+      "audit event",
+      "who did what",
+      "who/what/when",
+      "accountability",
+      "compliance log",
+      "activity log",
+      "change log",
+      "access log",
+      "security log",
+      "event sourcing",
+      "tamper-proof log",
+      "immutable log"
+    ],
+    fr: [
+      "piste d'audit",
+      "journal d'audit",
+      "\xE9v\xE9nement d'audit",
+      "qui a fait quoi",
+      "tra\xE7abilit\xE9",
+      "journal de conformit\xE9",
+      "journal d'activit\xE9",
+      "journal des modifications",
+      "journal d'acc\xE8s",
+      "journal de s\xE9curit\xE9",
+      "journal inviolable",
+      "journal immuable"
+    ]
+  },
+  consentErasureTopic: {
+    en: [
+      "consent",
+      "erasure",
+      "personal data",
+      "gdpr",
+      "privacy compliance",
+      "user data"
+    ],
+    fr: [
+      "consentement",
+      "effacement",
+      "donn\xE9es personnelles",
+      "rgpd",
+      "conformit\xE9 vie priv\xE9e",
+      "donn\xE9es utilisateur"
+    ]
+  },
+  consentSignals: {
+    en: [
+      "consent",
+      "opt-in",
+      "opt-out",
+      "user agreement",
+      "privacy preference",
+      "data subject",
+      "lawful basis"
+    ],
+    fr: ["consentement", "base l\xE9gale", "personne concern\xE9e"]
+  },
+  erasureSignals: {
+    en: [
+      "right to erasure",
+      "right to deletion",
+      "right to be forgotten",
+      "gdpr erasure",
+      "data deletion",
+      "cascade delete",
+      "soft delete",
+      "hard delete",
+      "purge",
+      "anonymize on delete",
+      "account deletion",
+      "data removal"
+    ],
+    fr: [
+      "droit \xE0 l'effacement",
+      "droit \xE0 l'oubli",
+      "suppression des donn\xE9es",
+      "suppression du compte"
+    ]
+  }
+};
+
+// packages/validation/dist/hard-output-rules/rules/lexicon-observability.js
+var OBSERVABILITY_LEXICON = {
+  structuredLoggingTopic: {
+    en: ["logging", "log format", "log level"],
+    fr: ["journalisation", "format de journal", "niveau de journalisation"]
+  },
+  structuredLoggingFormatSignals: {
+    en: [
+      "structured log",
+      "json log",
+      "log format",
+      "log schema",
+      "log standard",
+      "log framework"
+    ],
+    fr: [
+      "journalisation structur\xE9e",
+      "journal json",
+      "format de journal",
+      "sch\xE9ma de journal",
+      "norme de journalisation",
+      "cadre de journalisation"
+    ]
+  },
+  structuredLoggingLevelSignals: {
+    en: [
+      "log level",
+      "debug",
+      "info",
+      "warn",
+      "error",
+      "trace",
+      "fatal",
+      "severity",
+      "verbosity"
+    ],
+    fr: [
+      "niveau de journalisation",
+      "avertissement",
+      "erreur",
+      "gravit\xE9",
+      "verbosit\xE9",
+      "critique"
+    ]
+  },
+  distributedTracingTopic: {
+    en: [
+      "distributed tracing",
+      "tracing",
+      "correlation id",
+      "single-process",
+      "single process",
+      "cross-service",
+      "second hop"
+    ],
+    fr: [
+      "tra\xE7age distribu\xE9",
+      "tra\xE7age",
+      "identifiant de corr\xE9lation",
+      "processus unique",
+      "monoprocessus"
+    ]
+  },
+  distributedTracingSignals: {
+    en: [
+      "correlation id",
+      "trace id",
+      "request id",
+      "distributed trac",
+      "opentelemetry",
+      "jaeger",
+      "zipkin",
+      "trace context",
+      "span",
+      "trace propagat",
+      "x-request-id",
+      "x-correlation-id",
+      "end-to-end trac",
+      "cross-service trac"
+    ],
+    fr: [
+      "identifiant de corr\xE9lation",
+      "tra\xE7age distribu\xE9",
+      "propagation de trace"
+    ]
+  },
+  piiObservabilityTopic: {
+    en: [
+      "pii",
+      "observability",
+      "personal data",
+      "logs",
+      "metrics",
+      "traces",
+      "dashboards"
+    ],
+    fr: [
+      "donn\xE9es personnelles",
+      "observabilit\xE9",
+      "journaux",
+      "m\xE9triques",
+      "traces",
+      "tableaux de bord"
+    ]
+  },
+  piiObservabilitySignals: {
+    en: [
+      "no pii in log",
+      "no pii in metric",
+      "no pii in trace",
+      "mask sensitive",
+      "redact",
+      "scrub",
+      "sanitize log",
+      "filter pii",
+      "exclude sensitive",
+      "log safe",
+      "safe to log",
+      "no personal data in"
+    ],
+    fr: [
+      "aucune donn\xE9e personnelle dans les journaux",
+      "aucune donn\xE9e personnelle dans les m\xE9triques",
+      "aucune donn\xE9e personnelle dans les traces",
+      "masquer les donn\xE9es sensibles",
+      "caviarder",
+      "nettoyer",
+      "assainir les journaux",
+      "filtrer les donn\xE9es personnelles",
+      "exclure les donn\xE9es sensibles",
+      "s\xFBr \xE0 journaliser",
+      "aucune donn\xE9e personnelle dans"
+    ]
+  },
+  piiObservabilityBroaderTopicSignals: {
+    en: ["pii", "sensitive", "personal data"],
+    fr: ["donn\xE9es personnelles", "sensible", "sensibles"]
+  },
+  piiObservabilitySurfaceSignals: {
+    en: ["log", "metric", "trace", "monitor"],
+    fr: ["journal", "m\xE9trique", "trace", "surveillance", "supervision"]
+  },
+  piiObservabilityActionSignals: {
+    en: ["never", "must not", "exclude", "prevent", "mask", "redact"],
+    fr: ["jamais", "ne doit pas", "exclure", "emp\xEAcher", "masquer", "caviarder"]
+  },
+  alertingTopic: {
+    en: ["alerting", "alert", "on-call", "incident response"],
+    fr: ["alerte", "alerting", "astreinte", "r\xE9ponse aux incidents"]
+  },
+  alertingSignals: {
+    en: [
+      "alert",
+      "alerting",
+      "threshold",
+      "alarm",
+      "escalat",
+      "on-call",
+      "pagerduty",
+      "opsgenie",
+      "notification",
+      "sla breach",
+      "slo",
+      "warning threshold",
+      "critical threshold",
+      "runbook",
+      "incident response"
+    ],
+    fr: [
+      "alerte",
+      "alerting",
+      "seuil",
+      "escalade",
+      "astreinte",
+      "notification",
+      "violation de sla",
+      "seuil d'avertissement",
+      "seuil critique",
+      "r\xE9ponse aux incidents"
+    ]
+  }
+};
+
+// packages/validation/dist/hard-output-rules/rules/lexicon-resilience.js
+var RESILIENCE_LEXICON = {
+  errorHandlingTopic: {
+    en: [
+      "error",
+      "exception",
+      "error handling",
+      "error propagation",
+      "swallowed exception"
+    ],
+    fr: [
+      "erreur",
+      "exception",
+      "gestion des erreurs",
+      "propagation des erreurs",
+      "exception aval\xE9e"
+    ]
+  },
+  domainErrorSignals: {
+    en: [
+      "domain error",
+      "error type",
+      "error enum",
+      "error class",
+      "custom exception",
+      "business exception",
+      "typed error",
+      "error hierarchy",
+      "error code",
+      "error catalog"
+    ],
+    fr: [
+      "erreur de domaine",
+      "type d'erreur",
+      "\xE9num\xE9ration d'erreurs",
+      "classe d'erreur",
+      "exception personnalis\xE9e",
+      "exception m\xE9tier",
+      "erreur typ\xE9e",
+      "hi\xE9rarchie d'erreurs",
+      "code d'erreur",
+      "catalogue d'erreurs"
+    ]
+  },
+  propagationSignals: {
+    en: [
+      "error propagation",
+      "error boundary",
+      "error handling strategy",
+      "catch and rethrow",
+      "error translation",
+      "error mapping",
+      "exception filter",
+      "global error handler",
+      "error middleware",
+      "no swallow",
+      "never swallow",
+      "always propagate"
+    ],
+    fr: [
+      "propagation des erreurs",
+      "strat\xE9gie de gestion des erreurs",
+      "capturer et relancer",
+      "traduction des erreurs",
+      "gestionnaire d'erreurs global",
+      "middleware d'erreurs",
+      "ne jamais avaler",
+      "toujours propager"
+    ]
+  },
+  resiliencePatternsTopic: {
+    en: [
+      "resilience",
+      "circuit breaker",
+      "retry",
+      "external dependency",
+      "remote call",
+      "transient"
+    ],
+    fr: [
+      "r\xE9silience",
+      "disjoncteur",
+      "nouvelle tentative",
+      "d\xE9pendance externe",
+      "appel distant",
+      "transitoire"
+    ]
+  },
+  resiliencePatternsSignals: {
+    en: [
+      "circuit breaker",
+      "retry",
+      "exponential backoff",
+      "timeout",
+      "bulkhead",
+      "rate limit",
+      "failure isolation",
+      "fault tolerance",
+      "resilience",
+      "health check",
+      "dead letter",
+      "fallback",
+      "backpressure",
+      "load shedding"
+    ],
+    fr: [
+      "disjoncteur",
+      "nouvelle tentative",
+      "attente exponentielle",
+      "d\xE9lai d'expiration",
+      "cloisonnement",
+      "isolation des pannes",
+      "tol\xE9rance aux pannes",
+      "r\xE9silience",
+      "v\xE9rification de sant\xE9",
+      "file de lettres mortes",
+      "repli",
+      "contre-pression",
+      "d\xE9lestage de charge"
+    ]
+  },
+  gracefulDegradationTopic: {
+    en: [
+      "graceful degradation",
+      "degradation",
+      "fallback",
+      "dependency failure",
+      "cascading failure"
+    ],
+    fr: [
+      "d\xE9gradation gracieuse",
+      "d\xE9gradation",
+      "repli",
+      "d\xE9faillance de d\xE9pendance",
+      "d\xE9faillance en cascade"
+    ]
+  },
+  gracefulDegradationSignals: {
+    en: [
+      "graceful degradation",
+      "degrade gracefully",
+      "fallback",
+      "fail gracefully",
+      "partial failure",
+      "degraded mode",
+      "offline mode",
+      "cache fallback",
+      "default response",
+      "service unavailable",
+      "cascading failure",
+      "blast radius"
+    ],
+    fr: [
+      "d\xE9gradation gracieuse",
+      "se d\xE9grader gracieusement",
+      "repli",
+      "\xE9chouer gracieusement",
+      "d\xE9faillance partielle",
+      "mode d\xE9grad\xE9",
+      "mode hors ligne",
+      "repli sur cache",
+      "r\xE9ponse par d\xE9faut",
+      "service indisponible",
+      "d\xE9faillance en cascade"
+    ]
+  },
+  transactionBoundariesTopic: {
+    en: [
+      "transaction",
+      "rollback",
+      "atomic",
+      "multi-step",
+      "read-only",
+      "no writes",
+      "database"
+    ],
+    fr: [
+      "transaction",
+      "annulation",
+      "atomique",
+      "plusieurs \xE9tapes",
+      "lecture seule",
+      "aucune \xE9criture",
+      "base de donn\xE9es"
+    ]
+  },
+  transactionBoundariesSignals: {
+    en: [
+      "transaction",
+      "transactional",
+      "atomicity",
+      "atomic operation",
+      "isolation level",
+      "rollback",
+      "commit",
+      "saga",
+      "compensating transaction",
+      "eventual consistency",
+      "two-phase commit",
+      "optimistic lock",
+      "pessimistic lock",
+      "idempoten",
+      "exactly-once",
+      "at-least-once"
+    ],
+    fr: [
+      "transaction",
+      "transactionnel",
+      "atomicit\xE9",
+      "op\xE9ration atomique",
+      "niveau d'isolation",
+      "annulation",
+      "validation",
+      "transaction compensatoire",
+      "coh\xE9rence \xE0 terme",
+      "validation en deux phases",
+      "verrou optimiste",
+      "verrou pessimiste",
+      "idempotent"
+    ]
+  },
+  errorFormatTopic: {
+    en: [
+      "error format",
+      "error response",
+      "error envelope",
+      "error code",
+      "error catalog"
+    ],
+    fr: [
+      "format d'erreur",
+      "r\xE9ponse d'erreur",
+      "enveloppe d'erreur",
+      "code d'erreur",
+      "catalogue d'erreurs"
+    ]
+  },
+  errorFormatSignals: {
+    en: [
+      "error format",
+      "error response format",
+      "error schema",
+      "error contract",
+      "rfc 7807",
+      "problem detail",
+      "error code",
+      "error_code",
+      "error response structure",
+      "standardized error",
+      "consistent error",
+      "error envelope",
+      "error body",
+      "machine-readable error"
+    ],
+    fr: [
+      "format d'erreur",
+      "format de r\xE9ponse d'erreur",
+      "sch\xE9ma d'erreur",
+      "contrat d'erreur",
+      "d\xE9tail du probl\xE8me",
+      "code d'erreur",
+      "structure de r\xE9ponse d'erreur",
+      "erreur standardis\xE9e",
+      "erreur coh\xE9rente",
+      "enveloppe d'erreur",
+      "corps d'erreur",
+      "erreur exploitable par une machine"
+    ]
+  }
+};
+
+// packages/validation/dist/hard-output-rules/rules/lexicon-quality.js
+var QUALITY_LEXICON = {
+  namedConstantSignals: {
+    en: [
+      "named constant",
+      "named variable",
+      "const ",
+      "static let",
+      "static final",
+      "companion object",
+      "no magic number",
+      "extract constant",
+      "configuration value"
+    ],
+    fr: [
+      "constante nomm\xE9e",
+      "constantes nomm\xE9es",
+      "variable nomm\xE9e",
+      "aucun nombre magique",
+      "extraire en constante",
+      "valeur de configuration"
+    ]
+  },
+  namingConventionSignals: {
+    en: [
+      "naming convention",
+      "naming standard",
+      "naming rule",
+      "camelcase",
+      "camel case",
+      "snake_case",
+      "snake case",
+      "pascalcase",
+      "pascal case",
+      "kebab-case",
+      "descriptive name",
+      "self-documenting",
+      "meaningful name",
+      "no abbreviation",
+      "full word",
+      "consistent naming"
+    ],
+    fr: [
+      "convention de nommage",
+      "conventions de nommage",
+      "r\xE8gle de nommage",
+      "nom descriptif",
+      "nom explicite",
+      "nommage coh\xE9rent",
+      "pas d'abr\xE9viation"
+    ]
+  },
+  defensiveCodingSignals: {
+    en: [
+      "guard",
+      "precondition",
+      "require",
+      "assert",
+      "null safe",
+      "null check",
+      "nil check",
+      "optional",
+      "non-null",
+      "nonnull",
+      "notnull",
+      "bounds check",
+      "range check",
+      "defensive",
+      "fail fast",
+      "early return",
+      "validation",
+      "contract",
+      "invariant"
+    ],
+    fr: [
+      "garde",
+      "pr\xE9condition",
+      "v\xE9rification de nullit\xE9",
+      "s\xE9curit\xE9 vis-\xE0-vis des valeurs nulles",
+      "v\xE9rification des limites",
+      "v\xE9rification de plage",
+      "d\xE9fensif",
+      "\xE9chec rapide",
+      "retour anticip\xE9",
+      "validation",
+      "contrat",
+      "invariant"
+    ]
+  },
+  apiContractTopic: {
+    en: ["api contract", "endpoint", "api", "public interface"],
+    fr: ["contrat d'api", "point de terminaison", "api", "interface publique"]
+  },
+  apiContractDocumentationSignals: {
+    en: [
+      "request schema",
+      "response schema",
+      "api contract",
+      "openapi",
+      "swagger",
+      "api spec",
+      "endpoint spec",
+      "request body",
+      "response body",
+      "status code",
+      "content-type",
+      "accept header",
+      "api documentation",
+      "typed request",
+      "typed response"
+    ],
+    fr: [
+      "sch\xE9ma de requ\xEAte",
+      "sch\xE9ma de r\xE9ponse",
+      "contrat d'api",
+      "sp\xE9cification d'api",
+      "sp\xE9cification de point de terminaison",
+      "corps de la requ\xEAte",
+      "corps de la r\xE9ponse",
+      "code de statut",
+      "documentation de l'api",
+      "requ\xEAte typ\xE9e",
+      "r\xE9ponse typ\xE9e"
+    ]
+  },
+  deprecationTopic: {
+    en: ["deprecation", "api version", "breaking change", "public api"],
+    fr: [
+      "d\xE9pr\xE9ciation",
+      "version de l'api",
+      "changement incompatible",
+      "api publique"
+    ]
+  },
+  deprecationStrategySignals: {
+    en: [
+      "deprecat",
+      "sunset",
+      "breaking change",
+      "migration path",
+      "backward compat",
+      "backwards compat",
+      "version",
+      "api version",
+      "v1",
+      "v2",
+      "changelog",
+      "upgrade guide",
+      "migration guide"
+    ],
+    fr: [
+      "obsol\xE8t",
+      "d\xE9pr\xE9ciat",
+      "fin de vie",
+      "changement incompatible",
+      "chemin de migration",
+      "r\xE9trocompatibilit\xE9",
+      "version",
+      "version de l'api",
+      "journal des modifications",
+      "guide de mise \xE0 niveau",
+      "guide de migration"
+    ]
+  }
+};
+
+// packages/validation/dist/hard-output-rules/rules/lexicon.js
+var LEXICON = {
+  ...SHARED_LEXICON,
+  ...SECURITY_LEXICON,
+  ...DATA_PROTECTION_LEXICON,
+  ...OBSERVABILITY_LEXICON,
+  ...RESILIENCE_LEXICON,
+  ...QUALITY_LEXICON
+};
+function phrases(...ids) {
+  const out = [];
+  for (const id of ids) {
+    const concept = LEXICON[id];
+    out.push(...concept.en, ...concept.fr);
+  }
+  return out;
+}
+function matchCount(content, ids) {
+  const lowered = content.toLowerCase();
+  return phrases(...ids).filter((p) => lowered.includes(p)).length;
+}
+function matchesAny(content, ids) {
+  const lowered = content.toLowerCase();
+  return phrases(...ids).some((p) => lowered.includes(p));
+}
+var OPT_OUT_WINDOW = 240;
+function hasExplicitOptOut(content, topicIds) {
+  if (topicIds.length === 0)
+    return false;
+  const lowered = content.toLowerCase();
+  const topicPhrases = phrases(...topicIds);
+  const optOutPhrases = phrases("optOut");
+  for (const topic of topicPhrases) {
+    let idx = lowered.indexOf(topic);
+    while (idx !== -1) {
+      const start = Math.max(0, idx - OPT_OUT_WINDOW);
+      const end = Math.min(lowered.length, idx + topic.length + OPT_OUT_WINDOW);
+      const window = lowered.substring(start, end);
+      for (const marker of optOutPhrases) {
+        if (window.includes(marker))
+          return true;
+      }
+      idx = lowered.indexOf(topic, idx + topic.length);
+    }
+  }
+  return false;
+}
+
 // packages/validation/dist/hard-output-rules/rules/security-rules.js
 function checkNoHardcodedSecrets(content, sectionType) {
   const violations = [];
@@ -25322,13 +26690,7 @@ function checkNoHardcodedSecrets(content, sectionType) {
     }
   }
   const lowered = content.toLowerCase();
-  const dangerousPhrases = [
-    "hardcode the password",
-    "hardcode the key",
-    "embed the secret",
-    "paste your api key",
-    "put your token directly"
-  ];
+  const dangerousPhrases = phrases("dangerousSecretPhrases");
   for (const phrase of dangerousPhrases) {
     if (lowered.includes(phrase)) {
       violations.push(makeViolation("no_hardcoded_secrets", sectionType, "Spec instructs hardcoding secrets \u2014 must use secure configuration (env vars, vault, secret manager).", phrase));
@@ -25337,48 +26699,16 @@ function checkNoHardcodedSecrets(content, sectionType) {
   return violations;
 }
 function checkInputValidationRequired(content, sectionType) {
-  return findAbsenceViolation(content, [
-    "input validation",
-    "validate input",
-    "sanitize",
-    "sanitization",
-    "whitelist",
-    "allowlist",
-    "blocklist",
-    "reject invalid",
-    "schema validation",
-    "request validation",
-    "payload validation",
-    "type check",
-    "bounds check",
-    "length check",
-    "format validation",
-    "validate request",
-    "input filter",
-    "data validation"
-  ], 2, "input_validation_required", sectionType, "Technical spec must specify input validation strategy \u2014 every external input (API, user, file, webhook) needs validation and sanitization rules at system boundaries.");
+  if (hasExplicitOptOut(content, ["inputValidationTopic"])) {
+    return [];
+  }
+  return findAbsenceViolation(content, phrases("inputValidationSignals"), 2, "input_validation_required", sectionType, "Technical spec must specify input validation strategy \u2014 every external input (API, user, file, webhook) needs validation and sanitization rules at system boundaries.");
 }
 function checkOutputEncodingInjectionPrevention(content, sectionType) {
-  const lowered = content.toLowerCase();
-  const injectionSignals = [
-    "injection prevention",
-    "sql injection",
-    "xss",
-    "cross-site scripting",
-    "command injection",
-    "output encoding",
-    "escape",
-    "parameterized quer",
-    "prepared statement",
-    "orm",
-    "html encoding",
-    "content security policy",
-    "csp",
-    "sanitize output",
-    "template escaping",
-    "injection attack"
-  ];
-  const signalCount = injectionSignals.filter((s) => lowered.includes(s)).length;
+  if (hasExplicitOptOut(content, ["injectionTopic"])) {
+    return [];
+  }
+  const signalCount = matchCount(content, ["injectionSignals"]);
   if (signalCount < 2) {
     return [
       makeViolation("output_encoding_injection_prevention", sectionType, "Technical spec must address injection prevention \u2014 specify parameterized queries (SQL injection), output encoding (XSS), and input sanitization strategies.")
@@ -25410,48 +26740,11 @@ function checkOutputEncodingInjectionPrevention(content, sectionType) {
   return violations;
 }
 function checkAuthOnEveryEndpoint(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "authentication",
-    "authorization",
-    "endpoint",
-    "auth strategy",
-    "caller identity"
-  ])) {
+  if (hasExplicitOptOut(content, ["authTopic"])) {
     return [];
   }
-  const lowered = content.toLowerCase();
-  const authNSignals = [
-    "authentication",
-    "authenticate",
-    "login",
-    "sign in",
-    "jwt",
-    "oauth",
-    "api key",
-    "bearer token",
-    "session",
-    "identity",
-    "credential",
-    "mfa",
-    "multi-factor",
-    "sso"
-  ];
-  const authZSignals = [
-    "authorization",
-    "authorize",
-    "permission",
-    "role",
-    "rbac",
-    "abac",
-    "access control",
-    "privilege",
-    "scope",
-    "claim",
-    "policy",
-    "grant"
-  ];
-  const hasAuthN = authNSignals.some((s) => lowered.includes(s));
-  const hasAuthZ = authZSignals.some((s) => lowered.includes(s));
+  const hasAuthN = matchesAny(content, ["authNSignals"]);
+  const hasAuthZ = matchesAny(content, ["authZSignals"]);
   if (!hasAuthN || !hasAuthZ) {
     const missing = [];
     if (!hasAuthN)
@@ -25465,26 +26758,12 @@ function checkAuthOnEveryEndpoint(content, sectionType) {
   return [];
 }
 function checkSecuritySafeErrorHandling(content, sectionType) {
-  const lowered = content.toLowerCase();
-  const safeErrorSignals = [
-    "no stack trace",
-    "hide internal",
-    "generic error",
-    "error message sanitiz",
-    "no implementation detail",
-    "user-facing error",
-    "error boundary",
-    "safe error",
-    "don't leak",
-    "do not expose",
-    "error abstraction",
-    "error mapping",
-    "client-safe",
-    "production error"
-  ];
-  const signalCount = safeErrorSignals.filter((s) => lowered.includes(s)).length;
+  if (hasExplicitOptOut(content, ["safeErrorTopic"])) {
+    return [];
+  }
+  const signalCount = matchCount(content, ["safeErrorSignals"]);
   if (signalCount < 1) {
-    const hasErrorSecurity = lowered.includes("error") && (lowered.includes("secur") || lowered.includes("sensitive"));
+    const hasErrorSecurity = matchesAny(content, ["errorTermSignals"]) && matchesAny(content, ["securityOrSensitiveTermSignals"]);
     if (!hasErrorSecurity) {
       return [
         makeViolation("security_safe_error_handling", sectionType, "Technical spec must ensure errors don't leak implementation details \u2014 no stack traces, internal paths, DB schemas, or server versions in error responses to clients.")
@@ -25494,28 +26773,11 @@ function checkSecuritySafeErrorHandling(content, sectionType) {
   return [];
 }
 function checkCryptographicStandards(content, sectionType) {
-  const lowered = content.toLowerCase();
+  if (hasExplicitOptOut(content, ["cryptoTopic"])) {
+    return [];
+  }
   const violations = [];
-  const cryptoSignals = [
-    "encrypt",
-    "encryption",
-    "aes",
-    "rsa",
-    "tls",
-    "hash",
-    "bcrypt",
-    "argon2",
-    "scrypt",
-    "pbkdf2",
-    "hmac",
-    "sha-256",
-    "sha-384",
-    "sha-512",
-    "key management",
-    "key rotation",
-    "certificate"
-  ];
-  const signalCount = cryptoSignals.filter((s) => lowered.includes(s)).length;
+  const signalCount = matchCount(content, ["cryptoSignals"]);
   if (signalCount < 2) {
     violations.push(makeViolation("cryptographic_standards", sectionType, "Technical spec must specify cryptographic standards \u2014 define encryption algorithms, hashing for passwords (bcrypt/argon2), minimum key sizes, and key management strategy."));
   }
@@ -25536,136 +26798,35 @@ function checkCryptographicStandards(content, sectionType) {
   return violations;
 }
 function checkRateLimitingRequired(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "rate limit",
-    "rate limiting",
-    "throttl",
-    "endpoint",
-    "abuse prevention"
-  ])) {
+  if (hasExplicitOptOut(content, ["rateLimitTopic"])) {
     return [];
   }
-  return findAbsenceViolation(content, [
-    "rate limit",
-    "rate-limit",
-    "throttl",
-    "request limit",
-    "quota",
-    "burst limit",
-    "sliding window",
-    "token bucket",
-    "leaky bucket",
-    "ddos",
-    "abuse prevention",
-    "requests per",
-    "calls per"
-  ], 1, "rate_limiting_required", sectionType, "Technical spec must specify rate limiting strategy \u2014 define request limits per user/IP, throttling behavior, and abuse prevention for public-facing endpoints.");
+  return findAbsenceViolation(content, phrases("rateLimitSignals"), 1, "rate_limiting_required", sectionType, "Technical spec must specify rate limiting strategy \u2014 define request limits per user/IP, throttling behavior, and abuse prevention for public-facing endpoints.");
 }
 function checkSecureCommunication(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "tls",
-    "https",
-    "network i/o",
-    "network",
-    "secure communication",
-    "transport",
-    "encrypted channel"
-  ])) {
+  if (hasExplicitOptOut(content, ["secureCommTopic"])) {
     return [];
   }
-  return findAbsenceViolation(content, [
-    "tls",
-    "https",
-    "ssl",
-    "transport layer security",
-    "encrypt in transit",
-    "encryption in transit",
-    "certificate",
-    "cert pinning",
-    "certificate pinning",
-    "mutual tls",
-    "mtls",
-    "secure channel",
-    "encrypted connection"
-  ], 1, "secure_communication", sectionType, "Technical spec must specify secure communication \u2014 TLS requirements, certificate validation, no mixed content, encrypted channels for all data in transit.");
+  return findAbsenceViolation(content, phrases("secureCommSignals"), 1, "secure_communication", sectionType, "Technical spec must specify secure communication \u2014 TLS requirements, certificate validation, no mixed content, encrypted channels for all data in transit.");
 }
 
 // packages/validation/dist/hard-output-rules/rules/data-protection-rules.js
 function checkDataClassificationRequired(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "data classification",
-    "sensitivity",
-    "pii",
-    "personal data",
-    "sensitive data"
-  ])) {
+  if (hasExplicitOptOut(content, ["dataClassificationTopic"])) {
     return [];
   }
-  return findAbsenceViolation(content, [
-    "data classification",
-    "classify",
-    "classification level",
-    "public data",
-    "internal data",
-    "confidential",
-    "restricted",
-    "sensitivity level",
-    "sensitivity class",
-    "data tier",
-    "data category",
-    "personal data",
-    "non-personal",
-    "pii",
-    "phi",
-    "pci",
-    "sensitive data"
-  ], 2, "data_classification_required", sectionType, "Technical spec must classify all data entities \u2014 define sensitivity levels (public/internal/confidential/restricted) with handling rules per classification.");
+  return findAbsenceViolation(content, phrases("dataClassificationSignals"), 2, "data_classification_required", sectionType, "Technical spec must classify all data entities \u2014 define sensitivity levels (public/internal/confidential/restricted) with handling rules per classification.");
 }
 function checkSensitiveDataProtection(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "sensitive data",
-    "sensitive data protection",
-    "pii",
-    "personal data",
-    "credentials",
-    "secrets"
-  ])) {
+  if (hasExplicitOptOut(content, ["sensitiveDataTopic"])) {
     return [];
   }
-  const lowered = content.toLowerCase();
-  const encryptionSignals = [
-    "encrypt at rest",
-    "encryption at rest",
-    "field-level encryption",
-    "column encryption",
-    "database encryption",
-    "aes"
-  ];
-  const maskingSignals = [
-    "mask",
-    "anonymiz",
-    "pseudonymiz",
-    "redact",
-    "obfuscat",
-    "tokeniz",
-    "de-identif",
-    "data scrub"
-  ];
-  const accessSignals = [
-    "row-level security",
-    "rls",
-    "column-level",
-    "field-level access",
-    "data access control",
-    "need-to-know",
-    "least privilege"
-  ];
   let categoriesMet = 0;
-  if (encryptionSignals.some((s) => lowered.includes(s)))
+  if (matchesAny(content, ["encryptionAtRestSignals"]))
     categoriesMet++;
-  if (maskingSignals.some((s) => lowered.includes(s)))
+  if (matchesAny(content, ["maskingSignals"]))
     categoriesMet++;
-  if (accessSignals.some((s) => lowered.includes(s)))
+  if (matchesAny(content, ["accessControlSignals"]))
     categoriesMet++;
   if (categoriesMet < 2) {
     return [
@@ -25675,34 +26836,11 @@ function checkSensitiveDataProtection(content, sectionType) {
   return [];
 }
 function checkNoSensitiveDataInLogs(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "sensitive data",
-    "pii",
-    "personal data",
-    "log",
-    "credentials",
-    "tokens"
-  ])) {
+  if (hasExplicitOptOut(content, ["noSensitiveInLogsTopic"])) {
     return [];
   }
-  const lowered = content.toLowerCase();
-  const noLogPIISignals = [
-    "no pii in log",
-    "mask in log",
-    "redact in log",
-    "filter sensitive",
-    "log sanitiz",
-    "scrub log",
-    "no sensitive data in log",
-    "log masking",
-    "exclude pii",
-    "strip pii",
-    "no personal data in log",
-    "structured log",
-    "safe logging"
-  ];
-  const hasLogProtection = noLogPIISignals.some((s) => lowered.includes(s));
-  const broaderSignals = lowered.includes("sensitive") && lowered.includes("log") && (lowered.includes("never") || lowered.includes("must not") || lowered.includes("exclude") || lowered.includes("prevent"));
+  const hasLogProtection = matchesAny(content, ["noLogPIISignals"]);
+  const broaderSignals = matchesAny(content, ["sensitiveTermSignals"]) && matchesAny(content, ["logTermSignals"]) && matchesAny(content, ["negationActionSignals"]);
   if (!hasLogProtection && !broaderSignals) {
     return [
       makeViolation("no_sensitive_data_in_logs", sectionType, "Technical spec must explicitly prevent sensitive data (PII, credentials, tokens) from appearing in logs, error messages, URLs, or query parameters.")
@@ -25711,95 +26849,23 @@ function checkNoSensitiveDataInLogs(content, sectionType) {
   return [];
 }
 function checkDataMinimization(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "data minimization",
-    "personal data",
-    "pii",
-    "user data",
-    "data collected"
-  ])) {
+  if (hasExplicitOptOut(content, ["dataMinimizationTopic"])) {
     return [];
   }
-  return findAbsenceViolation(content, [
-    "data minimization",
-    "minimal data",
-    "minimise",
-    "collect only",
-    "store only",
-    "need-to-know",
-    "purpose limitation",
-    "data purpose",
-    "justified",
-    "necessary data",
-    "required fields only",
-    "no unnecessary",
-    "reduce data footprint"
-  ], 1, "data_minimization", sectionType, "Technical spec must address data minimization \u2014 collect and store only what's necessary, justify every sensitive field, define purpose limitation.");
+  return findAbsenceViolation(content, phrases("dataMinimizationSignals"), 1, "data_minimization", sectionType, "Technical spec must address data minimization \u2014 collect and store only what's necessary, justify every sensitive field, define purpose limitation.");
 }
 function checkAuditTrailRequired(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "audit",
-    "audit trail",
-    "compliance",
-    "authentication events",
-    "data access"
-  ])) {
+  if (hasExplicitOptOut(content, ["auditTrailTopic"])) {
     return [];
   }
-  return findAbsenceViolation(content, [
-    "audit trail",
-    "audit log",
-    "audit event",
-    "who did what",
-    "who/what/when",
-    "accountability",
-    "compliance log",
-    "activity log",
-    "change log",
-    "access log",
-    "security log",
-    "event sourcing",
-    "tamper-proof log",
-    "immutable log"
-  ], 1, "audit_trail_required", sectionType, "Technical spec must require audit trails for sensitive operations \u2014 log who/what/when for authentication events, data access, configuration changes, and admin actions.");
+  return findAbsenceViolation(content, phrases("auditTrailSignals"), 1, "audit_trail_required", sectionType, "Technical spec must require audit trails for sensitive operations \u2014 log who/what/when for authentication events, data access, configuration changes, and admin actions.");
 }
 function checkConsentAndErasureSupport(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "consent",
-    "erasure",
-    "personal data",
-    "gdpr",
-    "privacy compliance",
-    "user data"
-  ])) {
+  if (hasExplicitOptOut(content, ["consentErasureTopic"])) {
     return [];
   }
-  const lowered = content.toLowerCase();
-  const consentSignals = [
-    "consent",
-    "opt-in",
-    "opt-out",
-    "user agreement",
-    "privacy preference",
-    "data subject",
-    "lawful basis"
-  ];
-  const erasureSignals = [
-    "right to erasure",
-    "right to deletion",
-    "right to be forgotten",
-    "gdpr erasure",
-    "data deletion",
-    "cascade delete",
-    "soft delete",
-    "hard delete",
-    "purge",
-    "anonymize on delete",
-    "account deletion",
-    "data removal"
-  ];
-  const hasConsent = consentSignals.some((s) => lowered.includes(s));
-  const hasErasure = erasureSignals.some((s) => lowered.includes(s));
+  const hasConsent = matchesAny(content, ["consentSignals"]);
+  const hasErasure = matchesAny(content, ["erasureSignals"]);
   if (!hasConsent && !hasErasure) {
     return [
       makeViolation("consent_and_erasure_support", sectionType, "Technical spec must support consent management and data erasure \u2014 specify how user consent is tracked, how deletion cascades through the data model, and GDPR/privacy compliance.")
@@ -25810,44 +26876,11 @@ function checkConsentAndErasureSupport(content, sectionType) {
 
 // packages/validation/dist/hard-output-rules/rules/resilience-rules.js
 function checkStructuredErrorHandling(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "error",
-    "exception",
-    "error handling",
-    "error propagation",
-    "swallowed exception"
-  ])) {
+  if (hasExplicitOptOut(content, ["errorHandlingTopic"])) {
     return [];
   }
-  const lowered = content.toLowerCase();
-  const domainErrorSignals = [
-    "domain error",
-    "error type",
-    "error enum",
-    "error class",
-    "custom exception",
-    "business exception",
-    "typed error",
-    "error hierarchy",
-    "error code",
-    "error catalog"
-  ];
-  const propagationSignals = [
-    "error propagation",
-    "error boundary",
-    "error handling strategy",
-    "catch and rethrow",
-    "error translation",
-    "error mapping",
-    "exception filter",
-    "global error handler",
-    "error middleware",
-    "no swallow",
-    "never swallow",
-    "always propagate"
-  ];
-  const hasDomainErrors = domainErrorSignals.some((s) => lowered.includes(s));
-  const hasPropagation = propagationSignals.some((s) => lowered.includes(s));
+  const hasDomainErrors = matchesAny(content, ["domainErrorSignals"]);
+  const hasPropagation = matchesAny(content, ["propagationSignals"]);
   if (!hasDomainErrors && !hasPropagation) {
     return [
       makeViolation("structured_error_handling", sectionType, "Technical spec must define structured error handling \u2014 domain-specific error types, no swallowed exceptions, no generic catch-all, and explicit error propagation strategy.")
@@ -25856,115 +26889,28 @@ function checkStructuredErrorHandling(content, sectionType) {
   return [];
 }
 function checkResiliencePatterns(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "resilience",
-    "circuit breaker",
-    "retry",
-    "external dependency",
-    "remote call",
-    "transient"
-  ])) {
+  if (hasExplicitOptOut(content, ["resiliencePatternsTopic"])) {
     return [];
   }
-  return findAbsenceViolation(content, [
-    "circuit breaker",
-    "retry",
-    "exponential backoff",
-    "timeout",
-    "bulkhead",
-    "rate limit",
-    "failure isolation",
-    "fault tolerance",
-    "resilience",
-    "health check",
-    "dead letter",
-    "fallback",
-    "backpressure",
-    "load shedding"
-  ], 2, "resilience_patterns", sectionType, "Technical spec must specify resilience patterns \u2014 circuit breaker for external dependencies, retry with exponential backoff, and timeout on every external call.");
+  return findAbsenceViolation(content, phrases("resiliencePatternsSignals"), 2, "resilience_patterns", sectionType, "Technical spec must specify resilience patterns \u2014 circuit breaker for external dependencies, retry with exponential backoff, and timeout on every external call.");
 }
 function checkGracefulDegradation(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "graceful degradation",
-    "degradation",
-    "fallback",
-    "dependency failure",
-    "cascading failure"
-  ])) {
+  if (hasExplicitOptOut(content, ["gracefulDegradationTopic"])) {
     return [];
   }
-  return findAbsenceViolation(content, [
-    "graceful degradation",
-    "degrade gracefully",
-    "fallback",
-    "fail gracefully",
-    "partial failure",
-    "degraded mode",
-    "offline mode",
-    "cache fallback",
-    "default response",
-    "service unavailable",
-    "cascading failure",
-    "blast radius"
-  ], 1, "graceful_degradation", sectionType, "Technical spec must define graceful degradation \u2014 specify fallback behavior when dependencies fail, prevent cascading failures, and define degraded operation modes.");
+  return findAbsenceViolation(content, phrases("gracefulDegradationSignals"), 1, "graceful_degradation", sectionType, "Technical spec must define graceful degradation \u2014 specify fallback behavior when dependencies fail, prevent cascading failures, and define degraded operation modes.");
 }
 function checkTransactionBoundaries(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "transaction",
-    "rollback",
-    "atomic",
-    "multi-step",
-    "read-only",
-    "no writes",
-    "database"
-  ])) {
+  if (hasExplicitOptOut(content, ["transactionBoundariesTopic"])) {
     return [];
   }
-  return findAbsenceViolation(content, [
-    "transaction",
-    "transactional",
-    "atomicity",
-    "atomic operation",
-    "isolation level",
-    "rollback",
-    "commit",
-    "saga",
-    "compensating transaction",
-    "eventual consistency",
-    "two-phase commit",
-    "optimistic lock",
-    "pessimistic lock",
-    "idempoten",
-    "exactly-once",
-    "at-least-once"
-  ], 2, "transaction_boundaries", sectionType, "Technical spec must define transaction boundaries \u2014 specify transaction scope, isolation level, rollback strategy, and idempotency for multi-step operations.");
+  return findAbsenceViolation(content, phrases("transactionBoundariesSignals"), 2, "transaction_boundaries", sectionType, "Technical spec must define transaction boundaries \u2014 specify transaction scope, isolation level, rollback strategy, and idempotency for multi-step operations.");
 }
 function checkConsistentErrorFormat(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "error format",
-    "error response",
-    "error envelope",
-    "error code",
-    "error catalog"
-  ])) {
+  if (hasExplicitOptOut(content, ["errorFormatTopic"])) {
     return [];
   }
-  return findAbsenceViolation(content, [
-    "error format",
-    "error response format",
-    "error schema",
-    "error contract",
-    "rfc 7807",
-    "problem detail",
-    "error code",
-    "error_code",
-    "error response structure",
-    "standardized error",
-    "consistent error",
-    "error envelope",
-    "error body",
-    "machine-readable error"
-  ], 1, "consistent_error_format", sectionType, "Technical spec must define a consistent error response format \u2014 standardized structure with error codes, human-readable messages, and machine-readable details (e.g., RFC 7807).");
+  return findAbsenceViolation(content, phrases("errorFormatSignals"), 1, "consistent_error_format", sectionType, "Technical spec must define a consistent error response format \u2014 standardized structure with error codes, human-readable messages, and machine-readable details (e.g., RFC 7807).");
 }
 
 // packages/validation/dist/hard-output-rules/rules/concurrency-rules.js
@@ -26043,46 +26989,14 @@ function checkNoMagicNumbers(content, sectionType) {
       violations.push(makeViolation("no_magic_numbers", sectionType, "Code examples contain multiple raw numeric literals \u2014 extract to named constants (e.g., MAX_RETRY_COUNT, DEFAULT_TIMEOUT_MS) for maintainability.", `Found ${matches.length} magic numbers in code block`));
     }
   }
-  const lowered = content.toLowerCase();
-  const constantSignals = [
-    "named constant",
-    "named variable",
-    "const ",
-    "static let",
-    "static final",
-    "companion object",
-    "no magic number",
-    "extract constant",
-    "configuration value"
-  ];
-  const hasConstantGuidance = constantSignals.some((s) => lowered.includes(s));
+  const hasConstantGuidance = matchesAny(content, ["namedConstantSignals"]);
   if (!hasConstantGuidance && codeBlocks.length > 0) {
     violations.push(makeViolation("no_magic_numbers", sectionType, "Technical spec should mandate named constants \u2014 all configuration values, thresholds, and limits must be extracted to named constants, not raw literals."));
   }
   return violations;
 }
 function checkDefensiveCoding(content, sectionType) {
-  return findAbsenceViolation(content, [
-    "guard",
-    "precondition",
-    "require",
-    "assert",
-    "null safe",
-    "null check",
-    "nil check",
-    "optional",
-    "non-null",
-    "nonnull",
-    "notnull",
-    "bounds check",
-    "range check",
-    "defensive",
-    "fail fast",
-    "early return",
-    "validation",
-    "contract",
-    "invariant"
-  ], 2, "defensive_coding", sectionType, "Technical spec must enforce defensive coding \u2014 guard clauses, preconditions, null safety, bounds checking at all entry points. Fail fast on invalid state.");
+  return findAbsenceViolation(content, phrases("defensiveCodingSignals"), 2, "defensive_coding", sectionType, "Technical spec must enforce defensive coding \u2014 guard clauses, preconditions, null safety, bounds checking at all entry points. Fail fast on invalid state.");
 }
 function checkMethodSizeLimits(content, sectionType) {
   const violations = [];
@@ -26122,60 +27036,19 @@ function checkMethodSizeLimits(content, sectionType) {
   return violations;
 }
 function checkConsistentNaming(content, sectionType) {
-  return findAbsenceViolation(content, [
-    "naming convention",
-    "naming standard",
-    "naming rule",
-    "camelcase",
-    "camel case",
-    "snake_case",
-    "snake case",
-    "pascalcase",
-    "pascal case",
-    "kebab-case",
-    "descriptive name",
-    "self-documenting",
-    "meaningful name",
-    "no abbreviation",
-    "full word",
-    "consistent naming"
-  ], 1, "consistent_naming", sectionType, "Technical spec should establish naming conventions \u2014 specify casing style, use descriptive names, avoid abbreviations in public APIs, and enforce consistent patterns.");
+  return findAbsenceViolation(content, phrases("namingConventionSignals"), 1, "consistent_naming", sectionType, "Technical spec should establish naming conventions \u2014 specify casing style, use descriptive names, avoid abbreviations in public APIs, and enforce consistent patterns.");
 }
 function checkAPIContractDocumentation(content, sectionType) {
-  return findAbsenceViolation(content, [
-    "request schema",
-    "response schema",
-    "api contract",
-    "openapi",
-    "swagger",
-    "api spec",
-    "endpoint spec",
-    "request body",
-    "response body",
-    "status code",
-    "content-type",
-    "accept header",
-    "api documentation",
-    "typed request",
-    "typed response"
-  ], 2, "api_contract_documentation", sectionType, "Technical spec must document API contracts \u2014 every endpoint needs typed request/response schemas, status codes, error responses, and content-type specifications.");
+  if (hasExplicitOptOut(content, ["apiContractTopic"])) {
+    return [];
+  }
+  return findAbsenceViolation(content, phrases("apiContractDocumentationSignals"), 2, "api_contract_documentation", sectionType, "Technical spec must document API contracts \u2014 every endpoint needs typed request/response schemas, status codes, error responses, and content-type specifications.");
 }
 function checkDeprecationStrategy(content, sectionType) {
-  return findAbsenceViolation(content, [
-    "deprecat",
-    "sunset",
-    "breaking change",
-    "migration path",
-    "backward compat",
-    "backwards compat",
-    "version",
-    "api version",
-    "v1",
-    "v2",
-    "changelog",
-    "upgrade guide",
-    "migration guide"
-  ], 1, "deprecation_strategy", sectionType, "Technical spec should define deprecation strategy \u2014 specify migration paths for breaking changes, sunset timelines, and versioning approach.");
+  if (hasExplicitOptOut(content, ["deprecationTopic"])) {
+    return [];
+  }
+  return findAbsenceViolation(content, phrases("deprecationStrategySignals"), 1, "deprecation_strategy", sectionType, "Technical spec should define deprecation strategy \u2014 specify migration paths for breaking changes, sunset timelines, and versioning approach.");
 }
 
 // packages/validation/dist/hard-output-rules/rules/testing-rules.js
@@ -26348,28 +27221,11 @@ function checkTestIsolation(content, sectionType) {
 
 // packages/validation/dist/hard-output-rules/rules/observability-rules.js
 function checkStructuredLogging(content, sectionType) {
-  const lowered = content.toLowerCase();
-  const formatSignals = [
-    "structured log",
-    "json log",
-    "log format",
-    "log schema",
-    "log standard",
-    "log framework"
-  ];
-  const levelSignals = [
-    "log level",
-    "debug",
-    "info",
-    "warn",
-    "error",
-    "trace",
-    "fatal",
-    "severity",
-    "verbosity"
-  ];
-  const hasFormat = formatSignals.some((s) => lowered.includes(s));
-  const hasLevels = levelSignals.filter((s) => lowered.includes(s)).length >= 2;
+  if (hasExplicitOptOut(content, ["structuredLoggingTopic"])) {
+    return [];
+  }
+  const hasFormat = matchesAny(content, ["structuredLoggingFormatSignals"]);
+  const hasLevels = matchCount(content, ["structuredLoggingLevelSignals"]) >= 2;
   if (!hasFormat && !hasLevels) {
     return [
       makeViolation("structured_logging", sectionType, "Technical spec must define structured logging \u2014 specify log format (JSON/structured), log levels (DEBUG/INFO/WARN/ERROR), and what to log at each level.")
@@ -26378,63 +27234,17 @@ function checkStructuredLogging(content, sectionType) {
   return [];
 }
 function checkDistributedTracing(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "distributed tracing",
-    "tracing",
-    "correlation id",
-    "single-process",
-    "single process",
-    "cross-service",
-    "second hop"
-  ])) {
+  if (hasExplicitOptOut(content, ["distributedTracingTopic"])) {
     return [];
   }
-  return findAbsenceViolation(content, [
-    "correlation id",
-    "trace id",
-    "request id",
-    "distributed trac",
-    "opentelemetry",
-    "jaeger",
-    "zipkin",
-    "trace context",
-    "span",
-    "trace propagat",
-    "x-request-id",
-    "x-correlation-id",
-    "end-to-end trac",
-    "cross-service trac"
-  ], 1, "distributed_tracing", sectionType, "Technical spec should specify distributed tracing \u2014 correlation IDs for cross-service request tracking, trace context propagation, and observability integration.");
+  return findAbsenceViolation(content, phrases("distributedTracingSignals"), 1, "distributed_tracing", sectionType, "Technical spec should specify distributed tracing \u2014 correlation IDs for cross-service request tracking, trace context propagation, and observability integration.");
 }
 function checkNoPIIInObservability(content, sectionType) {
-  if (hasExplicitOptOut(content, [
-    "pii",
-    "observability",
-    "personal data",
-    "logs",
-    "metrics",
-    "traces",
-    "dashboards"
-  ])) {
+  if (hasExplicitOptOut(content, ["piiObservabilityTopic"])) {
     return [];
   }
-  const lowered = content.toLowerCase();
-  const piiProtectionSignals = [
-    "no pii in log",
-    "no pii in metric",
-    "no pii in trace",
-    "mask sensitive",
-    "redact",
-    "scrub",
-    "sanitize log",
-    "filter pii",
-    "exclude sensitive",
-    "log safe",
-    "safe to log",
-    "no personal data in"
-  ];
-  const hasProtection = piiProtectionSignals.some((s) => lowered.includes(s));
-  const hasBroader = (lowered.includes("pii") || lowered.includes("sensitive") || lowered.includes("personal data")) && (lowered.includes("log") || lowered.includes("metric") || lowered.includes("trace") || lowered.includes("monitor")) && (lowered.includes("never") || lowered.includes("must not") || lowered.includes("exclude") || lowered.includes("prevent") || lowered.includes("mask") || lowered.includes("redact"));
+  const hasProtection = matchesAny(content, ["piiObservabilitySignals"]);
+  const hasBroader = matchesAny(content, ["piiObservabilityBroaderTopicSignals"]) && matchesAny(content, ["piiObservabilitySurfaceSignals"]) && matchesAny(content, ["piiObservabilityActionSignals"]);
   if (!hasProtection && !hasBroader) {
     return [
       makeViolation("no_pii_in_observability", sectionType, "Technical spec must ensure no PII in observability \u2014 logs, metrics, traces, and dashboards must not contain sensitive personal data. Specify masking/redaction strategy.")
@@ -26443,23 +27253,10 @@ function checkNoPIIInObservability(content, sectionType) {
   return [];
 }
 function checkAlertingThresholds(content, sectionType) {
-  return findAbsenceViolation(content, [
-    "alert",
-    "alerting",
-    "threshold",
-    "alarm",
-    "escalat",
-    "on-call",
-    "pagerduty",
-    "opsgenie",
-    "notification",
-    "sla breach",
-    "slo",
-    "warning threshold",
-    "critical threshold",
-    "runbook",
-    "incident response"
-  ], 2, "alerting_thresholds", sectionType, "Technical spec should define alerting thresholds \u2014 specify what triggers alerts, severity levels, escalation paths, and on-call routing.");
+  if (hasExplicitOptOut(content, ["alertingTopic"])) {
+    return [];
+  }
+  return findAbsenceViolation(content, phrases("alertingSignals"), 2, "alerting_thresholds", sectionType, "Technical spec should define alerting thresholds \u2014 specify what triggers alerts, severity levels, escalation paths, and on-call routing.");
 }
 
 // packages/validation/dist/hard-output-rules/rules/dependency-rules.js
@@ -30332,7 +31129,20 @@ var VerificationPlanSnapshotSchema = external_exports.object({
   /** Claim IDs in dispatch order — index = invocation slot. */
   claim_ids: external_exports.array(external_exports.string()),
   /** Judge identities, parallel to claim_ids by index. */
-  judges: external_exports.array(AgentIdentitySchema)
+  judges: external_exports.array(AgentIdentitySchema),
+  /**
+   * True when the dispatched set was produced by
+   * `sampleWithinCap` (handlers/self-check-verify-budget.ts) rather than
+   * the plain per-claim reduction. Phase B's rederivation
+   * (self-check.ts:parseVerdictsFromSnapshot) MUST apply the same
+   * transform the snapshot was built with, or the rederived plan will
+   * never match and every claim falls back to INCONCLUSIVE via the
+   * plan-mismatch path. Defaults false for backward compatibility with
+   * snapshots predating the budget gate.
+   *
+   * source: self-check budget gate (2026-07-15) — see verify-budget.ts.
+   */
+  sampled: external_exports.boolean().default(false)
 }).refine((s) => s.claim_ids.length === s.judges.length, {
   message: "VerificationPlanSnapshot: claim_ids and judges must have the same length (positional invariant \u2014 see self-check.ts:parseVerdictsFromSnapshot).",
   path: ["judges"]
@@ -30441,6 +31251,29 @@ function initialPostSpecs() {
   return PostSpecsStateSchema.parse({});
 }
 
+// packages/orchestration/dist/types/state/verify-budget.js
+var VerifyBudgetConfigSchema = external_exports.object({
+  /** Judges dispatched per claim, for every claim_type except "architecture". */
+  judges_per_claim: external_exports.number().int().positive(),
+  /**
+   * Judges dispatched per "architecture"-typed claim. Kept above
+   * `judges_per_claim` by default — architecture claims are the highest-
+   * stakes panel in PANELS (judge-selector.ts: high_stakes: true, 5-judge
+   * full panel) so a single judge's mistake is more costly there.
+   */
+  architecture_judges_per_claim: external_exports.number().int().positive(),
+  /**
+   * Above this invocation count (post-reduction, pre-sampling), self-check
+   * emits `ask_user` instead of dispatching `spawn_subagents` — see
+   * handlers/self-check-verify-budget.ts:buildBudgetGateQuestion.
+   */
+  invocation_cap: external_exports.number().int().positive(),
+  /** Model every judge invocation is dispatched under (spawn_subagents invocation.model). */
+  judge_model: external_exports.string(),
+  /** Effort level every judge invocation is dispatched under (spawn_subagents invocation.effort). */
+  judge_effort: external_exports.enum(["low", "medium", "high"])
+});
+
 // packages/orchestration/dist/types/actions.js
 var AskUserActionSchema = external_exports.object({
   kind: external_exports.literal("ask_user"),
@@ -30476,7 +31309,22 @@ var SpawnSubagentsActionSchema = external_exports.object({
     subagent_type: external_exports.string(),
     description: external_exports.string(),
     prompt: external_exports.string(),
-    isolation: external_exports.enum(["worktree", "none"]).default("none")
+    isolation: external_exports.enum(["worktree", "none"]).default("none"),
+    /**
+     * Model the host SHOULD dispatch this invocation under. Optional and
+     * additive — a host that does not read this field falls back to its
+     * own default (typically the session model), so every producer that
+     * omits it is unaffected (backward-compatible). self-check.ts sets
+     * this on every judge invocation (default "haiku" — judging is
+     * read-and-compare work, not frontier reasoning; see
+     * types/state/verify-budget.ts).
+     */
+    model: external_exports.string().optional(),
+    /**
+     * Extended-thinking effort the host SHOULD dispatch this invocation
+     * under. Optional and additive for the same reason as `model`.
+     */
+    effort: external_exports.enum(["low", "medium", "high"]).optional()
   })),
   /** Identifies the batch so the runner can route the batch result on submission. */
   batch_id: external_exports.string(),
@@ -30523,7 +31371,27 @@ var VerificationSummarySchema = external_exports.object({
    * here (not as a new top-level done field) so KPI/test consumers read one
    * typed verification surface.
    */
-  prd_graph_validation: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+  prd_graph_validation: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
+  /**
+   * Per-claim judge verdicts (judge identity, verdict, rationale, caveats,
+   * confidence) — the raw JudgeVerdict[] self-check's Phase B parses before
+   * folding them into `distribution`. Optional CONTRACT field: self-check.ts
+   * (owned separately — see file-export.ts's verification-report module doc)
+   * currently discards this array after computing `distribution`; it is
+   * declared here so a future self-check change can attach it losslessly and
+   * file-export's 10-verification-report.md renders it verbatim the moment
+   * it is populated. Absent (undefined) means "not wired yet, or this run's
+   * `done` predates the field" — consumers MUST treat absence as "unknown",
+   * never as "zero verdicts" (that is `claims_evaluated === 0`, a distinct
+   * fact already carried above).
+   *
+   * source: e2e run_mrlqa0aj_u2rh15 (2026-07-15) — self-check's finalize()
+   * (self-check.ts) computes JudgeVerdict[] via parseVerdicts/
+   * parseVerdictsFromSnapshot but only forwards concludeDocument's
+   * DISTRIBUTION counts to pending_completion.verification; the per-claim
+   * array itself is never exported to a file or surfaced to the user.
+   */
+  judge_verdicts: external_exports.array(JudgeVerdictSchema).optional()
 });
 var DoneActionSchema = external_exports.object({
   kind: external_exports.literal("done"),
@@ -30959,7 +31827,17 @@ var PipelineStateSchema = external_exports.object({
    *
    * source: design-phases-3-5.md §2.1.
    */
-  post_specs: PostSpecsStateSchema.nullable().default(null)
+  post_specs: PostSpecsStateSchema.nullable().default(null),
+  /**
+   * Judge-panel budget override for self-check's multi-judge verification
+   * batch. Composition-root-injected only (mirrors `retry_policy`); the
+   * reducer only reads it. `null` = use DEFAULT_VERIFY_BUDGET
+   * (handlers/self-check-verify-budget.ts).
+   *
+   * source: measured e2e run run_mrlqa0aj_u2rh15 (2026-07-15) — see
+   * verify-budget.ts module doc for the full rationale.
+   */
+  verify_budget: VerifyBudgetConfigSchema.nullable().default(null)
 }).refine((s) => s.errors.length === s.error_kinds.length, {
   message: "PipelineState: errors[] and error_kinds[] must have the same length (lockstep invariant \u2014 use appendError() to append, never spread directly).",
   path: ["error_kinds"]
@@ -31933,6 +32811,7 @@ function reviewInvocationId(attempt) {
 }
 var PR_GATE_QUESTION_ID = "pr_gate";
 var PR_CREATION_INV_ID = "pr_creation_engineer";
+var VERIFY_BUDGET_QUESTION_ID = "self_check_verify_budget";
 
 // packages/orchestration/dist/handlers/input-analysis/git-history.js
 var GIT_HISTORY_BATCH_ID = GIT_HISTORY_INV_ID;
@@ -32867,6 +33746,24 @@ var handleJiraGeneration = ({ state, result }) => {
 // packages/orchestration/dist/handlers/file-export.js
 var OUTPUT_DIR = "prd-output";
 var AFFECTED_SYMBOLS_FILENAME = "stage-5.affected_symbols.json";
+var RUN_NOTES_FILENAME = "00-run-notes.md";
+var SKIP_REASON_TEXT = {
+  not_in_context_profile: "not part of this run's PRD context profile \u2014 never scheduled for generation",
+  failed_validation: "section generation failed validation after the maximum number of attempts",
+  skipped: "not generated in this run"
+};
+function reasonForSectionTypes(state, types) {
+  const planned = state.prd_context ? SECTIONS_BY_CONTEXT[state.prd_context] : null;
+  if (planned && !types.some((t) => planned.includes(t))) {
+    return "not_in_context_profile";
+  }
+  const anyFailed = types.some((t) => state.sections.some((s) => s.section_type === t && s.status === "failed"));
+  return anyFailed ? "failed_validation" : "skipped";
+}
+function jiraSkipReason(state) {
+  const failed = state.errors.some((e3) => e3.startsWith("[jira_generation] failed"));
+  return failed ? "failed_validation" : "skipped";
+}
 function sectionBody(section) {
   const trimmed = section.content.trim();
   return section.section_type === "technical_specification" ? stripAffectedSymbolsBlock(trimmed) : trimmed;
@@ -32884,71 +33781,101 @@ function affectedSymbolsForState(state) {
   const techSpec = state.sections.find((s) => s.section_type === "technical_specification" && s.content);
   return techSpec ? parseAffectedSymbolsBlock(techSpec.content) : { affected_symbols: [], scope_claims: [] };
 }
+var COMPANION_FILES = [
+  { filename: "02-data-model.md", display: "Data Model", sectionTypes: ["data_model"] },
+  { filename: "03-api-spec.md", display: "API Specification", sectionTypes: ["api_specification"] },
+  {
+    filename: "04-security.md",
+    display: "Security & Performance",
+    sectionTypes: ["security_considerations", "performance_requirements"]
+  },
+  { filename: "05-testing.md", display: "Testing Strategy", sectionTypes: ["testing", "acceptance_criteria"] },
+  { filename: "06-deployment.md", display: "Deployment Plan", sectionTypes: ["deployment", "timeline", "risks"] },
+  { filename: "08-source-code.md", display: "Source Code", sectionTypes: ["source_code"] },
+  { filename: "09-test-code.md", display: "Test Code", sectionTypes: ["test_code"] }
+];
+function corePrdFile(state, base) {
+  return {
+    path: `${base}/01-prd.md`,
+    content: () => [
+      `# PRD: ${state.feature_description}`,
+      "",
+      `Run ID: ${state.run_id}`,
+      `Context: ${state.prd_context ?? "unknown"}`,
+      "",
+      joinSections(state, [
+        "overview",
+        "goals",
+        "requirements",
+        "user_stories",
+        "technical_specification",
+        "acceptance_criteria"
+      ])
+    ].join("\n")
+  };
+}
+function companionAndJiraFiles(state, base, skipped) {
+  const files = [];
+  for (const spec of COMPANION_FILES) {
+    const content = joinSections(state, spec.sectionTypes);
+    if (content) {
+      files.push({ path: `${base}/${spec.filename}`, content: () => content });
+    } else {
+      skipped.push({
+        display: spec.display,
+        filename: spec.filename,
+        reason: reasonForSectionTypes(state, spec.sectionTypes)
+      });
+    }
+  }
+  const jira = jiraContent(state);
+  if (jira) {
+    files.push({ path: `${base}/07-jira-tickets.md`, content: () => jira });
+  } else {
+    skipped.push({
+      display: "JIRA Tickets",
+      filename: "07-jira-tickets.md",
+      reason: jiraSkipReason(state)
+    });
+  }
+  return files;
+}
+function affectedSymbolsFile(state, base) {
+  const affected = affectedSymbolsForState(state);
+  if (affected.affected_symbols.length === 0)
+    return null;
+  return {
+    path: `${base}/${AFFECTED_SYMBOLS_FILENAME}`,
+    content: () => JSON.stringify(affected, null, 2)
+  };
+}
+function runNotesFile(base, skipped) {
+  if (skipped.length === 0)
+    return null;
+  const sorted = [...skipped].sort((a, b) => a.filename.localeCompare(b.filename));
+  return {
+    path: `${base}/${RUN_NOTES_FILENAME}`,
+    content: () => [
+      "# Run Notes",
+      "",
+      "The following deliverable files were not generated in this run:",
+      "",
+      ...sorted.map((s) => `- **${s.display}** (\`${s.filename}\`): ${SKIP_REASON_TEXT[s.reason]}.`)
+    ].join("\n")
+  };
+}
 function buildFileSet(state) {
   const slug = state.run_id.slice(0, 8);
   const base = `${OUTPUT_DIR}/${slug}`;
-  const files = [
-    {
-      path: `${base}/01-prd.md`,
-      content: () => [
-        `# PRD: ${state.feature_description}`,
-        "",
-        `Run ID: ${state.run_id}`,
-        `Context: ${state.prd_context ?? "unknown"}`,
-        "",
-        joinSections(state, [
-          "overview",
-          "goals",
-          "requirements",
-          "user_stories",
-          "technical_specification",
-          "acceptance_criteria"
-        ])
-      ].join("\n")
-    },
-    {
-      path: `${base}/02-data-model.md`,
-      content: () => joinSections(state, ["data_model"]) || "_No data model section._"
-    },
-    {
-      path: `${base}/03-api-spec.md`,
-      content: () => joinSections(state, ["api_specification"]) || "_No API spec section._"
-    },
-    {
-      path: `${base}/04-security.md`,
-      content: () => joinSections(state, [
-        "security_considerations",
-        "performance_requirements"
-      ]) || "_No security/performance sections._"
-    },
-    {
-      path: `${base}/05-testing.md`,
-      content: () => joinSections(state, ["testing", "acceptance_criteria"]) || "_No testing section._"
-    },
-    {
-      path: `${base}/06-deployment.md`,
-      content: () => joinSections(state, ["deployment", "timeline", "risks"]) || "_No deployment section._"
-    },
-    {
-      path: `${base}/07-jira-tickets.md`,
-      content: () => jiraContent(state) || "_No JIRA tickets generated._"
-    },
-    {
-      path: `${base}/08-source-code.md`,
-      content: () => joinSections(state, ["source_code"]) || "_Source code section not generated in this run._"
-    },
-    {
-      path: `${base}/09-test-code.md`,
-      content: () => joinSections(state, ["test_code"]) || "_Test code section not generated in this run._"
-    }
-  ];
-  const affected = affectedSymbolsForState(state);
-  if (affected.affected_symbols.length > 0) {
-    files.push({
-      path: `${base}/${AFFECTED_SYMBOLS_FILENAME}`,
-      content: () => JSON.stringify(affected, null, 2)
-    });
-  }
+  const skipped = [];
+  const files = [corePrdFile(state, base)];
+  files.push(...companionAndJiraFiles(state, base, skipped));
+  const affected = affectedSymbolsFile(state, base);
+  if (affected)
+    files.push(affected);
+  const runNotes = runNotesFile(base, skipped);
+  if (runNotes)
+    files.push(runNotes);
   return files;
 }
 var handleFileExport = ({ state, result }) => {
@@ -32988,6 +33915,85 @@ var handleFileExport = ({ state, result }) => {
     }
   };
 };
+var VERIFICATION_REPORT_FILENAME = "10-verification-report.md";
+function runDirFromWrittenFiles(state) {
+  const prd = state.written_files.find((p) => /(^|\/)01-prd\.md$/.test(p));
+  if (!prd)
+    return null;
+  return prd.slice(0, prd.length - "/01-prd.md".length);
+}
+function renderSectionsSummary(state) {
+  if (state.sections.length === 0)
+    return "_No sections were tracked for this run._";
+  return state.sections.map((s) => {
+    const violations = s.last_violations.length > 0 ? `
+  Violations (last attempt): ${s.last_violations.join("; ")}` : "";
+    return `- **${SECTION_DISPLAY_NAMES[s.section_type] ?? s.section_type}**: ${s.status} (attempt ${s.attempt}, ${s.violation_count} violation(s) recorded)${violations}`;
+  }).join("\n");
+}
+function renderDistribution(verification) {
+  if (!verification) {
+    return "_No multi-judge verification ran for this document (zero-claim short-circuit or malformed input)._";
+  }
+  const dist = Object.entries(verification.distribution).map(([verdict, count2]) => `  - ${verdict}: ${count2}`).join("\n");
+  return [
+    `Claims evaluated: ${verification.claims_evaluated}`,
+    dist,
+    verification.distribution_suspicious ? "\u26A0 Distribution suspicious \u2014 100% PASS suggests confirmatory bias." : ""
+  ].filter((l) => l !== "").join("\n");
+}
+function renderJudgeIdentity(judge) {
+  return `${judge.kind}:${judge.name}`;
+}
+function renderJudgeVerdicts(verification) {
+  const verdicts = verification?.judge_verdicts;
+  if (!verdicts || verdicts.length === 0) {
+    return "_Per-claim judge verdicts are not present in this run's state \u2014 multi-judge verification did not run (zero-claim short-circuit) or was explicitly skipped at the budget gate (see actions.ts VerificationSummarySchema.judge_verdicts). No per-claim data is fabricated here._";
+  }
+  const header = "| Claim ID | Judge | Verdict | Confidence | Rationale |";
+  const sep = "|---|---|---|---|---|";
+  const rows = verdicts.map((v) => `| ${v.claim_id} | ${renderJudgeIdentity(v.judge)} | ${v.verdict} | ${v.confidence.toFixed(2)} | ${v.rationale.replace(/\|/g, "\\|")} |`);
+  return [header, sep, ...rows].join("\n");
+}
+function renderGraphValidation(verification) {
+  const report = verification?.prd_graph_validation;
+  if (!report) {
+    return "_No PRD-vs-graph validation ran for this run (no codebase graph was available)._";
+  }
+  return ["```json", JSON.stringify(report, null, 2), "```"].join("\n");
+}
+function buildVerificationReportFile(state) {
+  const pending = state.pending_completion;
+  if (!pending)
+    return null;
+  const dir = runDirFromWrittenFiles(state);
+  if (!dir)
+    return null;
+  return {
+    path: `${dir}/${VERIFICATION_REPORT_FILENAME}`,
+    content: () => [
+      `# Verification Report: ${state.feature_description}`,
+      "",
+      `Run ID: ${state.run_id}`,
+      "",
+      "## Section Statuses & Violations",
+      "",
+      renderSectionsSummary(state),
+      "",
+      "## Multi-Judge Verification Distribution",
+      "",
+      renderDistribution(pending.verification),
+      "",
+      "## Per-Claim Judge Verdicts",
+      "",
+      renderJudgeVerdicts(pending.verification),
+      "",
+      "## PRD-vs-Graph Validation",
+      "",
+      renderGraphValidation(pending.verification)
+    ].join("\n")
+  };
+}
 
 // packages/verification/dist/judge-selector.js
 function genius(name315) {
@@ -33753,8 +34759,87 @@ ${context.memory_excerpts.join("\n---\n")}
   };
 }
 
-// packages/orchestration/dist/handlers/self-check.js
-var VERIFY_BATCH_ID = "self_check_verify";
+// packages/orchestration/dist/handlers/self-check-verify-budget.js
+var DEFAULT_VERIFY_BUDGET = {
+  judges_per_claim: 1,
+  architecture_judges_per_claim: 2,
+  invocation_cap: 20,
+  judge_model: "haiku",
+  judge_effort: "low"
+};
+function resolveVerifyBudget(override) {
+  return override ?? DEFAULT_VERIFY_BUDGET;
+}
+function reduceJudgeRequests(requests, config5) {
+  const seen = /* @__PURE__ */ new Map();
+  const out = [];
+  for (const req of requests) {
+    const claimId = req.claim.claim_id;
+    const limit = req.claim.claim_type === "architecture" ? config5.architecture_judges_per_claim : config5.judges_per_claim;
+    const count2 = seen.get(claimId) ?? 0;
+    if (count2 < limit) {
+      out.push(req);
+    }
+    seen.set(claimId, count2 + 1);
+  }
+  return out;
+}
+function sampleWithinCap(requests, cap) {
+  if (requests.length <= cap)
+    return requests;
+  const included = /* @__PURE__ */ new Set();
+  const seenTypes = /* @__PURE__ */ new Set();
+  for (const req of requests) {
+    if (included.size >= cap)
+      break;
+    if (!seenTypes.has(req.claim.claim_type)) {
+      seenTypes.add(req.claim.claim_type);
+      included.add(req);
+    }
+  }
+  for (const req of requests) {
+    if (included.size >= cap)
+      break;
+    included.add(req);
+  }
+  return requests.filter((r) => included.has(r));
+}
+var VERIFY_BUDGET_OPTION_SAMPLE = "Reduced sample";
+var VERIFY_BUDGET_OPTION_FULL = "Full fleet";
+var VERIFY_BUDGET_OPTION_SKIP = "Skip verification";
+function buildBudgetGateQuestion(invocationCount, config5) {
+  return {
+    kind: "ask_user",
+    question_id: VERIFY_BUDGET_QUESTION_ID,
+    header: "Judge panel exceeds the invocation budget",
+    description: `Self-check's multi-judge verification would dispatch ${invocationCount} judge invocations (default: ${config5.judges_per_claim} judge/claim, ${config5.architecture_judges_per_claim} for architecture claims), above the ${config5.invocation_cap}-invocation budget. Choose how to proceed.`,
+    options: [
+      {
+        label: VERIFY_BUDGET_OPTION_SAMPLE,
+        description: `Sample down to ${config5.invocation_cap} invocations, covering every claim type at least once.`
+      },
+      {
+        label: VERIFY_BUDGET_OPTION_FULL,
+        description: `Run all ${invocationCount} invocations despite the budget (explicit override).`
+      },
+      {
+        label: VERIFY_BUDGET_OPTION_SKIP,
+        description: "Skip multi-judge verification entirely; finalize with deterministic checks only."
+      }
+    ],
+    multi_select: false
+  };
+}
+function verifyBudgetDecisionFromAnswer(result) {
+  const chosen = (result.selected[0] ?? result.freeform ?? "").toLowerCase();
+  if (chosen.includes("full"))
+    return "full";
+  if (chosen.includes("skip"))
+    return "skip";
+  return "sample";
+}
+
+// packages/orchestration/dist/handlers/self-check-prd-validation.js
 var VALIDATE_PRD_CORRELATION_ID = "self_check_validate_prd_against_graph";
 function exportedPrdPath(state) {
   return state.written_files.find((p) => /(^|\/)01-prd\.md$/.test(p)) ?? null;
@@ -33795,6 +34880,17 @@ function handlePrdValidation(state, result) {
     }
   };
 }
+
+// packages/orchestration/dist/handlers/self-check.js
+var VERIFY_BATCH_ID = "self_check_verify";
+var JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS = 500;
+var JUDGE_VERDICT_RATIONALE_TRUNCATION_MARKER = "...";
+function truncateJudgeVerdictRationale(v) {
+  return v.rationale.length > JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS ? {
+    ...v,
+    rationale: v.rationale.slice(0, JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS) + JUDGE_VERDICT_RATIONALE_TRUNCATION_MARKER
+  } : v;
+}
 var RawVerdictSchema = external_exports.object({
   verdict: VerdictSchema,
   rationale: external_exports.string(),
@@ -33807,7 +34903,7 @@ function invocationIdFor(idx) {
 function gatherSections(state) {
   return state.sections.filter((s) => s.content && s.section_type !== "jira_tickets").map((s) => ({ type: s.section_type, content: s.content }));
 }
-function buildVerifyAction(requests) {
+function buildVerifyAction(requests, config5) {
   return {
     kind: "spawn_subagents",
     purpose: "judge",
@@ -33819,7 +34915,9 @@ function buildVerifyAction(requests) {
         subagent_type: agentSubagentType(req.judge),
         description: built.description,
         prompt: built.prompt,
-        isolation: "none"
+        isolation: "none",
+        model: config5.judge_model,
+        effort: config5.judge_effort
       };
     })
   };
@@ -33912,7 +35010,19 @@ function finalize(state, verdicts = []) {
           // Left undefined for non-codebase runs so the prior verification
           // shape is unchanged (backward-compatible). See
           // VerificationSummarySchema.
-          ...state.prd_validation ? { prd_graph_validation: state.prd_validation } : {}
+          ...state.prd_validation ? { prd_graph_validation: state.prd_validation } : {},
+          // Per-claim judge verdicts (VerificationSummarySchema.judge_verdicts,
+          // actions.ts). Omitted (undefined) when `verdicts` is empty — that is
+          // the genuinely-absent case (zero-claim fast path, or the user chose
+          // "Skip verification" at the budget gate) and file-export.ts's
+          // renderJudgeVerdicts() renders an honest gap notice for it. Non-empty
+          // arrays are persisted verbatim (rationale capped defensively — see
+          // JUDGE_VERDICT_RATIONALE_TRUNCATE_CHARS above) so
+          // 10-verification-report.md's "Per-Claim Judge Verdicts" table is
+          // real data, not a permanent gap.
+          // source: e2e run_mrlqa0aj_u2rh15 (2026-07-15) follow-up — see
+          // VerificationSummarySchema.judge_verdicts doc in actions.ts.
+          ...verdicts.length > 0 ? { judge_verdicts: verdicts.map(truncateJudgeVerdictRationale) } : {}
         }
       },
       current_step: "implementation_gate"
@@ -33923,7 +35033,21 @@ function finalize(state, verdicts = []) {
     }
   };
 }
-function handleSelfCheckPhaseA(state) {
+function dispatchVerify(state, requests, config5, sampled) {
+  return {
+    state: {
+      ...state,
+      verification_plan: {
+        batch_id: VERIFY_BATCH_ID,
+        claim_ids: requests.map((r) => r.claim.claim_id),
+        judges: requests.map((r) => r.judge),
+        sampled
+      }
+    },
+    action: buildVerifyAction(requests, config5)
+  };
+}
+function handleSelfCheckPhaseA(state, result) {
   const sections = gatherSections(state);
   if (sections.length === 0) {
     return finalize(state);
@@ -33932,17 +35056,23 @@ function handleSelfCheckPhaseA(state) {
   if (plan.judge_requests.length === 0) {
     return finalize(state);
   }
-  return {
-    state: {
-      ...state,
-      verification_plan: {
-        batch_id: VERIFY_BATCH_ID,
-        claim_ids: plan.judge_requests.map((r) => r.claim.claim_id),
-        judges: plan.judge_requests.map((r) => r.judge)
-      }
-    },
-    action: buildVerifyAction(plan.judge_requests)
-  };
+  const config5 = resolveVerifyBudget(state.verify_budget);
+  const reduced = reduceJudgeRequests(plan.judge_requests, config5);
+  if (reduced.length === 0) {
+    return finalize(state);
+  }
+  if (result?.kind === "user_answer" && result.question_id === VERIFY_BUDGET_QUESTION_ID) {
+    const decision = verifyBudgetDecisionFromAnswer(result);
+    if (decision === "skip") {
+      return finalize(state);
+    }
+    const finalRequests = decision === "sample" ? sampleWithinCap(reduced, config5.invocation_cap) : reduced;
+    return dispatchVerify(state, finalRequests, config5, decision === "sample");
+  }
+  if (reduced.length > config5.invocation_cap) {
+    return { state, action: buildBudgetGateQuestion(reduced.length, config5) };
+  }
+  return dispatchVerify(state, reduced, config5, false);
 }
 function handleSelfCheckPhaseB(state, result) {
   const snapshot = state.verification_plan;
@@ -33971,11 +35101,13 @@ var handleSelfCheck = ({ state, result }) => {
   if (result?.kind === "subagent_batch_result" && result.batch_id === VERIFY_BATCH_ID) {
     return handleSelfCheckPhaseB(stateAfterValidation, result);
   }
-  return handleSelfCheckPhaseA(stateAfterValidation);
+  return handleSelfCheckPhaseA(stateAfterValidation, result);
 };
 function parseVerdictsFromSnapshot(snapshot, state, batchResult) {
   const sections = gatherSections(state);
-  const rederived = planDocumentVerification(sections).judge_requests;
+  const config5 = resolveVerifyBudget(state.verify_budget);
+  const reduced = reduceJudgeRequests(planDocumentVerification(sections).judge_requests, config5);
+  const rederived = snapshot.sampled ? sampleWithinCap(reduced, config5.invocation_cap) : reduced;
   const sameLength = rederived.length === snapshot.claim_ids.length;
   const sameOrder = sameLength && rederived.every((r, i2) => r.claim.claim_id === snapshot.claim_ids[i2]);
   if (sameOrder) {
@@ -34011,17 +35143,40 @@ function parseVerdictsFromSnapshot(snapshot, state, batchResult) {
 function ensurePostSpecs(state) {
   return state.post_specs ?? initialPostSpecs();
 }
+function hasVerificationReport(state) {
+  return state.written_files.some((p) => p.endsWith(VERIFICATION_REPORT_FILENAME));
+}
+function recordReportWrite(state, result) {
+  if (result?.kind === "file_written" && result.path.endsWith(VERIFICATION_REPORT_FILENAME) && !state.written_files.includes(result.path)) {
+    return { ...state, written_files: [...state.written_files, result.path] };
+  }
+  return state;
+}
 function decisionFromAnswer(result) {
   const chosen = (result.selected[0] ?? result.freeform ?? "").toLowerCase();
   return chosen.includes("implement") ? "implement" : "prd_only";
 }
 var handleImplementationGate = ({ state, result }) => {
+  const stateAfterReportWrite = recordReportWrite(state, result);
+  if (result?.kind !== "file_written" && !hasVerificationReport(stateAfterReportWrite)) {
+    const reportFile = buildVerificationReportFile(stateAfterReportWrite);
+    if (reportFile) {
+      return {
+        state: { ...stateAfterReportWrite, post_specs: ensurePostSpecs(stateAfterReportWrite) },
+        action: {
+          kind: "write_file",
+          path: reportFile.path,
+          content: reportFile.content()
+        }
+      };
+    }
+  }
   if (result?.kind === "user_answer" && result.question_id === IMPLEMENTATION_GATE_QUESTION_ID) {
     const decision = decisionFromAnswer(result);
-    const postSpecs = { ...ensurePostSpecs(state), decision };
+    const postSpecs = { ...ensurePostSpecs(stateAfterReportWrite), decision };
     if (decision === "prd_only") {
       return {
-        state: { ...state, post_specs: postSpecs, current_step: "finalize" },
+        state: { ...stateAfterReportWrite, post_specs: postSpecs, current_step: "finalize" },
         action: {
           kind: "emit_message",
           message: "PRD-only run selected. Skipping implementation."
@@ -34029,7 +35184,7 @@ var handleImplementationGate = ({ state, result }) => {
       };
     }
     return {
-      state: { ...state, post_specs: postSpecs, current_step: "pre_impl_grounding" },
+      state: { ...stateAfterReportWrite, post_specs: postSpecs, current_step: "pre_impl_grounding" },
       action: {
         kind: "emit_message",
         message: "Implementation selected. Gathering pre-implementation blast-radius grounding."
@@ -34037,7 +35192,7 @@ var handleImplementationGate = ({ state, result }) => {
     };
   }
   return {
-    state: { ...state, post_specs: ensurePostSpecs(state) },
+    state: { ...stateAfterReportWrite, post_specs: ensurePostSpecs(stateAfterReportWrite) },
     action: {
       kind: "ask_user",
       question_id: IMPLEMENTATION_GATE_QUESTION_ID,
@@ -80395,6 +81550,57 @@ function boundGroundingResponse(state) {
   };
 }
 
+// packages/mcp-server/dist/bound-envelope-action.js
+function wireChars2(value) {
+  return JSON.stringify(value, null, 2).length;
+}
+function boundEnvelopeResponse(payload) {
+  const applied = [];
+  const originalChars = wireChars2(payload);
+  const marker = (finalChars) => ({
+    original_chars: originalChars,
+    final_chars: finalChars,
+    budget_chars: MAX_RESPONSE_CHARS,
+    applied
+  });
+  if (originalChars <= MAX_RESPONSE_CHARS) {
+    return { ...payload, __bounded: marker(originalChars) };
+  }
+  const action = payload.action;
+  if (action && action.kind === "spawn_subagents" && Array.isArray(action.invocations) && action.invocations.length > 0) {
+    const invocations = action.invocations;
+    let reclaimed = 0;
+    const stripped = invocations.map((inv2) => {
+      const prompt = inv2.prompt;
+      if (typeof prompt === "string" && prompt.length > 0) {
+        const chars = wireChars2(prompt);
+        reclaimed += chars;
+        const stub = {
+          omitted: true,
+          chars,
+          hint: `re-fetch via get_pipeline_state(run_id, format:"action") \u2014 full unbounded invocations, including prompts`
+        };
+        return { ...inv2, prompt: stub };
+      }
+      return inv2;
+    });
+    if (reclaimed > 0) {
+      const boundedPayload = {
+        ...payload,
+        action: { ...action, invocations: stripped }
+      };
+      applied.push({
+        field: "action.invocations[].prompt",
+        kind: "omitted",
+        reclaimed_chars: reclaimed
+      });
+      const finalChars = wireChars2({ ...boundedPayload, __bounded: marker(0) });
+      return { ...boundedPayload, __bounded: marker(finalChars) };
+    }
+  }
+  return { ...payload, __bounded: marker(originalChars) };
+}
+
 // packages/mcp-server/dist/pipeline-tools.js
 var MAX_CONCURRENT_RUNS = Number(process.env.PRD_MAX_CONCURRENT_RUNS ?? 8);
 function getRepo() {
@@ -80408,6 +81614,7 @@ var runStore = new InMemoryRunStore({
   // repo is a no-op. source: evidence-repository.ts pruneRunEvidence.
   onEvict: (runId) => {
     getRepo()?.pruneRunEvidence(runId);
+    lastActionByRun.delete(runId);
   }
 });
 function inFlightRunCount() {
@@ -80443,6 +81650,7 @@ function drainStrategyExecutions(state) {
   return { ...state, strategy_executions: [] };
 }
 var inFlight = /* @__PURE__ */ new Set();
+var lastActionByRun = /* @__PURE__ */ new Map();
 function generateRunId() {
   return "run_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
 }
@@ -80502,11 +81710,12 @@ function registerPipelineTools(server2) {
     const { state, action, messages } = step({ state: initialWithPolicy });
     const drained = drainStrategyExecutions(state);
     runStore.set(drained);
+    lastActionByRun.set(drained.run_id, action);
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(envelope(drained, action, messages), null, 2)
+          text: JSON.stringify(boundEnvelopeResponse(envelope(drained, action, messages)), null, 2)
         }
       ]
     };
@@ -80550,11 +81759,12 @@ function registerPipelineTools(server2) {
       const out = step({ state: current, result });
       const drained = drainStrategyExecutions(out.state);
       runStore.set(drained);
+      lastActionByRun.set(drained.run_id, out.action);
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(envelope(drained, out.action, out.messages), null, 2)
+            text: JSON.stringify(boundEnvelopeResponse(envelope(drained, out.action, out.messages)), null, 2)
           }
         ]
       };
@@ -80562,9 +81772,9 @@ function registerPipelineTools(server2) {
       inFlight.delete(run_id);
     }
   });
-  server2.tool("get_pipeline_state", "Read the current pipeline state by run_id. format:'summary' (default) returns the lightweight envelope; format:'full' returns the whole state, bounded to the Claude Code 100,000-char MCP response budget by shedding least-relevant detail first (observable __bounded markers; full grounding re-fetchable via format:'grounding'); format:'grounding' returns the codebase_grounding (+ prd_validation when it fits) blobs format:'full' sheds first; format:'validation' returns prd_validation alone (the blob format:'grounding' sheds when the pair overshoots).", {
+  server2.tool("get_pipeline_state", "Read the current pipeline state by run_id. format:'summary' (default) returns the lightweight envelope; format:'full' returns the whole state, bounded to the Claude Code 100,000-char MCP response budget by shedding least-relevant detail first (observable __bounded markers; full grounding re-fetchable via format:'grounding'); format:'grounding' returns the codebase_grounding (+ prd_validation when it fits) blobs format:'full' sheds first; format:'validation' returns prd_validation alone (the blob format:'grounding' sheds when the pair overshoots); format:'action' returns the UNBOUNDED last action emitted for this run (including full spawn_subagents prompts) \u2014 the recovery path when a start_pipeline/submit_action_result response carries a __bounded marker on its action.", {
     run_id: external_exports.string(),
-    format: external_exports.enum(["full", "summary", "grounding", "validation"]).default("summary")
+    format: external_exports.enum(["full", "summary", "grounding", "validation", "action"]).default("summary")
   }, { readOnlyHint: true }, async ({ run_id, format: format5 }) => {
     const state = runStore.get(run_id);
     if (!state) {
@@ -80587,6 +81797,11 @@ function registerPipelineTools(server2) {
       payload = {
         run_id: state.run_id,
         prd_validation: state.prd_validation
+      };
+    } else if (format5 === "action") {
+      payload = {
+        run_id: state.run_id,
+        action: lastActionByRun.get(run_id) ?? null
       };
     } else {
       payload = envelope(state, null);

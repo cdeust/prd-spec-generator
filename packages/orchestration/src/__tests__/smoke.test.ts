@@ -202,20 +202,42 @@ describe("end-to-end smoke run", () => {
     }
   });
 
-  it("writes the expected 9 PRD files", () => {
+  it("writes the expected deliverable files — no placeholders for unscheduled sections", () => {
+    // "feature" context schedules: overview, goals, requirements,
+    // user_stories, technical_specification, acceptance_criteria (→ 01),
+    // data_model (→02), api_specification (→03), security_considerations +
+    // performance_requirements (→04), testing + acceptance_criteria (→05).
+    // deployment/timeline/risks (06) and source_code/test_code (08/09) are
+    // NEVER scheduled for ANY context (section-plan.ts) — under the
+    // root-cause fix (file-export.ts) those files are correctly OMITTED,
+    // not stubbed with placeholder text, and the omission is recorded in
+    // 00-run-notes.md instead. implementation_gate additionally writes
+    // 10-verification-report.md before asking the implementation decision.
+    // Total: 01,02,03,04,05,07(jira) + 00-run-notes + 10-verification-report = 8.
     const seed = newPipelineState({
       run_id: "smoke_file_count",
       feature_description: "build a feature for OAuth login",
     });
     const result = runSmoke(seed);
-    expect(result.finalState.written_files.length).toBe(9);
-    // Verify the canonical filenames are all present.
     const paths = result.finalState.written_files.map((p) =>
       p.split("/").pop(),
     );
-    expect(paths).toContain("01-prd.md");
-    expect(paths).toContain("07-jira-tickets.md");
-    expect(paths).toContain("09-test-code.md");
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "01-prd.md",
+        "02-data-model.md",
+        "03-api-spec.md",
+        "04-security.md",
+        "05-testing.md",
+        "07-jira-tickets.md",
+        "00-run-notes.md",
+        "10-verification-report.md",
+      ]),
+    );
+    expect(paths).not.toContain("06-deployment.md");
+    expect(paths).not.toContain("08-source-code.md");
+    expect(paths).not.toContain("09-test-code.md");
+    expect(result.finalState.written_files.length).toBe(8);
   });
 
   it("loop terminates within the safety cap", () => {

@@ -4,6 +4,7 @@ import {
   extractCodeBlocks,
   makeViolation,
 } from "./helpers.js";
+import { hasExplicitOptOut, matchesAny, phrases } from "./lexicon.js";
 
 // Rule 47: No Magic Numbers
 export function checkNoMagicNumbers(
@@ -30,22 +31,11 @@ export function checkNoMagicNumbers(
     }
   }
 
-  const lowered = content.toLowerCase();
-  const constantSignals = [
-    "named constant",
-    "named variable",
-    "const ",
-    "static let",
-    "static final",
-    "companion object",
-    "no magic number",
-    "extract constant",
-    "configuration value",
-  ];
-
-  const hasConstantGuidance = constantSignals.some((s) =>
-    lowered.includes(s),
-  );
+  // source: bug found 2026-07-15, e2e run run_mrlqa0aj_u2rh15 — a French
+  // technical_specification section wrote "constantes nommées" verbatim
+  // (the literal French translation of "named constant") and was still
+  // flagged, because these signals were English-only.
+  const hasConstantGuidance = matchesAny(content, ["namedConstantSignals"]);
 
   if (!hasConstantGuidance && codeBlocks.length > 0) {
     violations.push(
@@ -67,27 +57,7 @@ export function checkDefensiveCoding(
 ): HardOutputRuleViolation[] {
   return findAbsenceViolation(
     content,
-    [
-      "guard",
-      "precondition",
-      "require",
-      "assert",
-      "null safe",
-      "null check",
-      "nil check",
-      "optional",
-      "non-null",
-      "nonnull",
-      "notnull",
-      "bounds check",
-      "range check",
-      "defensive",
-      "fail fast",
-      "early return",
-      "validation",
-      "contract",
-      "invariant",
-    ],
+    phrases("defensiveCodingSignals"),
     2,
     "defensive_coding",
     sectionType,
@@ -157,26 +127,13 @@ export function checkConsistentNaming(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  // source: bug found 2026-07-15, e2e run run_mrlqa0aj_u2rh15 — a French
+  // technical_specification section wrote "conventions de nommage"
+  // verbatim (the literal French translation of "naming convention") and
+  // was still flagged, because these signals were English-only.
   return findAbsenceViolation(
     content,
-    [
-      "naming convention",
-      "naming standard",
-      "naming rule",
-      "camelcase",
-      "camel case",
-      "snake_case",
-      "snake case",
-      "pascalcase",
-      "pascal case",
-      "kebab-case",
-      "descriptive name",
-      "self-documenting",
-      "meaningful name",
-      "no abbreviation",
-      "full word",
-      "consistent naming",
-    ],
+    phrases("namingConventionSignals"),
     1,
     "consistent_naming",
     sectionType,
@@ -189,25 +146,12 @@ export function checkAPIContractDocumentation(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (hasExplicitOptOut(content, ["apiContractTopic"])) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
-    [
-      "request schema",
-      "response schema",
-      "api contract",
-      "openapi",
-      "swagger",
-      "api spec",
-      "endpoint spec",
-      "request body",
-      "response body",
-      "status code",
-      "content-type",
-      "accept header",
-      "api documentation",
-      "typed request",
-      "typed response",
-    ],
+    phrases("apiContractDocumentationSignals"),
     2,
     "api_contract_documentation",
     sectionType,
@@ -220,23 +164,12 @@ export function checkDeprecationStrategy(
   content: string,
   sectionType: SectionType,
 ): HardOutputRuleViolation[] {
+  if (hasExplicitOptOut(content, ["deprecationTopic"])) {
+    return [];
+  }
   return findAbsenceViolation(
     content,
-    [
-      "deprecat",
-      "sunset",
-      "breaking change",
-      "migration path",
-      "backward compat",
-      "backwards compat",
-      "version",
-      "api version",
-      "v1",
-      "v2",
-      "changelog",
-      "upgrade guide",
-      "migration guide",
-    ],
+    phrases("deprecationStrategySignals"),
     1,
     "deprecation_strategy",
     sectionType,

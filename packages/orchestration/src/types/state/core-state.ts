@@ -7,6 +7,7 @@ import { SectionStatusSchema } from "./section-status.js";
 import { VerificationPlanSnapshotSchema } from "./verification-plan.js";
 import { MAX_CLARIFICATION_TURNS, MAX_PIPELINE_ERRORS } from "./bounded-io.js";
 import { PostSpecsStateSchema } from "./post-specs-state.js";
+import { VerifyBudgetConfigSchema } from "./verify-budget.js";
 
 export const ClarificationTurnSchema = z.object({
   round: z.number().int().min(1),
@@ -390,6 +391,16 @@ export const PipelineStateSchema = z.object({
    * source: design-phases-3-5.md §2.1.
    */
   post_specs: PostSpecsStateSchema.nullable().default(null),
+  /**
+   * Judge-panel budget override for self-check's multi-judge verification
+   * batch. Composition-root-injected only (mirrors `retry_policy`); the
+   * reducer only reads it. `null` = use DEFAULT_VERIFY_BUDGET
+   * (handlers/self-check-verify-budget.ts).
+   *
+   * source: measured e2e run run_mrlqa0aj_u2rh15 (2026-07-15) — see
+   * verify-budget.ts module doc for the full rationale.
+   */
+  verify_budget: VerifyBudgetConfigSchema.nullable().default(null),
 })
   .refine((s) => s.errors.length === s.error_kinds.length, {
     message:

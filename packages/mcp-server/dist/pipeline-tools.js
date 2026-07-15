@@ -21,6 +21,7 @@ import { EffectivenessTracker } from "@prd-gen/strategy";
 import { getRetryArmForRun, getMaxAttemptsForRun, MAX_ATTEMPTS_BASELINE, } from "@prd-gen/benchmark";
 import { buildConcludeOpts } from "./build-conclude-opts.js";
 import { boundFullStateResponse, boundGroundingResponse, } from "./bound-full-state.js";
+import { boundEnvelopeResponse } from "./bound-envelope-action.js";
 /**
  * Global run semaphore cap — max pipeline runs in flight at once.
  *
@@ -57,6 +58,7 @@ const runStore = new InMemoryRunStore({
     // repo is a no-op. source: evidence-repository.ts pruneRunEvidence.
     onEvict: (runId) => {
         getRepo()?.pruneRunEvidence(runId);
+        lastActionByRun.delete(runId);
     },
 });
 /**
@@ -129,6 +131,21 @@ function drainStrategyExecutions(state) {
  * run_id, providing defense-in-depth if the runtime ever changes.
  */
 const inFlight = new Set();
+/**
+ * Per-run cache of the last UNBOUNDED action emitted by `step()`. Updated on
+ * every start_pipeline/submit_action_result call BEFORE `boundEnvelopeResponse`
+ * strips oversized `spawn_subagents` prompts. Serves
+ * `get_pipeline_state(run_id, format:"action")` — the observable, no-silent-
+ * loss recovery path a host follows when it sees a `__bounded` marker on a
+ * spawn_subagents envelope. A plain Map (not persisted, not TTL'd) mirrors
+ * `runStore`'s in-memory composition-root scope; entries are naturally
+ * superseded on each step and there is no unbounded growth risk beyond what
+ * `runStore`'s own run cap already bounds (one entry per known run_id).
+ *
+ * source: e2e run_mrlqa0aj_u2rh15 (2026-07-15) — see bound-envelope-action.ts
+ * module doc.
+ */
+const lastActionByRun = new Map();
 function generateRunId() {
     return ("run_" +
         Date.now().toString(36) +
@@ -235,11 +252,15 @@ export function registerPipelineTools(server) {
         // (cross-audit feynman CRIT-1 + dijkstra H2, Phase 4 wiring, 2026-04).
         const drained = drainStrategyExecutions(state);
         runStore.set(drained);
+        // Cache the UNBOUNDED action before it is potentially shed by
+        // boundEnvelopeResponse — the observable recovery path for a
+        // __bounded spawn_subagents envelope. source: bound-envelope-action.ts.
+        lastActionByRun.set(drained.run_id, action);
         return {
             content: [
                 {
                     type: "text",
-                    text: JSON.stringify(envelope(drained, action, messages), null, 2),
+                    text: JSON.stringify(boundEnvelopeResponse(envelope(drained, action, messages)), null, 2),
                 },
             ],
         };
@@ -288,11 +309,14 @@ export function registerPipelineTools(server) {
             // no-op when the queue is empty.
             const drained = drainStrategyExecutions(out.state);
             runStore.set(drained);
+            // Cache the UNBOUNDED action before it is potentially shed by
+            // boundEnvelopeResponse — see start_pipeline's identical comment.
+            lastActionByRun.set(drained.run_id, out.action);
             return {
                 content: [
                     {
                         type: "text",
-                        text: JSON.stringify(envelope(drained, out.action, out.messages), null, 2),
+                        text: JSON.stringify(boundEnvelopeResponse(envelope(drained, out.action, out.messages)), null, 2),
                     },
                 ],
             };
@@ -309,10 +333,13 @@ export function registerPipelineTools(server) {
         "format:'grounding'); format:'grounding' returns the codebase_grounding (+ " +
         "prd_validation when it fits) blobs format:'full' sheds first; format:'validation' " +
         "returns prd_validation alone (the blob format:'grounding' sheds when the pair " +
-        "overshoots).", {
+        "overshoots); format:'action' returns the UNBOUNDED last action emitted for this " +
+        "run (including full spawn_subagents prompts) — the recovery path when a " +
+        "start_pipeline/submit_action_result response carries a __bounded marker on its " +
+        "action.", {
         run_id: z.string(),
         format: z
-            .enum(["full", "summary", "grounding", "validation"])
+            .enum(["full", "summary", "grounding", "validation", "action"])
             .default("summary"),
     }, { readOnlyHint: true }, async ({ run_id, format }) => {
         const state = runStore.get(run_id);
@@ -355,6 +382,19 @@ export function registerPipelineTools(server) {
             payload = {
                 run_id: state.run_id,
                 prd_validation: state.prd_validation,
+            };
+        }
+        else if (format === "action") {
+            // Narrow re-fetch for the UNBOUNDED last action (prompts included) —
+            // the recovery path a host follows when a start_pipeline/
+            // submit_action_result envelope carries a __bounded marker on
+            // action.invocations[].prompt. Absent only when the run has never
+            // taken a step (cannot happen — runStore.get already found it) or
+            // was evicted (lastActionByRun is cleared in lockstep with runStore
+            // eviction via onEvict). source: bound-envelope-action.ts.
+            payload = {
+                run_id: state.run_id,
+                action: lastActionByRun.get(run_id) ?? null,
             };
         }
         else {
