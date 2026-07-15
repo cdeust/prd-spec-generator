@@ -19,7 +19,8 @@
     "build": "tsc && tsc -p tsconfig.calibration.json",
     "clean": "rm -rf dist",
     "bench": "node dist/runner.js",
-    "calibrate:gates": "node dist/calibration/calibration/calibrate-gates.js"
+    "calibrate:gates": "node dist/calibration/calibration/calibrate-gates.js",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@prd-gen/core": "workspace:*",
