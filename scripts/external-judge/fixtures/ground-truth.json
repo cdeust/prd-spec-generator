@@ -1,0 +1,104 @@
+{
+  "provenance": {
+    "source_prd": "fixtures/01-prd.md — copied verbatim from anthropic-partnership/session-optimizer/prd-output/run_mrlq/01-prd.md (run_mrlqa0aj_u2rh15), the same real e2e PRD fixture used by packages/verification/src/__tests__/claim-tier.test.ts's fixture source.",
+    "source_jury_report": "fixtures/10-verification-report.md — copied verbatim from the same run directory. `expected_verdict`, `original_judge`, and `original_confidence` below are transcribed exactly from that report's 'Jury multi-judges' table — not re-derived or estimated.",
+    "note_on_ac008": "AC-008 is the deliberately hard discriminator. 10-verification-report.md records mendeleev FAIL (0.60) on the historical run because the then-current US-01 acceptance criteria described a uniform-fill color model contradicting the canonical AC-008's per-cell segmented model. fixtures/01-prd.md as copied here already carries the in-document 'Note de correction post-jury' (lines 53) narrating that same contradiction and the corrected per-position wording (AC-001..004, lines 57-60). An external judge reading the corrected text may reasonably reach PASS (contradiction resolved) rather than reproduce the historical FAIL — that divergence is itself informative for calibration (does the judge notice residual risk, or over-trust a self-declared correction?). Ground truth here is fixed to the recorded jury verdict for agreement scoring; calibrate.mjs reports the actual external verdict alongside it so a human can read the divergence, not just a pass/fail count.",
+    "generated": "2026-07-15",
+    "min_agreement_default": 0.7
+  },
+  "claims": [
+    {
+      "claim_id": "FR-001",
+      "claim_type": "fr_traceability",
+      "text": "Remplacer grad_rgb() (statusline-command.sh:294-303) par une fonction à paliers discrets (ex. palier_rgb(pos)) qui retourne l'une des 4 couleurs de palette DS en fonction de pos, sans interpolation RGB continue. Priority: Must.",
+      "evidence": "<requirement id=\"FR-001\" priority=\"Must\" depends_on=\"—\" source=\"codebase finding (statusline-command.sh:294-303)\">\nRemplacer grad_rgb() (statusline-command.sh:294-303) par une fonction à paliers discrets (ex. palier_rgb(pos)) qui retourne l'une des 4 couleurs de palette DS en fonction de pos, sans interpolation RGB continue.\n</requirement>\n\n<relevant_spec section=\"Architecture (ports/adapters)\">\nheat_rgb est une fonction pure de domaine : position (0-100, entier) -> 'r;g;b', clampée en entrée sur [0, 100]. Elle ne fait aucune I/O, ne dépend d'aucun état global, et remplace grad_rgb comme unique fournisseur de couleur pour la jauge de contexte.\n\nmake_bar reste l'unique adaptateur de rendu ANSI. Seule sa ligne d'appel de couleur change : grad_rgb \"$pct\" -> heat_rgb \"$pct\". Le contrat de sortie de make_bar (largeur, clamp [0, w], séquence \\033[38;2;r;g;bm) est inchangé.\n</relevant_spec>\n\n<relevant_spec section=\"Suppression de code mort\">\ngrad_rgb et ses 6 constantes de lerp sont supprimées intégralement : recherche préalable confirmant l'absence de tout autre appelant, aucun alias, aucun shim.\n</relevant_spec>",
+      "expected_verdict": "PASS",
+      "original_judge": { "kind": "genius", "name": "aristotle" },
+      "original_confidence": 0.90
+    },
+    {
+      "claim_id": "FR-002",
+      "claim_type": "fr_traceability",
+      "text": "Définir 4 paliers de seuil sur pos (0-100) alignés sur les seuils checkpoint : palier 1 = 0-49, palier 2 = 50-74, palier 3 = 75-89, palier 4 = 90-100. Priority: Must. Depends on: FR-001.",
+      "evidence": "<requirement id=\"FR-002\" priority=\"Must\" depends_on=\"FR-001\" source=\"clarification round 3\">\nDéfinir 4 paliers de seuil sur pos (0-100) alignés sur les seuils checkpoint : palier 1 = 0-49, palier 2 = 50-74, palier 3 = 75-89, palier 4 = 90-100.\n</requirement>\n\n<relevant_spec section=\"Contrainte croisée — alignement seuil de checkpoint\">\nAC-015 (Acceptance Criteria, canonique) : Le palier terracotta plein (90-100 %) démarre exactement à la valeur de seuil de checkpoint définie par ~/.claude/ctxguard-thresholds.json pour le modèle courant, sans décalage.\n</relevant_spec>",
+      "expected_verdict": "PASS",
+      "original_judge": { "kind": "genius", "name": "aristotle" },
+      "original_confidence": 0.90
+    },
+    {
+      "claim_id": "FR-007",
+      "claim_type": "fr_traceability",
+      "text": "Conserver dans make_bar() (statusline-command.sh:310-326) le rendu segmenté existant : chaque cellule remplie est colorée selon le palier correspondant à sa position pos = i*100/(w-1), sans changer la logique de remplissage/vide. Priority: Must. Depends on: FR-001, FR-002.",
+      "evidence": "<requirement id=\"FR-007\" priority=\"Must\" depends_on=\"FR-001, FR-002\" source=\"codebase finding (statusline-command.sh:310-326); decision 5 (round 6)\">\nConserver dans make_bar() (statusline-command.sh:310-326) le rendu segmenté existant : chaque cellule remplie est colorée selon le palier correspondant à sa position pos = i*100/(w-1), sans changer la logique de remplissage/vide.\n</requirement>\n\n<relevant_spec section=\"Architecture (ports/adapters)\">\nmake_bar reste l'unique adaptateur de rendu ANSI. Seule sa ligne d'appel de couleur change : grad_rgb \"$pct\" -> heat_rgb \"$pct\". Le contrat de sortie de make_bar (largeur, clamp [0, w], séquence \\033[38;2;r;g;bm) est inchangé.\n</relevant_spec>\n\n<relevant_spec section=\"Acceptance Criteria (canonique)\">\nAC-008 : Étant donné une jauge dont le remplissage traverse plusieurs paliers (ex. 0-90 %), quand make_bar génère la barre, alors chaque cellule pleine est colorée individuellement selon son palier propre (rendu segmenté multi-couleurs) (FR-007).\n</relevant_spec>",
+      "expected_verdict": "PASS",
+      "original_judge": { "kind": "team", "name": "code-reviewer" },
+      "original_confidence": 0.78
+    },
+    {
+      "claim_id": "FR-011",
+      "claim_type": "fr_traceability",
+      "text": "La jauge ne doit utiliser aucune couleur vert/jaune/rouge de type sémaphore ; la palette reste mono-famille dérivée de la DA (ink -> terracotta). Priority: Must. Depends on: FR-003 à FR-006.",
+      "evidence": "<requirement id=\"FR-011\" priority=\"Must\" depends_on=\"FR-003 à FR-006\" source=\"decision 1 (round 1)\">\nLa jauge ne doit utiliser aucune couleur vert/jaune/rouge de type sémaphore ; la palette reste mono-famille dérivée de la DA (ink -> terracotta).\n</requirement>\n\n<relevant_spec section=\"Palette et dérivation des couleurs\">\n| Palier | RGB | Hex | Token DS | Dérivation |\n| HEAT_1 (0-49%) | 136;134;130 | #888682 | --fg-2 | valeur DS existante, reprise telle quelle |\n| HEAT_2 (50-74%) | 192;189;186 | #c0bdba | --fg-1 | valeur DS existante, reprise telle quelle |\n| HEAT_3 (75-89%) | (calculée) | (calculée) | terracotta atténué | pipeline oklch->srgb existant, ancre oklch(64% 0.14 47) (= --accent) avec chroma réduite à oklch(64% 0.08 47) |\n| HEAT_4 (90-100%) | 207;110;57 | #cf6e39 | --accent (PEACH) | réutilisation directe de la constante PEACH existante |\n</relevant_spec>\n\n<relevant_spec section=\"Acceptance Criteria (canonique)\">\nAC-011 : Étant donné le code source complet du module modifié, quand on grep les constantes de couleur, alors aucune référence à des couleurs vertes, jaunes ou rouges (ni littérales ni via variables héritées) n'est trouvée dans la jauge (FR-011).\n</relevant_spec>",
+      "expected_verdict": "PASS",
+      "original_judge": { "kind": "genius", "name": "aristotle" },
+      "original_confidence": 0.86
+    },
+    {
+      "claim_id": "ARCH-001",
+      "claim_type": "architecture",
+      "text": "L'architecture adoptée pour heat_rgb/make_bar suit un pattern ports/adapters : heat_rgb est une fonction pure de domaine (pos -> 'r;g;b'), make_bar est l'unique adaptateur de rendu ANSI qui la consomme.",
+      "evidence": "<relevant_spec section=\"Architecture (ports/adapters)\">\nheat_rgb est une fonction pure de domaine : position (0-100, entier) -> 'r;g;b', clampée en entrée sur [0, 100]. Elle ne fait aucune I/O, ne dépend d'aucun état global, et remplace grad_rgb comme unique fournisseur de couleur pour la jauge de contexte.\n\nLe bloc palette (constantes HEAT_1..HEAT_4, seuils nommés HEAT_T2=50, HEAT_T3=75, HEAT_T4=90) constitue la racine de composition : il fige les valeurs dérivées de la charte AI-ARCHITECT.TOOLS avant tout appel à heat_rgb, qui se contente de les sélectionner par comparaison de seuils — aucune valeur n'est calculée dans le chemin d'exécution.\n\nmake_bar reste l'unique adaptateur de rendu ANSI. Seule sa ligne d'appel de couleur change : grad_rgb \"$pct\" -> heat_rgb \"$pct\". Le contrat de sortie de make_bar (largeur, clamp [0, w], séquence \\033[38;2;r;g;bm) est inchangé.\n</relevant_spec>\n\nNote for the judge: assess specifically whether this qualifies as a true ports/adapters separation (a declared interface/port with swappable adapters) or a weaker 'functional core / imperative shell' pattern (a pure function called directly by one concrete renderer, no interface boundary). Both are legitimate architecture choices for a 30-line bash script; the claim is about which one this actually is.",
+      "expected_verdict": "PASS",
+      "original_judge": { "kind": "genius", "name": "liskov" },
+      "original_confidence": 0.60,
+      "notes": "Original verdict carried caveat: PASS but not a true port — no decoupled interface, closer to 'functional core / imperative shell'."
+    },
+    {
+      "claim_id": "ARCH-002",
+      "claim_type": "architecture",
+      "text": "L'architecture adoptée pour heat_rgb/make_bar suit un pattern ports/adapters : heat_rgb est une fonction pure de domaine (pos -> 'r;g;b'), make_bar est l'unique adaptateur de rendu ANSI qui la consomme.",
+      "evidence": "<relevant_spec section=\"Architecture (ports/adapters)\">\nheat_rgb est une fonction pure de domaine : position (0-100, entier) -> 'r;g;b', clampée en entrée sur [0, 100]. Elle ne fait aucune I/O, ne dépend d'aucun état global, et remplace grad_rgb comme unique fournisseur de couleur pour la jauge de contexte.\n\nLe bloc palette (constantes HEAT_1..HEAT_4, seuils nommés HEAT_T2=50, HEAT_T3=75, HEAT_T4=90) constitue la racine de composition : il fige les valeurs dérivées de la charte AI-ARCHITECT.TOOLS avant tout appel à heat_rgb, qui se contente de les sélectionner par comparaison de seuils — aucune valeur n'est calculée dans le chemin d'exécution.\n\nmake_bar reste l'unique adaptateur de rendu ANSI. Seule sa ligne d'appel de couleur change : grad_rgb \"$pct\" -> heat_rgb \"$pct\". Le contrat de sortie de make_bar (largeur, clamp [0, w], séquence \\033[38;2;r;g;bm) est inchangé.\n</relevant_spec>\n\nNote for the judge: assess specifically whether this qualifies as a true ports/adapters separation (a declared interface/port with swappable adapters) or a weaker 'functional core / imperative shell' pattern (a pure function called directly by one concrete renderer, no interface boundary). Both are legitimate architecture choices for a 30-line bash script; the claim is about which one this actually is.",
+      "expected_verdict": "PASS",
+      "original_judge": { "kind": "team", "name": "architect" },
+      "original_confidence": 0.60,
+      "notes": "Same underlying claim as ARCH-001, judged independently by a second original judge (architect, team-tier) — kept as a separate entry per the calibration task spec ('ARCH PASS x2'). Same caveat as ARCH-001."
+    },
+    {
+      "claim_id": "AC-005",
+      "claim_type": "acceptance_criteria_completeness",
+      "text": "Étant donné un pourcentage de contexte de 49 %, quand la cellule est rendue, alors elle utilise HEAT_1 ; et étant donné 50 %, alors la cellule bascule sur HEAT_2 — sans valeur intermédiaire interpolée (FR-002, FR-003, FR-004).",
+      "evidence": "<acceptance_criterion id=\"AC-005\">\nÉtant donné un pourcentage de contexte de 49 %, quand la cellule est rendue, alors elle utilise HEAT_1 ; et étant donné 50 %, alors la cellule bascule sur HEAT_2 — sans valeur intermédiaire interpolée (FR-002, FR-003, FR-004).\n</acceptance_criterion>\n\n<relevant_spec section=\"Requirements — FR-002\">\nDéfinir 4 paliers de seuil sur pos (0-100) alignés sur les seuils checkpoint : palier 1 = 0-49, palier 2 = 50-74, palier 3 = 75-89, palier 4 = 90-100.\n</relevant_spec>\n\n<relevant_spec section=\"Palette et dérivation des couleurs\">\n| HEAT_1 (0-49%) | 136;134;130 | #888682 | --fg-2 |\n| HEAT_2 (50-74%) | 192;189;186 | #c0bdba | --fg-1 |\n</relevant_spec>\n\n<relevant_spec section=\"Requirements — NFR-003 (portabilité bash pur)\">\nLa nouvelle fonction à paliers ne doit introduire aucune dépendance externe au-delà de ce qu'utilise déjà grad_rgb()/make_bar(), vérifiable par relecture du diff limitée aux opérateurs arithmétiques entiers bash natifs ($(( ))). This is the mechanism claimed to make the 49/50 boundary exact (integer comparison, no float rounding).\n</relevant_spec>",
+      "expected_verdict": "PASS",
+      "original_judge": { "kind": "genius", "name": "borges" },
+      "original_confidence": 0.88
+    },
+    {
+      "claim_id": "AC-008",
+      "claim_type": "acceptance_criteria_completeness",
+      "text": "Étant donné une jauge dont le remplissage traverse plusieurs paliers (ex. 0-90 %), quand make_bar génère la barre, alors chaque cellule pleine est colorée individuellement selon son palier propre (rendu segmenté multi-couleurs) (FR-007). [Canonical Acceptance Criteria section numbering.]",
+      "evidence": "<acceptance_criterion id=\"AC-008\" section=\"Acceptance Criteria (canonique)\">\nÉtant donné une jauge dont le remplissage traverse plusieurs paliers (ex. 0-90 %), quand make_bar génère la barre, alors chaque cellule pleine est colorée individuellement selon son palier propre (rendu segmenté multi-couleurs) (FR-007).\n</acceptance_criterion>\n\n<in_document_history note=\"US-01 correction note, verbatim\">\nNote de correction post-jury (round d'implémentation, issue #4) : le jury multi-juges (voir 10-verification-report.md, verdict mendeleev FAIL sur AC-008, confiance 0.60) a signalé que les AC-001..AC-004 ci-dessous, tels que rédigés initialement, décrivaient un modèle \"barre-uniforme\" (« toutes les cellules remplies... ») contradictoire avec le rendu SEGMENTÉ par position décidé en round 6 (FR-007, AC-008 canonique de la section Acceptance Criteria, qui fait foi). Les AC ci-dessous sont reformulées en modèle par-tranche : chaque cellule remplie est colorée selon le palier de SA PROPRE position dans la barre, pas selon le palier du pourcentage total. Un remplissage traversant plusieurs paliers (ex. 80%) produit donc une barre multi-couleurs (5x HEAT_1 + 2x HEAT_2 + 1x HEAT_3 sur 10 cellules), jamais un aplat uniforme.\n</in_document_history>\n\n<current_text section=\"US-01, AC-001..AC-004 (as currently written, post-correction)\">\nAC-001 : Les cellules remplies dont la position se situe dans la tranche 0-49 % sont rendues dans la couleur ink-muted (HEAT_1) — jamais les cellules d'une tranche supérieure.\nAC-002 : Les cellules remplies dont la position se situe dans la tranche 50-74 % sont rendues en ink (HEAT_2).\nAC-003 : Les cellules remplies dont la position se situe dans la tranche 75-89 % sont rendues en terracotta atténué (HEAT_3).\nAC-004 : Les cellules remplies dont la position se situe dans la tranche 90-100 % sont rendues en terracotta plein (HEAT_4) ; l'option gras évoquée en round 6 a été omise dans l'implémentation.\n</current_text>\n\n<open_followup source=\"10-verification-report.md, FAIL AC-008 remediation notes\">\n1. Collision d'IDs : AC-001..AC-017 de la section User Stories != AC-001..AC-016 de la section canonique — non renumérotée dans ce document.\n2. Le test test_make_bar_segmented_rendering doit asserter la multi-couleur par cellule, pas seulement la non-vacuité — statut de ce test non confirmé dans le PRD lui-même.\n</open_followup>",
+      "expected_verdict": "FAIL",
+      "original_judge": { "kind": "genius", "name": "mendeleev" },
+      "original_confidence": 0.60,
+      "notes": "The key discriminator claim. See provenance.note_on_ac008 above — a usable cross-vendor judge should at minimum flag the unresolved AC-ID collision (US-01's AC-001..017 vs. the canonical AC-001..016) and the unconfirmed test-assertion status as residual risk, even if it does not reproduce FAIL verbatim."
+    },
+    {
+      "claim_id": "AC-014",
+      "claim_type": "test_coverage",
+      "text": "Étant donné le jeu de valeurs {0, 25, 49, 50, 74, 75, 89, 90, 100}, quand le script est exécuté pour chacune, alors chaque exécution se termine sans erreur et produit un rendu de barre avec la couleur de palier attendue (FR-002 à FR-006, NFR-002).",
+      "evidence": "<acceptance_criterion id=\"AC-014\">\nÉtant donné le jeu de valeurs {0, 25, 49, 50, 74, 75, 89, 90, 100}, quand le script est exécuté pour chacune, alors chaque exécution se termine sans erreur et produit un rendu de barre avec la couleur de palier attendue (FR-002 à FR-006, NFR-002).\n</acceptance_criterion>\n\n<relevant_spec section=\"Requirements — NFR-002\">\nNon-régression fonctionnelle de la jauge (statusline) : test manuel/scripté affichant la barre à des valeurs de pos couvrant chacun des 4 paliers (ex. 10, 60, 80, 95) et confirmant que le nombre de cellules remplies, l'ordre gauche-à-droite, et le caractère ░ des cellules vides restent identiques à l'implémentation pré-changement.\n</relevant_spec>\n\n<relevant_spec section=\"Non-régression et performance (méthode de mesure) — Correction fonctionnelle\">\nExécution sur fixtures 0/25/49/50/74/75/89/90/100 % ; extraction de chaque séquence \\033[38;2;r;g;bm (via grep -oE) ; vérification d'appartenance exacte du triplet à {HEAT_1, HEAT_2, HEAT_3, HEAT_4} — critère binaire, sans tolérance colorimétrique.\n</relevant_spec>\n\nNote for the judge: the test METHOD is fully specified above (exact fixtures, exact extraction command, exact pass criterion). No test RUN result is included in this document — that requires executing the script.",
+      "expected_verdict": "SPEC-COMPLETE",
+      "original_judge": { "kind": "team", "name": "test-engineer" },
+      "original_confidence": 0.74
+    },
+    {
+      "claim_id": "AC-016",
+      "claim_type": "test_coverage",
+      "text": "Étant donné le diff final soumis, quand on l'inspecte, alors il ne contient que des modifications bash pures dans session-optimizer (aucune dépendance externe ajoutée) et passe la gate G6 (FR-001 à FR-012, NFR-001, NFR-003).",
+      "evidence": "<acceptance_criterion id=\"AC-016\">\nÉtant donné le diff final soumis, quand on l'inspecte, alors il ne contient que des modifications bash pures dans session-optimizer (aucune dépendance externe ajoutée) et passe la gate G6 (FR-001 à FR-012, NFR-001, NFR-003).\n</acceptance_criterion>\n\n<relevant_spec section=\"Requirements — NFR-001 (gate G6)\">\nConformité gate G6 du design system (SKILL.md : « No gradients (except the heat track), no backdrop-filter, no glow ») : vérifiable par relecture du diff grad_rgb/palier_rgb confirmant l'absence de toute interpolation continue de couleur (lerp) et l'absence de backdrop-filter/effet de lueur dans le rendu ANSI.\n</relevant_spec>\n\n<relevant_spec section=\"Requirements — NFR-003 (portabilité bash pur)\">\nLa nouvelle fonction à paliers ne doit introduire aucune dépendance externe (pas de bc, awk flottant, etc.) au-delà de ce qu'utilise déjà grad_rgb()/make_bar(), vérifiable par relecture du diff limitée aux opérateurs arithmétiques entiers bash natifs ($(( ))).\n</relevant_spec>\n\nNote for the judge: both verification methods above name a specific artifact to inspect (\"le diff\" / \"le diff final soumis\") that does not exist yet at PRD-authoring time — this document specifies HOW the check will be done, not its result.",
+      "expected_verdict": "SPEC-COMPLETE",
+      "original_judge": { "kind": "team", "name": "test-engineer" },
+      "original_confidence": 0.82
+    }
+  ]
+}
