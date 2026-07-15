@@ -31243,6 +31243,12 @@ var PrStateSchema = external_exports.object({
   pushed: external_exports.boolean().default(false),
   url: external_exports.string().nullable().default(null)
 });
+var PolicyDerogationSchema = external_exports.object({
+  /** `evaluatePolicy`'s status at the moment the derogation was granted. */
+  policy_status: external_exports.enum(["needs_attention", "blocked"]),
+  /** `evaluatePolicy`'s human-readable reasons at that moment, verbatim. */
+  reasons: external_exports.array(external_exports.string())
+});
 var PostSpecsStateSchema = external_exports.object({
   /**
    * Set by `implementation_gate`'s ask_user answer. `"pending"` is the
@@ -31250,6 +31256,12 @@ var PostSpecsStateSchema = external_exports.object({
    * leaves decision at its schema default until the gate answers).
    */
   decision: external_exports.enum(["pending", "implement", "prd_only"]).default("pending"),
+  /**
+   * Set by `implementation_gate` when `decision === "implement"` AND the
+   * verification-policy status was not "pass" — see `PolicyDerogationSchema`
+   * doc. `null` otherwise (policy passed cleanly, or no decision yet).
+   */
+  policy_derogation: PolicyDerogationSchema.nullable().default(null),
   /** PR 3b — wired by pre_impl_grounding.ts. */
   impact_queries: ImpactQueriesStateSchema.default({
     done: false,
@@ -31330,6 +31342,67 @@ var VerifyBudgetConfigSchema = external_exports.object({
    * limits"; arXiv:2602.11865.
    */
   diversity_models: external_exports.array(external_exports.string()).min(1)
+});
+
+// packages/orchestration/dist/types/state/verification-policy.js
+var VerificationPolicySchema = external_exports.object({
+  /**
+   * Any claim carrying a verdict in this set is an UNCONDITIONAL block:
+   * `implementation_gate` never offers a bare "Implement" option while any
+   * claim's verdict is in `block_on` — see handlers/verification-policy.ts
+   * `evaluatePolicy`. `block_on` is absolute by design (no warn/ask nuance,
+   * unlike the other two gates below): the 5-level verdict taxonomy's own
+   * expected-distribution table (core/domain/verdict.ts,
+   * `EXPECTED_VERDICT_DISTRIBUTION`, SKILL.md Rule 15) already states FAIL
+   * should be 0% "after self-check — violations should be fixed before
+   * delivery"; any FAIL surviving to this gate is an anomaly the taxonomy
+   * itself says should not exist, so it blocks rather than merely warns.
+   *
+   * Default: ["FAIL"].
+   */
+  block_on: external_exports.array(VerdictSchema).default(["FAIL"]),
+  /**
+   * Minimum fraction of SUBJECTIVE-tier claims (claim-tier.ts) that must
+   * have received at least one real (model-dispatched or rule-tier — but
+   * mechanical claims are never in the denominator, see
+   * `VerificationSummarySchema.total_subjective_claims` doc) judge verdict.
+   * Below this fraction, `on_unsampled_below_ratio` fires. Mechanical-tier
+   * claims are NEVER counted as "unsampled" — they are rule-verdicted
+   * deterministically (mechanical-verdict.ts) and were never subject to
+   * `sampleWithinCap` in the first place.
+   *
+   * Default 0.5 — measured e2e baseline, not a normative claim. Under
+   * DEFAULT_VERIFY_BUDGET's 20-invocation cap, run_mrlqa0aj_u2rh15's 29
+   * claims (28 subjective FR/AC + 1 architecture) sampled ~20/29 ≈ 69% at
+   * 1 judge/claim — a run sampling LESS than half its subjective claims is a
+   * materially different verification posture than that calibration
+   * baseline and should not silently pass through the gate the same way.
+   * source: measured e2e run run_mrlqa0aj_u2rh15 (2026-07-15).
+   */
+  min_subjective_sampled_ratio: external_exports.number().min(0).max(1).default(0.5),
+  /**
+   * Action when the sampled ratio falls below `min_subjective_sampled_ratio`.
+   *   "warn"  — reported in 10-verification-report.md; does not change gate status.
+   *   "ask"   — escalates the gate to `needs_attention`; a human decides
+   *             whether the reduced coverage is acceptable for this run.
+   *   "block" — unconditional block, same severity as `block_on`.
+   * Default "ask".
+   */
+  on_unsampled_below_ratio: external_exports.enum(["warn", "ask", "block"]).default("ask"),
+  /**
+   * Action when a subjective claim's judges disagree ACROSS MODELS (>=2
+   * distinct `JudgeVerdict.model` values produced different verdicts for the
+   * same claim_id) — see `VerifyBudgetConfigSchema.diversity_models` doc for
+   * why cross-model disagreement is a meaningful signal distinct from
+   * within-model disagreement: it crossed the exact monoculture-mitigation
+   * boundary the architecture judge panel exists to probe.
+   *   "warn" — reported in the report; does not change gate status.
+   *   "ask"  — escalates the gate to `needs_attention`. A cross-model split
+   *            is an explicit human-escalation signal, never silently
+   *            averaged into the majority verdict by consensus.ts.
+   * Default "ask" — cross-model disagreement is never averaged away.
+   */
+  on_cross_model_disagreement: external_exports.enum(["warn", "ask"]).default("ask")
 });
 
 // packages/orchestration/dist/types/actions.js
@@ -31449,7 +31522,26 @@ var VerificationSummarySchema = external_exports.object({
    * DISTRIBUTION counts to pending_completion.verification; the per-claim
    * array itself is never exported to a file or surfaced to the user.
    */
-  judge_verdicts: external_exports.array(JudgeVerdictSchema).optional()
+  judge_verdicts: external_exports.array(JudgeVerdictSchema).optional(),
+  /**
+   * Total number of SUBJECTIVE-tier claims (claim-tier.ts) extracted for
+   * this run, BEFORE any budget-driven reduction/sampling
+   * (self-check-verify-budget.ts `reduceJudgeRequests`/`sampleWithinCap`).
+   * Distinct from `claims_evaluated` (which counts only claims that
+   * actually RECEIVED a verdict): `sampleWithinCap` can drop a subjective
+   * claim entirely when the judge-panel budget is exceeded, leaving it with
+   * NO verdict at all — that claim is still counted here, but absent from
+   * `judge_verdicts`. `handlers/verification-policy.ts`'s
+   * `min_subjective_sampled_ratio` gate needs both numbers to distinguish
+   * "sampled and judged" from "never dispatched at all" for a subjective
+   * claim. Mechanical-tier claims (claim-tier.ts) are excluded — they are
+   * rule-verdicted deterministically and never subject to sampling, so they
+   * can never be "unsampled". Defaults to 0 (mechanical-only or zero-claim
+   * documents, and any `done` predating this field).
+   *
+   * source: e2e run run_mrlqa0aj_u2rh15 (2026-07-15); design-phases-3-5.md §7.
+   */
+  total_subjective_claims: external_exports.number().int().nonnegative().default(0)
 });
 var DoneActionSchema = external_exports.object({
   kind: external_exports.literal("done"),
@@ -31895,7 +31987,16 @@ var PipelineStateSchema = external_exports.object({
    * source: measured e2e run run_mrlqa0aj_u2rh15 (2026-07-15) — see
    * verify-budget.ts module doc for the full rationale.
    */
-  verify_budget: VerifyBudgetConfigSchema.nullable().default(null)
+  verify_budget: VerifyBudgetConfigSchema.nullable().default(null),
+  /**
+   * Verification-acceptance-policy override for `implementation_gate`
+   * (handlers/verification-policy.ts `evaluatePolicy`). Composition-root-
+   * injected only (mirrors `verify_budget`); the reducer only reads it.
+   * `null` = use DEFAULT_VERIFICATION_POLICY.
+   *
+   * source: design-phases-3-5.md §7; e2e run run_mrlqa0aj_u2rh15 (2026-07-15).
+   */
+  verification_policy: VerificationPolicySchema.nullable().default(null)
 }).refine((s) => s.errors.length === s.error_kinds.length, {
   message: "PipelineState: errors[] and error_kinds[] must have the same length (lockstep invariant \u2014 use appendError() to append, never spread directly).",
   path: ["error_kinds"]
@@ -35040,6 +35141,9 @@ function computeMechanicalVerdicts(sections) {
   const plan = planDocumentVerification(sections);
   return buildMechanicalVerdicts(plan.mechanical_claims);
 }
+function countSubjectiveClaims(requests) {
+  return new Set(requests.map((r) => r.claim.claim_id)).size;
+}
 
 // packages/orchestration/dist/handlers/self-check.js
 var VERIFY_BATCH_ID = "self_check_verify";
@@ -35066,7 +35170,7 @@ function buildVerifyAction(requests, config5) {
     })
   };
 }
-function finalize(state, verdicts = []) {
+function finalize(state, verdicts = [], totalSubjectiveClaims = 0) {
   const sections = gatherSections(state);
   const docReport = validateDocument(sections);
   const verificationReport = concludeDocument(verdicts);
@@ -35116,7 +35220,11 @@ function finalize(state, verdicts = []) {
           // real data, not a permanent gap.
           // source: e2e run_mrlqa0aj_u2rh15 (2026-07-15) follow-up — see
           // VerificationSummarySchema.judge_verdicts doc in actions.ts.
-          ...verdicts.length > 0 ? { judge_verdicts: verdicts.map(truncateJudgeVerdictRationale) } : {}
+          ...verdicts.length > 0 ? { judge_verdicts: verdicts.map(truncateJudgeVerdictRationale) } : {},
+          // Pre-sampling subjective-claim denominator for
+          // handlers/verification-policy.ts's unsampled-ratio gate — see
+          // VerificationSummarySchema.total_subjective_claims doc.
+          total_subjective_claims: totalSubjectiveClaims
         }
       },
       current_step: "implementation_gate"
@@ -35148,18 +35256,19 @@ function handleSelfCheckPhaseA(state, result) {
   }
   const plan = planDocumentVerification(sections);
   const mechanicalVerdicts = buildMechanicalVerdicts(plan.mechanical_claims);
+  const totalSubjectiveClaims = countSubjectiveClaims(plan.judge_requests);
   if (plan.judge_requests.length === 0) {
-    return finalize(state, mechanicalVerdicts);
+    return finalize(state, mechanicalVerdicts, totalSubjectiveClaims);
   }
   const config5 = resolveVerifyBudget(state.verify_budget);
   const reduced = reduceJudgeRequests(plan.judge_requests, config5);
   if (reduced.length === 0) {
-    return finalize(state, mechanicalVerdicts);
+    return finalize(state, mechanicalVerdicts, totalSubjectiveClaims);
   }
   if (result?.kind === "user_answer" && result.question_id === VERIFY_BUDGET_QUESTION_ID) {
     const decision = verifyBudgetDecisionFromAnswer(result);
     if (decision === "skip") {
-      return finalize(state, mechanicalVerdicts);
+      return finalize(state, mechanicalVerdicts, totalSubjectiveClaims);
     }
     const finalRequests = decision === "sample" ? sampleWithinCap(reduced, config5.invocation_cap) : reduced;
     return dispatchVerify(state, finalRequests, config5, decision === "sample");
@@ -35170,9 +35279,11 @@ function handleSelfCheckPhaseA(state, result) {
   return dispatchVerify(state, reduced, config5, false);
 }
 function handleSelfCheckPhaseB(state, result) {
+  const sections = gatherSections(state);
+  const totalSubjectiveClaims = countSubjectiveClaims(planDocumentVerification(sections).judge_requests);
   const snapshot = state.verification_plan;
   if (!snapshot || snapshot.batch_id !== VERIFY_BATCH_ID) {
-    return finalize(state, computeMechanicalVerdicts(gatherSections(state)));
+    return finalize(state, computeMechanicalVerdicts(sections), totalSubjectiveClaims);
   }
   const verdicts = parseVerdictsFromSnapshot(snapshot, state, result);
   const mechanicalVerdicts = computeMechanicalVerdicts(gatherSections(state));
@@ -35186,7 +35297,7 @@ function handleSelfCheckPhaseB(state, result) {
       }
     }
   }
-  return finalize(stateAfter, [...mechanicalVerdicts, ...verdicts]);
+  return finalize(stateAfter, [...mechanicalVerdicts, ...verdicts], totalSubjectiveClaims);
 }
 var handleSelfCheck = ({ state, result }) => {
   const validation = handlePrdValidation(state, result);
@@ -35229,6 +35340,153 @@ function parseVerdictsFromSnapshot(snapshot, state, batchResult) {
     });
   }
   return out;
+}
+
+// packages/orchestration/dist/handlers/verification-policy.js
+var DEFAULT_VERIFICATION_POLICY = {
+  block_on: ["FAIL"],
+  min_subjective_sampled_ratio: 0.5,
+  on_unsampled_below_ratio: "ask",
+  on_cross_model_disagreement: "ask"
+};
+function resolveVerificationPolicy(override) {
+  return override ?? DEFAULT_VERIFICATION_POLICY;
+}
+function distinctSampledSubjectiveClaimIds(verdicts) {
+  const out = /* @__PURE__ */ new Set();
+  for (const v of verdicts) {
+    if (v.judge.kind !== "rule")
+      out.add(v.claim_id);
+  }
+  return out;
+}
+function crossModelDisagreements(verdicts) {
+  const verdictsByModelPerClaim = /* @__PURE__ */ new Map();
+  for (const v of verdicts) {
+    if (v.judge.kind === "rule" || !v.model)
+      continue;
+    const byModel = verdictsByModelPerClaim.get(v.claim_id) ?? /* @__PURE__ */ new Map();
+    const verdictSet = byModel.get(v.model) ?? /* @__PURE__ */ new Set();
+    verdictSet.add(v.verdict);
+    byModel.set(v.model, verdictSet);
+    verdictsByModelPerClaim.set(v.claim_id, byModel);
+  }
+  const out = [];
+  for (const [claimId, byModel] of verdictsByModelPerClaim) {
+    if (byModel.size < 2)
+      continue;
+    const distinctVerdicts = /* @__PURE__ */ new Set();
+    for (const verdictSet of byModel.values()) {
+      for (const verdict of verdictSet)
+        distinctVerdicts.add(verdict);
+    }
+    if (distinctVerdicts.size > 1)
+      out.push(claimId);
+  }
+  return out;
+}
+function evaluatePolicy(verification, policy) {
+  const verdicts = verification?.judge_verdicts ?? [];
+  const totalSubjective = verification?.total_subjective_claims ?? 0;
+  const blockSet = new Set(policy.block_on);
+  const blockingClaims = [];
+  const seenBlocking = /* @__PURE__ */ new Set();
+  for (const v of verdicts) {
+    if (blockSet.has(v.verdict) && !seenBlocking.has(v.claim_id)) {
+      seenBlocking.add(v.claim_id);
+      blockingClaims.push(v.claim_id);
+    }
+  }
+  const sampledSubjective = distinctSampledSubjectiveClaimIds(verdicts);
+  const sampledRatio = totalSubjective > 0 ? sampledSubjective.size / totalSubjective : 1;
+  const unsampledRatio = totalSubjective > 0 ? 1 - sampledRatio : 0;
+  const ratioBreached = totalSubjective > 0 && sampledRatio < policy.min_subjective_sampled_ratio;
+  const disagreements = crossModelDisagreements(verdicts);
+  const reasons = [];
+  let status = "pass";
+  if (blockingClaims.length > 0) {
+    status = "blocked";
+    reasons.push(`${blockingClaims.length} claim(s) carry a blocked verdict (${policy.block_on.join(", ")}): ${blockingClaims.join(", ")}.`);
+  }
+  if (ratioBreached) {
+    const msg = `Only ${(sampledRatio * 100).toFixed(0)}% of subjective claims received a judge verdict (threshold: ${(policy.min_subjective_sampled_ratio * 100).toFixed(0)}%).`;
+    if (policy.on_unsampled_below_ratio === "block") {
+      status = "blocked";
+      reasons.push(msg);
+    } else if (policy.on_unsampled_below_ratio === "ask") {
+      if (status !== "blocked")
+        status = "needs_attention";
+      reasons.push(msg);
+    } else {
+      reasons.push(`(warn only) ${msg}`);
+    }
+  }
+  if (disagreements.length > 0) {
+    const msg = `${disagreements.length} claim(s) show cross-model judge disagreement: ${disagreements.join(", ")}.`;
+    if (policy.on_cross_model_disagreement === "ask") {
+      if (status !== "blocked")
+        status = "needs_attention";
+      reasons.push(msg);
+    } else {
+      reasons.push(`(warn only) ${msg}`);
+    }
+  }
+  return {
+    status,
+    blocking_claims: blockingClaims,
+    unsampled_ratio: unsampledRatio,
+    disagreements,
+    reasons
+  };
+}
+var GATE_OPTION_PRD_ONLY = "PRD only";
+var GATE_OPTION_IMPLEMENT = "Implement";
+var GATE_OPTION_IMPLEMENT_ANYWAY = "Implement anyway (d\xE9rogation explicite)";
+var GATE_OPTION_OVERRIDE_POLICY = "Override policy (explicit)";
+var OPTION_PRD_ONLY_PASS = {
+  label: GATE_OPTION_PRD_ONLY,
+  description: "Stop here. No code changes \u2014 today's default behavior."
+};
+var OPTION_PRD_ONLY_FLAGGED = { label: GATE_OPTION_PRD_ONLY, description: "Stop here. No code changes." };
+var OPTION_IMPLEMENT = {
+  label: GATE_OPTION_IMPLEMENT,
+  description: "Spawn an engineer to implement, test, review, and (after a further gate) open a PR."
+};
+var OPTION_IMPLEMENT_ANYWAY = {
+  label: GATE_OPTION_IMPLEMENT_ANYWAY,
+  description: "Explicit derogation: implement despite the policy finding above."
+};
+var OPTION_OVERRIDE_POLICY = {
+  label: GATE_OPTION_OVERRIDE_POLICY,
+  description: "Explicit override: implement despite the block above."
+};
+function nonPassGateShape(verdict) {
+  const reasonsText = verdict.reasons.length > 0 ? verdict.reasons.join(" ") : "Verification policy flagged this run.";
+  if (verdict.status === "needs_attention") {
+    return {
+      header: "Verification policy flags attention before implementation",
+      description: `${reasonsText} Implementing anyway is an explicit derogation from the acceptance policy.`,
+      options: [OPTION_IMPLEMENT_ANYWAY, OPTION_PRD_ONLY_FLAGGED]
+    };
+  }
+  return {
+    header: "Verification policy blocks implementation",
+    description: `${reasonsText} A bare "Implement" is not offered while this run is blocked.`,
+    options: [OPTION_PRD_ONLY_FLAGGED, OPTION_OVERRIDE_POLICY]
+  };
+}
+function buildPolicyGateQuestion(verdict) {
+  const shape = verdict.status === "pass" ? {
+    header: "Proceed to implementation?",
+    description: "The PRD/specs are ready. Implement the change now (spawns an engineer, runs tests and review, opens a PR after a human gate), or stop here with PRD-only deliverables (today's behavior)?",
+    options: [OPTION_PRD_ONLY_PASS, OPTION_IMPLEMENT]
+  } : nonPassGateShape(verdict);
+  return {
+    kind: "ask_user",
+    question_id: "implementation_gate",
+    multi_select: false,
+    ...shape
+  };
 }
 
 // packages/orchestration/dist/handlers/verification-report.js
@@ -35308,6 +35566,31 @@ function renderGraphValidation(verification) {
   }
   return ["```json", JSON.stringify(report, null, 2), "```"].join("\n");
 }
+function renderPolicySection(state) {
+  const policy = resolveVerificationPolicy(state.verification_policy);
+  const verdict = evaluatePolicy(state.pending_completion?.verification, policy);
+  const policyLine = `Policy in force: block_on=[${policy.block_on.join(", ")}], min_subjective_sampled_ratio=${(policy.min_subjective_sampled_ratio * 100).toFixed(0)}%, on_unsampled_below_ratio=${policy.on_unsampled_below_ratio}, on_cross_model_disagreement=${policy.on_cross_model_disagreement}`;
+  const findingsLine = verdict.reasons.length > 0 ? `Findings: ${verdict.reasons.join(" ")}` : "Findings: none \u2014 no claim triggered block_on, ratio, or disagreement gates.";
+  const decision = state.post_specs?.decision ?? "pending";
+  const derogation = state.post_specs?.policy_derogation;
+  let decisionLine;
+  if (decision === "pending") {
+    decisionLine = "Human decision: pending (gate not yet answered).";
+  } else if (derogation) {
+    decisionLine = `Human decision: ${decision} \u2014 derogation granted by user at gate (policy status was "${derogation.policy_status}").`;
+  } else if (decision === "implement") {
+    decisionLine = 'Human decision: implement (policy status was "pass" \u2014 no derogation required).';
+  } else {
+    decisionLine = "Human decision: prd_only (no derogation \u2014 implementation not selected).";
+  }
+  return [
+    `**Computed status: ${verdict.status}**`,
+    "",
+    policyLine,
+    findingsLine,
+    decisionLine
+  ].join("\n");
+}
 function buildVerificationReportFile(state) {
   const pending = state.pending_completion;
   if (!pending)
@@ -35321,6 +35604,10 @@ function buildVerificationReportFile(state) {
       `# Verification Report: ${state.feature_description}`,
       "",
       `Run ID: ${state.run_id}`,
+      "",
+      "## Verification Policy",
+      "",
+      renderPolicySection(state),
       "",
       "## Section Statuses & Violations",
       "",
@@ -35360,62 +35647,69 @@ function recordReportWrite(state, result) {
 }
 function decisionFromAnswer(result) {
   const chosen = (result.selected[0] ?? result.freeform ?? "").toLowerCase();
-  return chosen.includes("implement") ? "implement" : "prd_only";
+  return chosen.includes("implement") || chosen.includes("override") ? "implement" : "prd_only";
 }
-var handleImplementationGate = ({ state, result }) => {
-  const stateAfterReportWrite = recordReportWrite(state, result);
-  if (result?.kind !== "file_written" && !hasVerificationReport(stateAfterReportWrite)) {
-    const reportFile = buildVerificationReportFile(stateAfterReportWrite);
-    if (reportFile) {
-      return {
-        state: { ...stateAfterReportWrite, post_specs: ensurePostSpecs(stateAfterReportWrite) },
-        action: {
-          kind: "write_file",
-          path: reportFile.path,
-          content: reportFile.content()
-        }
-      };
-    }
-  }
-  if (result?.kind === "user_answer" && result.question_id === IMPLEMENTATION_GATE_QUESTION_ID) {
-    const decision = decisionFromAnswer(result);
-    const postSpecs = { ...ensurePostSpecs(stateAfterReportWrite), decision };
-    if (decision === "prd_only") {
-      return {
-        state: { ...stateAfterReportWrite, post_specs: postSpecs, current_step: "finalize" },
-        action: {
-          kind: "emit_message",
-          message: "PRD-only run selected. Skipping implementation."
-        }
-      };
-    }
+function writeReportAction(state) {
+  const reportFile = buildVerificationReportFile(state);
+  if (!reportFile)
+    return null;
+  return { kind: "write_file", path: reportFile.path, content: reportFile.content() };
+}
+function advance(state, postSpecs) {
+  if (postSpecs.decision === "prd_only") {
     return {
-      state: { ...stateAfterReportWrite, post_specs: postSpecs, current_step: "pre_impl_grounding" },
-      action: {
-        kind: "emit_message",
-        message: "Implementation selected. Gathering pre-implementation blast-radius grounding."
-      }
+      state: { ...state, post_specs: postSpecs, current_step: "finalize" },
+      action: { kind: "emit_message", message: "PRD-only run selected. Skipping implementation." }
     };
   }
   return {
-    state: { ...stateAfterReportWrite, post_specs: ensurePostSpecs(stateAfterReportWrite) },
+    state: { ...state, post_specs: postSpecs, current_step: "pre_impl_grounding" },
     action: {
-      kind: "ask_user",
-      question_id: IMPLEMENTATION_GATE_QUESTION_ID,
-      header: "Proceed to implementation?",
-      description: "The PRD/specs are ready. Implement the change now (spawns an engineer, runs tests and review, opens a PR after a human gate), or stop here with PRD-only deliverables (today's behavior)?",
-      options: [
-        {
-          label: "PRD only",
-          description: "Stop here. No code changes \u2014 today's default behavior."
-        },
-        {
-          label: "Implement",
-          description: "Spawn an engineer to implement, test, review, and (after a further gate) open a PR."
-        }
-      ],
-      multi_select: false
+      kind: "emit_message",
+      message: "Implementation selected. Gathering pre-implementation blast-radius grounding."
     }
+  };
+}
+function handleGateAnswer(state, postSpecs, policyVerdict, result) {
+  const decision = decisionFromAnswer(result);
+  const requiresDerogationRecord = decision === "implement" && policyVerdict.status !== "pass";
+  const newPostSpecs = {
+    ...postSpecs,
+    decision,
+    ...requiresDerogationRecord ? {
+      policy_derogation: {
+        policy_status: policyVerdict.status,
+        reasons: [...policyVerdict.reasons]
+      }
+    } : {}
+  };
+  if (policyVerdict.status !== "pass" && !hasVerificationReport(state)) {
+    const stateWithDecision = { ...state, post_specs: newPostSpecs };
+    const action = writeReportAction(stateWithDecision);
+    if (action)
+      return { state: stateWithDecision, action };
+  }
+  return advance(state, newPostSpecs);
+}
+var handleImplementationGate = ({ state, result }) => {
+  const stateAfterReportWrite = recordReportWrite(state, result);
+  const postSpecs = ensurePostSpecs(stateAfterReportWrite);
+  const policyVerdict = evaluatePolicy(stateAfterReportWrite.pending_completion?.verification, resolveVerificationPolicy(stateAfterReportWrite.verification_policy));
+  if (result?.kind === "file_written" && postSpecs.decision !== "pending") {
+    return advance(stateAfterReportWrite, postSpecs);
+  }
+  if (policyVerdict.status === "pass" && result?.kind !== "file_written" && !hasVerificationReport(stateAfterReportWrite)) {
+    const action = writeReportAction(stateAfterReportWrite);
+    if (action) {
+      return { state: { ...stateAfterReportWrite, post_specs: postSpecs }, action };
+    }
+  }
+  if (result?.kind === "user_answer" && result.question_id === IMPLEMENTATION_GATE_QUESTION_ID) {
+    return handleGateAnswer(stateAfterReportWrite, postSpecs, policyVerdict, result);
+  }
+  return {
+    state: { ...stateAfterReportWrite, post_specs: postSpecs },
+    action: buildPolicyGateQuestion(policyVerdict)
   };
 };
 

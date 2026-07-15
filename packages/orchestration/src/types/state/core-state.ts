@@ -8,6 +8,7 @@ import { VerificationPlanSnapshotSchema } from "./verification-plan.js";
 import { MAX_CLARIFICATION_TURNS, MAX_PIPELINE_ERRORS } from "./bounded-io.js";
 import { PostSpecsStateSchema } from "./post-specs-state.js";
 import { VerifyBudgetConfigSchema } from "./verify-budget.js";
+import { VerificationPolicySchema } from "./verification-policy.js";
 
 export const ClarificationTurnSchema = z.object({
   round: z.number().int().min(1),
@@ -401,6 +402,15 @@ export const PipelineStateSchema = z.object({
    * verify-budget.ts module doc for the full rationale.
    */
   verify_budget: VerifyBudgetConfigSchema.nullable().default(null),
+  /**
+   * Verification-acceptance-policy override for `implementation_gate`
+   * (handlers/verification-policy.ts `evaluatePolicy`). Composition-root-
+   * injected only (mirrors `verify_budget`); the reducer only reads it.
+   * `null` = use DEFAULT_VERIFICATION_POLICY.
+   *
+   * source: design-phases-3-5.md §7; e2e run run_mrlqa0aj_u2rh15 (2026-07-15).
+   */
+  verification_policy: VerificationPolicySchema.nullable().default(null),
 })
   .refine((s) => s.errors.length === s.error_kinds.length, {
     message:

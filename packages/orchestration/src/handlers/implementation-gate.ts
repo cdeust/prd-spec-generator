@@ -3,33 +3,46 @@
  * (self_check) and the post-specs implementation loop.
  *
  * self_check's finalize() has already computed `state.pending_completion`
- * and advanced here (design-phases-3-5.md §2.2). This handler's ONLY job is
- * to ask "Implement" vs "PRD only" and route:
- *   - "prd_only" → `finalize` directly. This is TODAY'S EXACT BEHAVIOR
- *     (self_check used to emit remember/done itself) — zero regression is
- *     the acceptance criterion for this branch (design §5, PR 3b).
- *   - "implement" → `pre_impl_grounding`, which (in PR 3b) dead-ends back
- *     to `finalize` once grounding is gathered/skipped — the `implementation`
- *     step itself is not wired until PR 4a.
+ * and advanced here (design-phases-3-5.md §2.2). This handler:
+ *   1. Evaluates the verification-acceptance policy (handlers/
+ *      verification-policy.ts `evaluatePolicy`) over
+ *      `pending_completion.verification`.
+ *   2. Asks a question shaped by that verdict — "Implement" vs "PRD only"
+ *      when the policy passed cleanly; an explicit-derogation question
+ *      naming the blocking claims/disagreements/unsampled ratio otherwise
+ *      (see `buildPolicyGateQuestion`). Routes:
+ *        - "prd_only" → `finalize` directly. Zero regression for the
+ *          policy-"pass" case (design §5, PR 3b acceptance criterion).
+ *        - "implement" → `pre_impl_grounding`.
+ *   3. Records a `policy_derogation` on `state.post_specs` whenever
+ *      "implement" was chosen against a non-"pass" policy verdict.
  *
  * precondition:  state.pending_completion !== null (set by self_check's
  *                finalize() before advancing here).
  *
- * VERIFICATION-REPORT EXPORT (root-cause note, 2026-07-15): self-check's
- * verification results (section statuses+violations, judge-verdict
- * distribution, prd_graph_validation) were computed but never written to a
- * file — only carried in the transient `pending_completion`/`done` payload
- * (e2e run_mrlqa0aj_u2rh15). The natural fix is "self_check exports its own
- * report", but self-check.ts is owned by a separate concurrent change and is
- * out of scope here. `implementation_gate` is the FIRST step reached once
- * `pending_completion` is set (see precondition above), so — before ever
- * asking the "Implement / PRD only" question — it writes
- * `10-verification-report.md` via the SAME write_file protocol file_export
- * uses (one write_file per entry, `file_written` result required to
- * advance). The report's CONTENT logic lives in verification-report.ts
- * (buildVerificationReportFile) — this module only sequences the write.
+ * VERIFICATION-REPORT EXPORT (root-cause note, 2026-07-15, extended
+ * 2026-07-15 for the policy gap — e2e run run_mrlqa0aj_u2rh15: the jury
+ * returned 1 FAIL + 20 INCONCLUSIVE, yet this gate asked its question
+ * exactly as if every claim had passed): self-check's verification results
+ * were computed but never written to a file — only carried in the transient
+ * `pending_completion`/`done` payload. `implementation_gate` is the FIRST
+ * step reached once `pending_completion` is set (see precondition above),
+ * so it writes `10-verification-report.md` (`buildVerificationReportFile`,
+ * verification-report.ts) via the SAME write_file protocol file_export
+ * uses. WRITE TIMING depends on the policy verdict:
+ *   - status "pass": written BEFORE the question is asked (today's exact
+ *     behavior, zero regression) — the decision cannot yet change the
+ *     report's content since no derogation is possible on this path.
+ *   - status "needs_attention" / "blocked": the question IS asked first
+ *     (its header/description already names every blocking claim —
+ *     `buildPolicyGateQuestion` — so a human is never blind); the report is
+ *     written ONCE, after the answer, so it can render the recorded
+ *     decision/derogation rather than a "pending" placeholder. This is
+ *     still exactly one file_write round trip for this path, matching the
+ *     "pass" path's cost.
  *
- * source: design-phases-3-5.md §2.2, §3 "implementation_gate".
+ * source: design-phases-3-5.md §2.2, §3 "implementation_gate", §7
+ * "verification_policy"; e2e run run_mrlqa0aj_u2rh15 (2026-07-15).
  */
 
 import type { StepHandler } from "../runner.js";
@@ -37,6 +50,12 @@ import { type PipelineState } from "../types/state.js";
 import { initialPostSpecs, type PostSpecsState } from "../types/state/post-specs-state.js";
 import { IMPLEMENTATION_GATE_QUESTION_ID } from "./protocol-ids.js";
 import { buildVerificationReportFile, VERIFICATION_REPORT_FILENAME } from "./verification-report.js";
+import {
+  buildPolicyGateQuestion,
+  evaluatePolicy,
+  resolveVerificationPolicy,
+  type PolicyVerdict,
+} from "./verification-policy.js";
 
 function ensurePostSpecs(state: PipelineState): PostSpecsState {
   return state.post_specs ?? initialPostSpecs();
@@ -65,84 +84,129 @@ function recordReportWrite(state: PipelineState, result: import("../types/action
 
 /**
  * precondition:  `result` is the user_answer for IMPLEMENTATION_GATE_QUESTION_ID.
- * postcondition: returns "implement" iff the selected option's label
- *                (or freeform text) mentions "implement"; "prd_only"
- *                otherwise — including on an unrecognized/empty answer,
- *                which fails CLOSED to the zero-risk PRD-only path rather
- *                than silently spawning an engineer.
+ * postcondition: returns "implement" iff the selected option's label (or
+ *                freeform text) mentions "implement" OR "override" — the
+ *                latter covers the "blocked"-status option label ("Override
+ *                policy (explicit)"), which deliberately never contains the
+ *                word "implement" (task requirement: never a bare
+ *                "Implement" option while blocked). "prd_only" otherwise —
+ *                including on an unrecognized/empty answer, which fails
+ *                CLOSED to the zero-risk PRD-only path rather than silently
+ *                spawning an engineer.
  */
 function decisionFromAnswer(
   result: Extract<import("../types/actions.js").ActionResult, { kind: "user_answer" }>,
 ): "implement" | "prd_only" {
   const chosen = (result.selected[0] ?? result.freeform ?? "").toLowerCase();
-  return chosen.includes("implement") ? "implement" : "prd_only";
+  return chosen.includes("implement") || chosen.includes("override") ? "implement" : "prd_only";
+}
+
+function writeReportAction(state: PipelineState): { kind: "write_file"; path: string; content: string } | null {
+  const reportFile = buildVerificationReportFile(state);
+  if (!reportFile) return null;
+  return { kind: "write_file", path: reportFile.path, content: reportFile.content() };
+}
+
+/**
+ * precondition:  `postSpecs.decision !== "pending"` (the gate answer has
+ *                already been processed into `postSpecs`).
+ * postcondition: routes to `finalize` ("prd_only") or `pre_impl_grounding`
+ *                ("implement"), carrying `postSpecs` unchanged.
+ */
+function advance(state: PipelineState, postSpecs: PostSpecsState) {
+  if (postSpecs.decision === "prd_only") {
+    return {
+      state: { ...state, post_specs: postSpecs, current_step: "finalize" as const },
+      action: { kind: "emit_message" as const, message: "PRD-only run selected. Skipping implementation." },
+    };
+  }
+  return {
+    state: { ...state, post_specs: postSpecs, current_step: "pre_impl_grounding" as const },
+    action: {
+      kind: "emit_message" as const,
+      message: "Implementation selected. Gathering pre-implementation blast-radius grounding.",
+    },
+  };
+}
+
+/**
+ * precondition:  `result` is the user_answer for IMPLEMENTATION_GATE_QUESTION_ID.
+ * postcondition: computes the decision + any derogation record, then either
+ *                (a) returns the post-decision report write (non-"pass"
+ *                verdicts only, single write) so the recorded decision is
+ *                rendered, or (b) advances directly ("pass" verdicts — no
+ *                derogation possible, nothing new to render).
+ */
+function handleGateAnswer(
+  state: PipelineState,
+  postSpecs: PostSpecsState,
+  policyVerdict: PolicyVerdict,
+  result: Extract<import("../types/actions.js").ActionResult, { kind: "user_answer" }>,
+) {
+  const decision = decisionFromAnswer(result);
+  const requiresDerogationRecord = decision === "implement" && policyVerdict.status !== "pass";
+  const newPostSpecs: PostSpecsState = {
+    ...postSpecs,
+    decision,
+    ...(requiresDerogationRecord
+      ? {
+          policy_derogation: {
+            policy_status: policyVerdict.status as "needs_attention" | "blocked",
+            reasons: [...policyVerdict.reasons],
+          },
+        }
+      : {}),
+  };
+
+  if (policyVerdict.status !== "pass" && !hasVerificationReport(state)) {
+    const stateWithDecision: PipelineState = { ...state, post_specs: newPostSpecs };
+    const action = writeReportAction(stateWithDecision);
+    if (action) return { state: stateWithDecision, action };
+  }
+  return advance(state, newPostSpecs);
 }
 
 export const handleImplementationGate: StepHandler = ({ state, result }) => {
   const stateAfterReportWrite = recordReportWrite(state, result);
+  const postSpecs = ensurePostSpecs(stateAfterReportWrite);
+  const policyVerdict: PolicyVerdict = evaluatePolicy(
+    stateAfterReportWrite.pending_completion?.verification,
+    resolveVerificationPolicy(stateAfterReportWrite.verification_policy),
+  );
 
-  // First entry (or replay before the file_written result arrives): emit the
-  // verification-report write before ever asking the decision question.
-  // Skips gracefully (falls through to ask_user) when no report can be
-  // derived — see buildVerificationReportFile's postcondition.
-  if (result?.kind !== "file_written" && !hasVerificationReport(stateAfterReportWrite)) {
-    const reportFile = buildVerificationReportFile(stateAfterReportWrite);
-    if (reportFile) {
-      return {
-        state: { ...stateAfterReportWrite, post_specs: ensurePostSpecs(stateAfterReportWrite) },
-        action: {
-          kind: "write_file",
-          path: reportFile.path,
-          content: reportFile.content(),
-        },
-      };
-    }
+  // (A) The gate answer was already processed on a PRIOR call (postSpecs.decision
+  // left "pending" only until handleGateAnswer runs) and this file_written is
+  // the confirmation of the POST-decision report re-write — advance now.
+  // Cannot misfire on the INITIAL write's confirmation: decision is only ever
+  // set away from "pending" inside handleGateAnswer, which always runs
+  // strictly after the initial write/ask sequence.
+  if (result?.kind === "file_written" && postSpecs.decision !== "pending") {
+    return advance(stateAfterReportWrite, postSpecs);
   }
 
+  // (B) Initial report write — only for a "pass" verdict (today's exact
+  // behavior, before ever asking). Non-"pass" verdicts skip straight to the
+  // policy-shaped question — see module doc "WRITE TIMING".
   if (
-    result?.kind === "user_answer" &&
-    result.question_id === IMPLEMENTATION_GATE_QUESTION_ID
+    policyVerdict.status === "pass" &&
+    result?.kind !== "file_written" &&
+    !hasVerificationReport(stateAfterReportWrite)
   ) {
-    const decision = decisionFromAnswer(result);
-    const postSpecs: PostSpecsState = { ...ensurePostSpecs(stateAfterReportWrite), decision };
-
-    if (decision === "prd_only") {
-      return {
-        state: { ...stateAfterReportWrite, post_specs: postSpecs, current_step: "finalize" },
-        action: {
-          kind: "emit_message",
-          message: "PRD-only run selected. Skipping implementation.",
-        },
-      };
+    const action = writeReportAction(stateAfterReportWrite);
+    if (action) {
+      return { state: { ...stateAfterReportWrite, post_specs: postSpecs }, action };
     }
-    return {
-      state: { ...stateAfterReportWrite, post_specs: postSpecs, current_step: "pre_impl_grounding" },
-      action: {
-        kind: "emit_message",
-        message: "Implementation selected. Gathering pre-implementation blast-radius grounding.",
-      },
-    };
   }
 
+  // (C) Gate answer arrived.
+  if (result?.kind === "user_answer" && result.question_id === IMPLEMENTATION_GATE_QUESTION_ID) {
+    return handleGateAnswer(stateAfterReportWrite, postSpecs, policyVerdict, result);
+  }
+
+  // (D) Report already written (or none could be derived) and no answer yet
+  // — ask, shaped by the policy verdict.
   return {
-    state: { ...stateAfterReportWrite, post_specs: ensurePostSpecs(stateAfterReportWrite) },
-    action: {
-      kind: "ask_user",
-      question_id: IMPLEMENTATION_GATE_QUESTION_ID,
-      header: "Proceed to implementation?",
-      description:
-        "The PRD/specs are ready. Implement the change now (spawns an engineer, runs tests and review, opens a PR after a human gate), or stop here with PRD-only deliverables (today's behavior)?",
-      options: [
-        {
-          label: "PRD only",
-          description: "Stop here. No code changes — today's default behavior.",
-        },
-        {
-          label: "Implement",
-          description: "Spawn an engineer to implement, test, review, and (after a further gate) open a PR.",
-        },
-      ],
-      multi_select: false,
-    },
+    state: { ...stateAfterReportWrite, post_specs: postSpecs },
+    action: buildPolicyGateQuestion(policyVerdict),
   };
 };
