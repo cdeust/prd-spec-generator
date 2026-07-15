@@ -15,7 +15,16 @@ describe("pipeline KPIs", () => {
 
     expect(kpis.final_action_kind).toBe("done");
     expect(kpis.current_step).toBe("complete");
-    expect(kpis.written_files_count).toBe(9);
+    // 8, not 9: file-export.ts's root-cause fix (2026-07-15) stops writing
+    // placeholder files for sections never scheduled by the run's PRD
+    // context (06-deployment/08-source-code/09-test-code — "feature"
+    // context never schedules deployment/timeline/risks or source/test
+    // code). The omission is recorded in 00-run-notes.md instead, and
+    // implementation_gate additionally writes 10-verification-report.md —
+    // net: 01,02,03,04,05,07 (6 content files) + 00-run-notes +
+    // 10-verification-report = 8. See orchestration smoke.test.ts's
+    // "writes the expected deliverable files" for the exact accounting.
+    expect(kpis.written_files_count).toBe(8);
     // Upper bound raised from 70 to 77 by PR 3b (design-phases-3-5.md): the
     // canned dispatcher answers the new `implementation_gate` ask_user with
     // "PRD only" (zero-regression default), which costs one extra
@@ -64,7 +73,9 @@ describe("pipeline KPIs", () => {
     });
 
     expect(kpis.final_action_kind).toBe("done");
-    expect(kpis.written_files_count).toBe(9);
+    // See the "trial+codebase canned-response baseline" test above for the
+    // 8-file accounting (root-cause fix, 2026-07-15).
+    expect(kpis.written_files_count).toBe(8);
     // Upper bound — feature context schedules 11 sections; 7 iterations per
     // section (recall → draft → validate ×3 + finalize) is the worst-case
     // upper bound, plus pipeline overhead. 80 is conservative.
@@ -423,7 +434,10 @@ function baseFakeKpis(overrides: Partial<ReturnType<typeof measurePipeline>> = {
     structural_error_count: 0,
     judge_dispatch_count: 0,
     distribution_pass_rate: 0,
-    written_files_count: 9,
+    // Synthetic default, not asserted against by any gate — kept in sync
+    // with the real 8-file accounting (see the "trial+codebase" test above)
+    // for readability, not correctness.
+    written_files_count: 8,
     safety_cap_hit: false,
     // Phase 4.3 instrumentation defaults — measurement-only, see
     // src/instrumentation.ts and PHASE_4_PLAN.md §4.3.

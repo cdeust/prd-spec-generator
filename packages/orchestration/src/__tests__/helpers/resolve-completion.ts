@@ -16,6 +16,7 @@
  * Must match:
  *   - handlers/protocol-ids.ts:IMPLEMENTATION_GATE_QUESTION_ID
  *   - handlers/finalize.ts:REMEMBER_CORRELATION_ID
+ *   - handlers/file-export.ts:VERIFICATION_REPORT_FILENAME
  */
 
 import { expect } from "vitest";
@@ -23,26 +24,51 @@ import { step } from "../../index.js";
 
 const IMPLEMENTATION_GATE_QUESTION_ID = "implementation_gate";
 const REMEMBER_CORRELATION_ID = "self_check_remember";
+const VERIFICATION_REPORT_FILENAME = "10-verification-report.md";
 
 type StepOutput = ReturnType<typeof step>;
 
 /**
+ * precondition:  `out.action.kind === "write_file"` with a path ending in
+ *                VERIFICATION_REPORT_FILENAME — `implementation_gate`'s
+ *                first-entry write (see implementation-gate.ts module doc).
+ * postcondition: feeds back `file_written` and returns the next step()
+ *                output (today: the "Implement / PRD only" ask_user).
+ */
+function resolveVerificationReportWrite(out: StepOutput): StepOutput {
+  if (
+    out.action.kind !== "write_file" ||
+    !out.action.path.endsWith(VERIFICATION_REPORT_FILENAME)
+  ) {
+    return out;
+  }
+  return step({
+    state: out.state,
+    result: { kind: "file_written", path: out.action.path, bytes: out.action.content.length },
+  });
+}
+
+/**
  * precondition:  `out.action.kind === "ask_user"` with
  *                `question_id === IMPLEMENTATION_GATE_QUESTION_ID` (the
- *                state just fell through self_check's finalize()).
+ *                state just fell through self_check's finalize()), OR
+ *                `out.action.kind === "write_file"` for the verification
+ *                report that `implementation_gate` writes before ever
+ *                asking (see resolveVerificationReportWrite).
  * postcondition: answers "PRD only" and returns the next step() output —
  *                today's zero-regression path (design §5, PR 3b acceptance
  *                criterion).
  */
 export function resolveImplementationGatePrdOnly(out: StepOutput): StepOutput {
-  expect(out.action.kind).toBe("ask_user");
-  if (out.action.kind !== "ask_user") return out;
-  expect(out.action.question_id).toBe(IMPLEMENTATION_GATE_QUESTION_ID);
+  const afterReport = resolveVerificationReportWrite(out);
+  expect(afterReport.action.kind).toBe("ask_user");
+  if (afterReport.action.kind !== "ask_user") return afterReport;
+  expect(afterReport.action.question_id).toBe(IMPLEMENTATION_GATE_QUESTION_ID);
   return step({
-    state: out.state,
+    state: afterReport.state,
     result: {
       kind: "user_answer",
-      question_id: out.action.question_id,
+      question_id: afterReport.action.question_id,
       selected: ["PRD only"],
     },
   });
@@ -54,13 +80,17 @@ export function resolveImplementationGatePrdOnly(out: StepOutput): StepOutput {
  * implementation_gate with "PRD only" (if reached) then resolves the
  * `remember` round trip, returning the final `done`/`failed` StepOutput.
  *
- * precondition:  `out.action.kind` is either "ask_user" (gate not yet
- *                answered) or "call_cortex_tool" (gate already resolved,
- *                e.g. state was hand-constructed past it).
+ * precondition:  `out.action.kind` is "write_file" (verification-report
+ *                write pending), "ask_user" (gate not yet answered), or
+ *                "call_cortex_tool" (gate already resolved, e.g. state was
+ *                hand-constructed past it).
  */
 export function resolveRemember(out: StepOutput): StepOutput {
+  const afterReport = resolveVerificationReportWrite(out);
   const afterGate =
-    out.action.kind === "ask_user" ? resolveImplementationGatePrdOnly(out) : out;
+    afterReport.action.kind === "ask_user"
+      ? resolveImplementationGatePrdOnly(afterReport)
+      : afterReport;
 
   expect(afterGate.action.kind).toBe("call_cortex_tool");
   if (afterGate.action.kind !== "call_cortex_tool") return afterGate;

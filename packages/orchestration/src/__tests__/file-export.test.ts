@@ -25,6 +25,81 @@ function stateAtFileExport(): PipelineState {
   };
 }
 
+/**
+ * A "feature" context run with content for every SCHEDULED section
+ * (SECTIONS_BY_CONTEXT.feature: overview, goals, requirements, user_stories,
+ * technical_specification, acceptance_criteria, data_model,
+ * api_specification, security_considerations, performance_requirements,
+ * testing) plus a JIRA tickets section. `deployment`/`timeline`/`risks`
+ * (06) and `source_code`/`test_code` (08/09) are deliberately absent — no
+ * PRD context ever schedules them — so this fixture exercises BOTH the
+ * "content present → file written" and "not in context profile → skipped,
+ * listed in run-notes" branches in one state.
+ */
+function stateAtFileExportFullyPopulated(): PipelineState {
+  const s = newPipelineState({
+    run_id: "test_export_002",
+    feature_description: "full feature",
+  });
+  const passed = (
+    section_type: PipelineState["sections"][number]["section_type"],
+    content: string,
+  ): PipelineState["sections"][number] => ({
+    section_type,
+    status: "passed",
+    attempt: 1,
+    violation_count: 0,
+    last_violations: [],
+    content,
+  });
+  return {
+    ...s,
+    current_step: "file_export",
+    prd_context: "feature",
+    sections: [
+      passed("overview", "Overview content"),
+      passed("goals", "Goals content"),
+      passed("requirements", "Requirements content"),
+      passed("user_stories", "User stories content"),
+      passed("technical_specification", "Technical spec content"),
+      passed("acceptance_criteria", "Acceptance criteria content"),
+      passed("data_model", "Data model content"),
+      passed("api_specification", "API spec content"),
+      passed("security_considerations", "Security content"),
+      passed("performance_requirements", "Performance content"),
+      passed("testing", "Testing content"),
+      passed("jira_tickets", "JIRA ticket content"),
+    ],
+  };
+}
+
+/**
+ * Drain every write_file until the handler produces a non-write_file
+ * action. This crosses file_export's own multi-file loop AND
+ * implementation_gate's single verification-report write (see
+ * implementation-gate.ts module doc) — both use the identical
+ * write_file/file_written protocol, so a generic drain captures the full
+ * exported-file set for a "PRD only" (default) run.
+ */
+function drainFileExport(state: PipelineState): {
+  written: string[];
+  final: ReturnType<typeof step>;
+} {
+  const written: string[] = [];
+  let current = state;
+  let out = step({ state: current });
+  for (let i = 0; i < 20 && out.action.kind === "write_file"; i++) {
+    written.push(out.action.path);
+    const next = step({
+      state: current,
+      result: { kind: "file_written", path: out.action.path, bytes: 1 },
+    });
+    current = next.state;
+    out = next;
+  }
+  return { written, final: out };
+}
+
 describe("file_export handler", () => {
   it("emits the first write_file when no files are written yet", () => {
     const out = step({ state: stateAtFileExport() });
@@ -84,30 +159,73 @@ describe("file_export handler", () => {
     expect(next.action.kind).toBe("write_file");
   });
 
-  it("transitions through self_check after all 9 files are written", () => {
-    const s: PipelineState = {
-      ...stateAtFileExport(),
-      written_files: [
+  it("never writes a placeholder file — a section with no content is omitted, not stubbed", () => {
+    const { written } = drainFileExport(stateAtFileExport());
+    // Only "overview" has content, so ONLY 01-prd.md (core document),
+    // 00-run-notes.md (every companion file is skipped), and
+    // 10-verification-report.md (implementation_gate's report write) are
+    // written — no 02-*.md..09-*.md placeholder stub.
+    expect(written).toEqual([
+      "prd-output/test_exp/01-prd.md",
+      "prd-output/test_exp/00-run-notes.md",
+      "prd-output/test_exp/10-verification-report.md",
+    ]);
+  });
+
+  it("00-run-notes.md names every skipped file and a reason, never fabricates content", () => {
+    const { written, final } = drainFileExport(stateAtFileExport());
+    void final;
+    const s2 = stateAtFileExport();
+    let current = s2;
+    let out = step({ state: current });
+    let runNotesContent = "";
+    for (let i = 0; i < 20 && out.action.kind === "write_file"; i++) {
+      if (out.action.path.endsWith("00-run-notes.md")) {
+        runNotesContent = out.action.content;
+      }
+      const next = step({
+        state: current,
+        result: { kind: "file_written", path: out.action.path, bytes: 1 },
+      });
+      current = next.state;
+      out = next;
+    }
+    expect(written).toContain("prd-output/test_exp/00-run-notes.md");
+    expect(runNotesContent).toContain("# Run Notes");
+    // data_model IS scheduled for "feature" context but has no content →
+    // "skipped" (not "not part of this run's PRD context profile").
+    expect(runNotesContent).toMatch(/Data Model.*not generated in this run/);
+    // source_code is NEVER scheduled for any PRD context.
+    expect(runNotesContent).toMatch(
+      /Source Code.*not part of this run's PRD context profile/,
+    );
+  });
+
+  it("transitions through self_check once every scheduled file is written (no gaps)", () => {
+    const { final } = drainFileExport(stateAtFileExport());
+    const out = resolveRemember(final);
+    expect(out.state.current_step).toBe("complete");
+    expect(out.action.kind).toBe("done");
+  });
+
+  it("writes every generated file with real content and skips only the unscheduled ones, keeping numbering stable", () => {
+    const { written } = drainFileExport(stateAtFileExportFullyPopulated());
+    expect(written).toEqual(
+      expect.arrayContaining([
         "prd-output/test_exp/01-prd.md",
         "prd-output/test_exp/02-data-model.md",
         "prd-output/test_exp/03-api-spec.md",
         "prd-output/test_exp/04-security.md",
         "prd-output/test_exp/05-testing.md",
-        "prd-output/test_exp/06-deployment.md",
         "prd-output/test_exp/07-jira-tickets.md",
-        "prd-output/test_exp/08-source-code.md",
-        "prd-output/test_exp/09-test-code.md",
-      ],
-    };
-    const issued = step({ state: s });
-    // After all files written, file_export coalesces emit_message → self_check
-    // (finalize sets pending_completion, advances to implementation_gate) →
-    // ask_user("Implement"/"PRD only") → "PRD only" → finalize (remember,
-    // Phase C) → done. Zero-claim sections produce a `done` action with empty
-    // verification distribution.
-    const out = resolveRemember(issued);
-    expect(out.state.current_step).toBe("complete");
-    expect(out.action.kind).toBe("done");
+        "prd-output/test_exp/00-run-notes.md",
+      ]),
+    );
+    // 06 (deployment/timeline/risks), 08 (source_code), 09 (test_code) are
+    // never scheduled for "feature" context — correctly absent, not stubbed.
+    expect(written).not.toContain("prd-output/test_exp/06-deployment.md");
+    expect(written).not.toContain("prd-output/test_exp/08-source-code.md");
+    expect(written).not.toContain("prd-output/test_exp/09-test-code.md");
   });
 });
 
@@ -149,19 +267,12 @@ describe("file_export handler — stage-5.affected_symbols.json sidecar", () => 
     };
   }
 
-  it("emits the sidecar as a 10th file when the technical_specification section carries claims", () => {
+  it("emits the sidecar as an extra file when the technical_specification section carries claims", () => {
     const s: PipelineState = {
       ...stateWithTechSpec(AFFECTED_SYMBOLS_BLOCK),
       written_files: [
         "prd-output/test_exp/01-prd.md",
-        "prd-output/test_exp/02-data-model.md",
-        "prd-output/test_exp/03-api-spec.md",
-        "prd-output/test_exp/04-security.md",
-        "prd-output/test_exp/05-testing.md",
-        "prd-output/test_exp/06-deployment.md",
-        "prd-output/test_exp/07-jira-tickets.md",
-        "prd-output/test_exp/08-source-code.md",
-        "prd-output/test_exp/09-test-code.md",
+        "prd-output/test_exp/00-run-notes.md",
       ],
     };
     const out = step({ state: s });
@@ -181,27 +292,11 @@ describe("file_export handler — stage-5.affected_symbols.json sidecar", () => 
     }
   });
 
-  it("does NOT emit a sidecar when the section carries no affected_symbols block (stays at 9 files)", () => {
-    const s = stateAtFileExport(); // only "overview", no technical_specification block
-    const out = step({ state: s });
-    // Drain every write until self_check — the sidecar path must never appear.
-    let current = s;
-    let action = out.action;
-    const written: string[] = [];
-    for (let i = 0; i < 15 && action.kind === "write_file"; i++) {
-      written.push(action.path);
-      const next = step({
-        state: current,
-        result: { kind: "file_written", path: action.path, bytes: 1 },
-      });
-      current = next.state;
-      action = next.action;
-    }
-    expect(written).toHaveLength(9);
+  it("does NOT emit a sidecar when the section carries no affected_symbols block", () => {
+    const { written } = drainFileExport(stateAtFileExport()); // only "overview"
     expect(
       written.some((p) => p.endsWith("stage-5.affected_symbols.json")),
     ).toBe(false);
-    expect(current.affected_symbols_path).toBeNull();
   });
 
   it("records affected_symbols_path in state once the sidecar is written", () => {
@@ -209,14 +304,7 @@ describe("file_export handler — stage-5.affected_symbols.json sidecar", () => 
       ...stateWithTechSpec(AFFECTED_SYMBOLS_BLOCK),
       written_files: [
         "prd-output/test_exp/01-prd.md",
-        "prd-output/test_exp/02-data-model.md",
-        "prd-output/test_exp/03-api-spec.md",
-        "prd-output/test_exp/04-security.md",
-        "prd-output/test_exp/05-testing.md",
-        "prd-output/test_exp/06-deployment.md",
-        "prd-output/test_exp/07-jira-tickets.md",
-        "prd-output/test_exp/08-source-code.md",
-        "prd-output/test_exp/09-test-code.md",
+        "prd-output/test_exp/00-run-notes.md",
         "prd-output/test_exp/stage-5.affected_symbols.json",
       ],
     };

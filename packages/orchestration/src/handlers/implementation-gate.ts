@@ -15,6 +15,21 @@
  * precondition:  state.pending_completion !== null (set by self_check's
  *                finalize() before advancing here).
  *
+ * VERIFICATION-REPORT EXPORT (root-cause note, 2026-07-15): self-check's
+ * verification results (section statuses+violations, judge-verdict
+ * distribution, prd_graph_validation) were computed but never written to a
+ * file — only carried in the transient `pending_completion`/`done` payload
+ * (e2e run_mrlqa0aj_u2rh15). The natural fix is "self_check exports its own
+ * report", but self-check.ts is owned by a separate concurrent change and is
+ * out of scope here. `implementation_gate` is the FIRST step reached once
+ * `pending_completion` is set (see precondition above), so — before ever
+ * asking the "Implement / PRD only" question — it writes
+ * `10-verification-report.md` via the SAME write_file protocol file_export
+ * uses (one write_file per entry, `file_written` result required to
+ * advance). The report's CONTENT logic lives in file-export.ts
+ * (buildVerificationReportFile) — this module only sequences the write,
+ * consistent with file-export.ts owning every PRD-deliverable export.
+ *
  * source: design-phases-3-5.md §2.2, §3 "implementation_gate".
  */
 
@@ -22,9 +37,31 @@ import type { StepHandler } from "../runner.js";
 import { type PipelineState } from "../types/state.js";
 import { initialPostSpecs, type PostSpecsState } from "../types/state/post-specs-state.js";
 import { IMPLEMENTATION_GATE_QUESTION_ID } from "./protocol-ids.js";
+import { buildVerificationReportFile, VERIFICATION_REPORT_FILENAME } from "./file-export.js";
 
 function ensurePostSpecs(state: PipelineState): PostSpecsState {
   return state.post_specs ?? initialPostSpecs();
+}
+
+function hasVerificationReport(state: PipelineState): boolean {
+  return state.written_files.some((p) => p.endsWith(VERIFICATION_REPORT_FILENAME));
+}
+
+/**
+ * precondition:  none.
+ * postcondition: returns the updated state (report path appended to
+ *                written_files when a matching file_written result was fed
+ *                in) unchanged otherwise.
+ */
+function recordReportWrite(state: PipelineState, result: import("../types/actions.js").ActionResult | undefined): PipelineState {
+  if (
+    result?.kind === "file_written" &&
+    result.path.endsWith(VERIFICATION_REPORT_FILENAME) &&
+    !state.written_files.includes(result.path)
+  ) {
+    return { ...state, written_files: [...state.written_files, result.path] };
+  }
+  return state;
 }
 
 /**
@@ -43,13 +80,36 @@ function decisionFromAnswer(
 }
 
 export const handleImplementationGate: StepHandler = ({ state, result }) => {
-  if (result?.kind === "user_answer" && result.question_id === IMPLEMENTATION_GATE_QUESTION_ID) {
+  const stateAfterReportWrite = recordReportWrite(state, result);
+
+  // First entry (or replay before the file_written result arrives): emit the
+  // verification-report write before ever asking the decision question.
+  // Skips gracefully (falls through to ask_user) when no report can be
+  // derived — see buildVerificationReportFile's postcondition.
+  if (result?.kind !== "file_written" && !hasVerificationReport(stateAfterReportWrite)) {
+    const reportFile = buildVerificationReportFile(stateAfterReportWrite);
+    if (reportFile) {
+      return {
+        state: { ...stateAfterReportWrite, post_specs: ensurePostSpecs(stateAfterReportWrite) },
+        action: {
+          kind: "write_file",
+          path: reportFile.path,
+          content: reportFile.content(),
+        },
+      };
+    }
+  }
+
+  if (
+    result?.kind === "user_answer" &&
+    result.question_id === IMPLEMENTATION_GATE_QUESTION_ID
+  ) {
     const decision = decisionFromAnswer(result);
-    const postSpecs: PostSpecsState = { ...ensurePostSpecs(state), decision };
+    const postSpecs: PostSpecsState = { ...ensurePostSpecs(stateAfterReportWrite), decision };
 
     if (decision === "prd_only") {
       return {
-        state: { ...state, post_specs: postSpecs, current_step: "finalize" },
+        state: { ...stateAfterReportWrite, post_specs: postSpecs, current_step: "finalize" },
         action: {
           kind: "emit_message",
           message: "PRD-only run selected. Skipping implementation.",
@@ -57,7 +117,7 @@ export const handleImplementationGate: StepHandler = ({ state, result }) => {
       };
     }
     return {
-      state: { ...state, post_specs: postSpecs, current_step: "pre_impl_grounding" },
+      state: { ...stateAfterReportWrite, post_specs: postSpecs, current_step: "pre_impl_grounding" },
       action: {
         kind: "emit_message",
         message: "Implementation selected. Gathering pre-implementation blast-radius grounding.",
@@ -66,7 +126,7 @@ export const handleImplementationGate: StepHandler = ({ state, result }) => {
   }
 
   return {
-    state: { ...state, post_specs: ensurePostSpecs(state) },
+    state: { ...stateAfterReportWrite, post_specs: ensurePostSpecs(stateAfterReportWrite) },
     action: {
       kind: "ask_user",
       question_id: IMPLEMENTATION_GATE_QUESTION_ID,

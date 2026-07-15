@@ -117,3 +117,94 @@ describe("implementation_gate — unrecognized answer fails closed", () => {
     expect(out.state.current_step).toBe("finalize");
   });
 });
+
+describe("implementation_gate — verification-report export (root-cause fix)", () => {
+  /**
+   * A run directory is derivable (state.written_files carries 01-prd.md) —
+   * this is the case buildVerificationReportFile actually produces a file
+   * for. stateAtGate() alone (no written_files) exercises the graceful
+   * degrade already proven by the "ask_user on entry" test above.
+   */
+  function stateAtGateWithExportedPrd(): PipelineState {
+    const base = stateAtGate();
+    return {
+      ...base,
+      written_files: ["prd-output/impl_gate_001/01-prd.md"],
+      sections: [
+        {
+          section_type: "overview",
+          status: "passed",
+          attempt: 1,
+          violation_count: 2,
+          last_violations: ["missing acceptance criteria"],
+          content: "Overview content",
+        },
+      ],
+      pending_completion: {
+        summary: "Self-check complete.",
+        artifacts: ["overview: passed"],
+        verification: {
+          claims_evaluated: 2,
+          distribution: { PASS: 1, FAIL: 1 },
+          distribution_suspicious: false,
+          prd_graph_validation: { hallucinated_symbols: [] },
+        },
+      },
+    };
+  }
+
+  it("writes 10-verification-report.md BEFORE asking the implementation decision", () => {
+    const out = step({ state: stateAtGateWithExportedPrd() });
+    expect(out.action.kind).toBe("write_file");
+    if (out.action.kind !== "write_file") return;
+    expect(out.action.path).toBe(
+      "prd-output/impl_gate_001/10-verification-report.md",
+    );
+    expect(out.action.content).toContain("# Verification Report");
+    expect(out.action.content).toContain("Overview");
+    expect(out.action.content).toContain("missing acceptance criteria");
+    expect(out.action.content).toContain("Claims evaluated: 2");
+    expect(out.action.content).toContain("PASS: 1");
+    expect(out.action.content).toContain("hallucinated_symbols");
+    // No fabricated per-claim verdicts — the honest gap notice, since
+    // pending_completion.verification.judge_verdicts is not populated.
+    expect(out.action.content).toContain(
+      "Per-claim judge verdicts are not present",
+    );
+  });
+
+  it("records the report path and proceeds to ask_user once file_written arrives", () => {
+    const seed = stateAtGateWithExportedPrd();
+    const written = step({ state: seed });
+    expect(written.action.kind).toBe("write_file");
+    if (written.action.kind !== "write_file") return;
+
+    const next = step({
+      state: written.state,
+      result: {
+        kind: "file_written",
+        path: written.action.path,
+        bytes: written.action.content.length,
+      },
+    });
+    expect(next.state.written_files).toContain(
+      "prd-output/impl_gate_001/10-verification-report.md",
+    );
+    expect(next.action.kind).toBe("ask_user");
+    if (next.action.kind === "ask_user") {
+      expect(next.action.question_id).toBe(IMPLEMENTATION_GATE_QUESTION_ID);
+    }
+  });
+
+  it("never re-writes the report once written_files already carries it", () => {
+    const seed: PipelineState = {
+      ...stateAtGateWithExportedPrd(),
+      written_files: [
+        "prd-output/impl_gate_001/01-prd.md",
+        "prd-output/impl_gate_001/10-verification-report.md",
+      ],
+    };
+    const out = step({ state: seed });
+    expect(out.action.kind).toBe("ask_user");
+  });
+});

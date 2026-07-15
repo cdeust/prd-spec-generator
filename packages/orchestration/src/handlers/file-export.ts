@@ -1,7 +1,8 @@
 /**
- * File export — write the 9 PRD deliverable files (6 core + 3 companion) per
- * SKILL.md Phase 4, plus an optional 10th sidecar (`stage-5.affected_symbols.json`)
- * when the technical_specification section asserted symbol-level claims.
+ * File export — write the PRD deliverable files (6 core + up to 3 companion,
+ * one run-notes file when any section was skipped) per SKILL.md Phase 4,
+ * plus an optional sidecar (`stage-5.affected_symbols.json`) when the
+ * technical_specification section asserted symbol-level claims.
  *
  * Protocol:
  *   - On entry with no result: emit write_file for the first un-written file.
@@ -11,16 +12,25 @@
  * Progress is tracked in `state.written_files` (a dedicated field). It is
  * NOT folded into `state.errors`; that field is reserved for genuine errors.
  *
- * The sidecar is conditional (not always emitted): automatised-pipeline
- * stage 6 treats an ABSENT `stage-5.affected_symbols.json` as "fall back to
- * regex extraction" and a PRESENT-BUT-EMPTY one as "the PRD asserts zero
- * claims" — the latter would wrongly suppress the regex fallback. So the
- * sidecar is written only when parseAffectedSymbolsBlock found ≥1 claim.
+ * NO PLACEHOLDER FILES (root-cause fix — see buildFileSet doc below):
+ * a companion file whose source section(s) produced no content is NEVER
+ * written; its skip and the reason are recorded in `00-run-notes.md`
+ * instead. source: e2e run_mrlqa0aj_u2rh15 (2026-07-15) — 5 of 10 exported
+ * files were one-line "_No ... section._" placeholders the user discovered
+ * only after delivery.
+ *
+ * The affected-symbols sidecar is conditional (not always emitted):
+ * automatised-pipeline stage 6 treats an ABSENT
+ * `stage-5.affected_symbols.json` as "fall back to regex extraction" and a
+ * PRESENT-BUT-EMPTY one as "the PRD asserts zero claims" — the latter would
+ * wrongly suppress the regex fallback. So the sidecar is written only when
+ * parseAffectedSymbolsBlock found ≥1 claim.
  * source: automatised-pipeline stages/stage-6.md §4.2.
  */
 
 import type { StepHandler } from "../runner.js";
 import { appendError, type PipelineState } from "../types/state.js";
+import { SECTIONS_BY_CONTEXT } from "../section-plan.js";
 import {
   SECTION_DISPLAY_NAMES,
   SECTION_ORDER,
@@ -32,10 +42,75 @@ import {
 
 const OUTPUT_DIR = "prd-output";
 const AFFECTED_SYMBOLS_FILENAME = "stage-5.affected_symbols.json";
+const RUN_NOTES_FILENAME = "00-run-notes.md";
 
 interface PrdFile {
   readonly path: string;
   readonly content: () => string;
+}
+
+/**
+ * Why a companion file's source section(s) produced no content.
+ *   "not_in_context_profile" — none of the section types feeding this file
+ *                               are scheduled for this run's PRD context
+ *                               (SECTIONS_BY_CONTEXT[state.prd_context]).
+ *   "failed_validation"      — at least one of the section types was
+ *                               attempted and its terminal status is
+ *                               "failed" (MAX_ATTEMPTS exhausted).
+ *   "skipped"                — planned but never reached a terminal state
+ *                               with content (e.g. the run ended early), or
+ *                               (for JIRA) no source material / a subagent
+ *                               failure — see jiraSkipReason.
+ */
+type SkipReason = "not_in_context_profile" | "failed_validation" | "skipped";
+
+const SKIP_REASON_TEXT: Record<SkipReason, string> = {
+  not_in_context_profile:
+    "not part of this run's PRD context profile — never scheduled for generation",
+  failed_validation:
+    "section generation failed validation after the maximum number of attempts",
+  skipped: "not generated in this run",
+};
+
+interface SkippedFile {
+  readonly display: string;
+  readonly filename: string;
+  readonly reason: SkipReason;
+}
+
+/**
+ * precondition:  `types` is the set of section types a companion file draws
+ *                content from (e.g. ["security_considerations",
+ *                "performance_requirements"] for 04-security.md).
+ * postcondition: "not_in_context_profile" when state.prd_context is known
+ *                and NONE of `types` are scheduled for it; else
+ *                "failed_validation" when any of `types` reached a
+ *                terminal "failed" status; else "skipped" (planned, but no
+ *                content landed — e.g. run ended before generation).
+ */
+function reasonForSectionTypes(
+  state: PipelineState,
+  types: readonly SectionType[],
+): SkipReason {
+  const planned = state.prd_context ? SECTIONS_BY_CONTEXT[state.prd_context] : null;
+  if (planned && !types.some((t) => planned.includes(t))) {
+    return "not_in_context_profile";
+  }
+  const anyFailed = types.some((t) =>
+    state.sections.some((s) => s.section_type === t && s.status === "failed"),
+  );
+  return anyFailed ? "failed_validation" : "skipped";
+}
+
+/**
+ * JIRA generation is context-independent (jira-generation.ts runs for every
+ * PRD context when source material exists), so `reasonForSectionTypes`'s
+ * "not_in_context_profile" bucket does not apply — distinguish "the
+ * subagent failed" from "there was nothing to build tickets from".
+ */
+function jiraSkipReason(state: PipelineState): SkipReason {
+  const failed = state.errors.some((e) => e.startsWith("[jira_generation] failed"));
+  return failed ? "failed_validation" : "skipped";
 }
 
 /**
@@ -89,9 +164,39 @@ function affectedSymbolsForState(state: PipelineState): AffectedSymbolsDocument 
     : { affected_symbols: [], scope_claims: [] };
 }
 
+interface CompanionFileSpec {
+  readonly filename: string;
+  readonly display: string;
+  readonly sectionTypes: readonly SectionType[];
+}
+
+/** 02-06, 08-09 — every companion file whose content is section-type-driven. */
+const COMPANION_FILES: readonly CompanionFileSpec[] = [
+  { filename: "02-data-model.md", display: "Data Model", sectionTypes: ["data_model"] },
+  { filename: "03-api-spec.md", display: "API Specification", sectionTypes: ["api_specification"] },
+  {
+    filename: "04-security.md",
+    display: "Security & Performance",
+    sectionTypes: ["security_considerations", "performance_requirements"],
+  },
+  { filename: "05-testing.md", display: "Testing Strategy", sectionTypes: ["testing", "acceptance_criteria"] },
+  { filename: "06-deployment.md", display: "Deployment Plan", sectionTypes: ["deployment", "timeline", "risks"] },
+  { filename: "08-source-code.md", display: "Source Code", sectionTypes: ["source_code"] },
+  { filename: "09-test-code.md", display: "Test Code", sectionTypes: ["test_code"] },
+];
+
+/**
+ * precondition:  none.
+ * postcondition: returns the core PRD file (always written), every
+ *                companion/JIRA file THAT HAS CONTENT (no placeholders —
+ *                see module doc), the affected-symbols sidecar when claims
+ *                were parsed, and — iff at least one file was skipped —
+ *                `00-run-notes.md` naming each skip and its reason.
+ */
 function buildFileSet(state: PipelineState): readonly PrdFile[] {
   const slug = state.run_id.slice(0, 8);
   const base = `${OUTPUT_DIR}/${slug}`;
+  const skipped: SkippedFile[] = [];
 
   const files: PrdFile[] = [
     {
@@ -113,59 +218,57 @@ function buildFileSet(state: PipelineState): readonly PrdFile[] {
           ]),
         ].join("\n"),
     },
-    {
-      path: `${base}/02-data-model.md`,
-      content: () =>
-        joinSections(state, ["data_model"]) || "_No data model section._",
-    },
-    {
-      path: `${base}/03-api-spec.md`,
-      content: () =>
-        joinSections(state, ["api_specification"]) || "_No API spec section._",
-    },
-    {
-      path: `${base}/04-security.md`,
-      content: () =>
-        joinSections(state, [
-          "security_considerations",
-          "performance_requirements",
-        ]) || "_No security/performance sections._",
-    },
-    {
-      path: `${base}/05-testing.md`,
-      content: () =>
-        joinSections(state, ["testing", "acceptance_criteria"]) ||
-        "_No testing section._",
-    },
-    {
-      path: `${base}/06-deployment.md`,
-      content: () =>
-        joinSections(state, ["deployment", "timeline", "risks"]) ||
-        "_No deployment section._",
-    },
-    {
-      path: `${base}/07-jira-tickets.md`,
-      content: () => jiraContent(state) || "_No JIRA tickets generated._",
-    },
-    {
-      path: `${base}/08-source-code.md`,
-      content: () =>
-        joinSections(state, ["source_code"]) ||
-        "_Source code section not generated in this run._",
-    },
-    {
-      path: `${base}/09-test-code.md`,
-      content: () =>
-        joinSections(state, ["test_code"]) ||
-        "_Test code section not generated in this run._",
-    },
   ];
+
+  for (const spec of COMPANION_FILES) {
+    const content = joinSections(state, spec.sectionTypes);
+    if (content) {
+      files.push({ path: `${base}/${spec.filename}`, content: () => content });
+    } else {
+      skipped.push({
+        display: spec.display,
+        filename: spec.filename,
+        reason: reasonForSectionTypes(state, spec.sectionTypes),
+      });
+    }
+  }
+
+  const jira = jiraContent(state);
+  if (jira) {
+    files.push({ path: `${base}/07-jira-tickets.md`, content: () => jira });
+  } else {
+    skipped.push({
+      display: "JIRA Tickets",
+      filename: "07-jira-tickets.md",
+      reason: jiraSkipReason(state),
+    });
+  }
 
   const affected = affectedSymbolsForState(state);
   if (affected.affected_symbols.length > 0) {
     files.push({
       path: `${base}/${AFFECTED_SYMBOLS_FILENAME}`,
       content: () => JSON.stringify(affected, null, 2),
+    });
+  }
+
+  if (skipped.length > 0) {
+    // Numbering-stable by construction: skipped filenames keep their
+    // originally-planned slot (e.g. 03-api-spec.md is simply absent, never
+    // renumbered), so run-notes lists exactly the gaps in the sequence.
+    const sorted = [...skipped].sort((a, b) => a.filename.localeCompare(b.filename));
+    files.push({
+      path: `${base}/${RUN_NOTES_FILENAME}`,
+      content: () =>
+        [
+          "# Run Notes",
+          "",
+          "The following deliverable files were not generated in this run:",
+          "",
+          ...sorted.map(
+            (s) => `- **${s.display}** (\`${s.filename}\`): ${SKIP_REASON_TEXT[s.reason]}.`,
+          ),
+        ].join("\n"),
     });
   }
 
@@ -228,3 +331,142 @@ export const handleFileExport: StepHandler = ({ state, result }) => {
     },
   };
 };
+
+// ─── Verification-report export (Move 5: kept as its own concern) ─────────
+
+const VERIFICATION_REPORT_FILENAME = "10-verification-report.md";
+
+/**
+ * precondition:  `state.written_files` contains at least one exported file
+ *                (file_export has run) whose path ends in the 01-prd.md
+ *                slug so the report lands in the same run directory.
+ * postcondition: returns null when `state.written_files` is empty (no run
+ *                directory can be derived); otherwise the directory prefix
+ *                shared by every exported PRD file.
+ */
+function runDirFromWrittenFiles(state: PipelineState): string | null {
+  const prd = state.written_files.find((p) => /(^|\/)01-prd\.md$/.test(p));
+  if (!prd) return null;
+  return prd.slice(0, prd.length - "/01-prd.md".length);
+}
+
+function renderSectionsSummary(state: PipelineState): string {
+  if (state.sections.length === 0) return "_No sections were tracked for this run._";
+  return state.sections
+    .map((s) => {
+      const violations =
+        s.last_violations.length > 0
+          ? `\n  Violations (last attempt): ${s.last_violations.join("; ")}`
+          : "";
+      return `- **${SECTION_DISPLAY_NAMES[s.section_type] ?? s.section_type}**: ${s.status} (attempt ${s.attempt}, ${s.violation_count} violation(s) recorded)${violations}`;
+    })
+    .join("\n");
+}
+
+function renderDistribution(
+  verification: NonNullable<PipelineState["pending_completion"]>["verification"],
+): string {
+  if (!verification) {
+    return "_No multi-judge verification ran for this document (zero-claim short-circuit or malformed input)._";
+  }
+  const dist = Object.entries(verification.distribution)
+    .map(([verdict, count]) => `  - ${verdict}: ${count}`)
+    .join("\n");
+  return [
+    `Claims evaluated: ${verification.claims_evaluated}`,
+    dist,
+    verification.distribution_suspicious
+      ? "⚠ Distribution suspicious — 100% PASS suggests confirmatory bias."
+      : "",
+  ]
+    .filter((l) => l !== "")
+    .join("\n");
+}
+
+/**
+ * Per-claim judge verdicts. `judge_verdicts` is an OPTIONAL contract field
+ * (see actions.ts VerificationSummarySchema doc) that self-check.ts does not
+ * currently populate — self-check's finalize() folds JudgeVerdict[] into
+ * `distribution` counts and discards the array. Rather than fabricate
+ * per-claim data that does not exist in state, this renders an explicit,
+ * honest gap notice when the field is absent (zetetic §8: no source, no
+ * invented content) and a verbatim table when it IS present.
+ */
+function renderJudgeVerdicts(
+  verification: NonNullable<PipelineState["pending_completion"]>["verification"],
+): string {
+  const verdicts = verification?.judge_verdicts;
+  if (!verdicts || verdicts.length === 0) {
+    return (
+      "_Per-claim judge verdicts are not present in this run's state — " +
+      "self_check currently aggregates verdicts into the distribution counts " +
+      "above only (see actions.ts VerificationSummarySchema.judge_verdicts). " +
+      "No per-claim data is fabricated here._"
+    );
+  }
+  const header = "| Claim ID | Judge | Verdict | Confidence | Rationale |";
+  const sep = "|---|---|---|---|---|";
+  const rows = verdicts.map(
+    (v) =>
+      `| ${v.claim_id} | ${v.judge} | ${v.verdict} | ${v.confidence.toFixed(2)} | ${v.rationale.replace(/\|/g, "\\|")} |`,
+  );
+  return [header, sep, ...rows].join("\n");
+}
+
+function renderGraphValidation(
+  verification: NonNullable<PipelineState["pending_completion"]>["verification"],
+): string {
+  const report = verification?.prd_graph_validation;
+  if (!report) {
+    return "_No PRD-vs-graph validation ran for this run (no codebase graph was available)._";
+  }
+  return ["```json", JSON.stringify(report, null, 2), "```"].join("\n");
+}
+
+/**
+ * precondition:  `state.pending_completion !== null` (self-check's
+ *                finalize() has run).
+ * postcondition: returns the 10-verification-report.md PrdFile with section
+ *                statuses+violations, the verification distribution,
+ *                per-claim judge verdicts (verbatim when present, an
+ *                honest gap notice otherwise), and prd_graph_validation
+ *                findings; returns null when no run directory can be
+ *                derived (file_export never wrote 01-prd.md) or
+ *                pending_completion is absent — degrades gracefully rather
+ *                than blocking the pipeline on a missing report.
+ */
+export function buildVerificationReportFile(state: PipelineState): PrdFile | null {
+  const pending = state.pending_completion;
+  if (!pending) return null;
+  const dir = runDirFromWrittenFiles(state);
+  if (!dir) return null;
+
+  return {
+    path: `${dir}/${VERIFICATION_REPORT_FILENAME}`,
+    content: () =>
+      [
+        `# Verification Report: ${state.feature_description}`,
+        "",
+        `Run ID: ${state.run_id}`,
+        "",
+        "## Section Statuses & Violations",
+        "",
+        renderSectionsSummary(state),
+        "",
+        "## Multi-Judge Verification Distribution",
+        "",
+        renderDistribution(pending.verification),
+        "",
+        "## Per-Claim Judge Verdicts",
+        "",
+        renderJudgeVerdicts(pending.verification),
+        "",
+        "## PRD-vs-Graph Validation",
+        "",
+        renderGraphValidation(pending.verification),
+      ].join("\n"),
+  };
+}
+
+/** Filename constant re-exported for callers that need to test for presence. */
+export { VERIFICATION_REPORT_FILENAME };

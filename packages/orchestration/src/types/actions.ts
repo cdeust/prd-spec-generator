@@ -19,7 +19,12 @@
  */
 
 import { z } from "zod";
-import { PRDContextSchema, SectionTypeSchema, VerdictSchema } from "@prd-gen/core";
+import {
+  PRDContextSchema,
+  SectionTypeSchema,
+  VerdictSchema,
+  JudgeVerdictSchema,
+} from "@prd-gen/core";
 
 // ─── Action 1: ask_user ─────────────────────────────────────────────────────
 
@@ -176,6 +181,26 @@ export const VerificationSummarySchema = z.object({
    * typed verification surface.
    */
   prd_graph_validation: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * Per-claim judge verdicts (judge identity, verdict, rationale, caveats,
+   * confidence) — the raw JudgeVerdict[] self-check's Phase B parses before
+   * folding them into `distribution`. Optional CONTRACT field: self-check.ts
+   * (owned separately — see file-export.ts's verification-report module doc)
+   * currently discards this array after computing `distribution`; it is
+   * declared here so a future self-check change can attach it losslessly and
+   * file-export's 10-verification-report.md renders it verbatim the moment
+   * it is populated. Absent (undefined) means "not wired yet, or this run's
+   * `done` predates the field" — consumers MUST treat absence as "unknown",
+   * never as "zero verdicts" (that is `claims_evaluated === 0`, a distinct
+   * fact already carried above).
+   *
+   * source: e2e run_mrlqa0aj_u2rh15 (2026-07-15) — self-check's finalize()
+   * (self-check.ts) computes JudgeVerdict[] via parseVerdicts/
+   * parseVerdictsFromSnapshot but only forwards concludeDocument's
+   * DISTRIBUTION counts to pending_completion.verification; the per-claim
+   * array itself is never exported to a file or surfaced to the user.
+   */
+  judge_verdicts: z.array(JudgeVerdictSchema).optional(),
 });
 export type VerificationSummary = z.infer<typeof VerificationSummarySchema>;
 
