@@ -98,6 +98,40 @@ jobs:
           echo "SHA256: $(cat "${OUTFILE}.sha256")"
           echo "MCPB_SHA256=$(cat "${OUTFILE}.sha256")" >> "$GITHUB_ENV"
 
+      - name: Patch server.json with the real .mcpb checksum
+        run: |
+          set -euo pipefail
+          # INVARIANT (see scripts/publish-mcp-registry.sh header): the
+          # file_sha256 committed to server.json at release-PR time is a
+          # placeholder — JSON has no comment syntax to note this in the
+          # file itself — because the real checksum only exists after this
+          # job builds the .mcpb above. Patch it here and commit the
+          # single-file change back to main in the next step; this closes
+          # the loop for the current tag automatically (#23) and leaves
+          # publish-mcp-registry.sh as a manual fallback for any tag whose
+          # release job didn't run this step (e.g. pre-#23 releases).
+          jq --arg sha "${MCPB_SHA256}" '.packages[0].file_sha256 = $sha' server.json > server.json.tmp
+          mv server.json.tmp server.json
+          jq empty server.json
+          echo "Patched file_sha256: $(jq -r '.packages[0].file_sha256' server.json)"
+
+      - name: Commit and push patched server.json to main
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- server.json; then
+            echo "server.json already carries the correct checksum; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add server.json
+          git commit -m "chore(release): patch server.json sha256 for ${GITHUB_REF_NAME}"
+          # HEAD is the tag commit (detached); fast-forward main to it.
+          # If main has diverged since the tag was cut, this push is
+          # rejected (non-fast-forward) rather than silently overwriting
+          # history — fall back to scripts/publish-mcp-registry.sh in that case.
+          git push origin HEAD:refs/heads/main
+
       - name: Extract release notes from CHANGELOG
         id: changelog
         run: |

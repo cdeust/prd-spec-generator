@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # publish-mcp-registry.sh — Publish runbook for prd-spec-generator to the MCP ecosystem.
 #
+# NOTE (#23, since release.yml's "Commit and push patched server.json to
+# main" step): the release workflow now patches server.json's
+# packages[0].file_sha256 with the real .mcpb checksum automatically on
+# every tag push and commits it to main. Steps 1-4 below are a MANUAL
+# FALLBACK — use them only if a release's CI run skipped or failed that
+# step (e.g. because the auto-push was rejected as non-fast-forward, or
+# for a tag cut before #23 landed). Steps 5-8 (mcp-publisher submission)
+# are still manual regardless.
+#
 # USAGE:
 #   ./scripts/publish-mcp-registry.sh <tag>
 #   ./scripts/publish-mcp-registry.sh v0.4.0
