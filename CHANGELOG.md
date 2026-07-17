@@ -170,6 +170,93 @@ adheres to [Semantic Versioning](https://semver.org/).
   `validate_license` tool that no longer exists).
 - `mcp-server/index.mjs` (stale orphan).
 
+## [0.6.0] — 2026-07-17
+
+### Added
+
+- **Claim tiering + model-diversity judge slots** (`@prd-gen/verification`).
+  A claim whose own text names a deterministically executable verification
+  method (grep/diff/time/kcov/exit-status/named gate) skips the judge panel
+  and gets a synthesized rule-tier verdict instead
+  (`{kind:"rule",name:"rule-tier"}`); architecture-typed claims get one
+  judge per model in `VerifyBudgetConfig.diversity_models` (default
+  `["haiku","sonnet"]`) instead of N persona-prompted judges on one
+  underlying model. `JudgeVerdict.model` records which model judged each
+  claim; `10-verification-report.md` renders a cross-model-agreement
+  summary. Measured on the calibration fixture: 30 → 23 judge invocations
+  (-23%).
+- **Explicit verification acceptance policy at `implementation_gate`.**
+  `VerificationPolicyConfig` (`block_on`, `min_subjective_sampled_ratio`,
+  `on_unsampled_below_ratio`, `on_cross_model_disagreement` —
+  composition-root-injectable, default null uses
+  `DEFAULT_VERIFICATION_POLICY`) and `evaluatePolicy()`, a pure function
+  turning verification results into `pass` / `needs_attention` / `blocked`.
+  `implementation_gate` now shapes its "Implement / PRD only" question from
+  that verdict — a bare "Implement" is never offered while blocked — and
+  records any human derogation on `post_specs.policy_derogation`.
+- **Host-side external-judge executor** (`scripts/external-judge/`). A
+  zero-dependency Node CLI (`judge.mjs`) that posts a judge prompt to an
+  OpenAI-compatible endpoint (Gemini via AI Studio, Mistral via La
+  Plateforme) when a `spawn_subagents` invocation names a non-Anthropic
+  model, plus a calibration harness (`calibrate.mjs`) gated on agreement
+  ≥ 0.7. No API key configured produces an explicit skipped result, never
+  a fabricated verdict.
+- Bilingual (FR/EN) hard-output-rule detection: opt-out markers and
+  per-rule topic/keyword signal lists now recognize French phrasing via a
+  shared lexicon (`rules/lexicon.ts`); 12 previously English-only rule
+  checks (crypto, input validation, output encoding, structured logging,
+  alerting thresholds, API contract docs, deprecation strategy, etc.) gain
+  an explicit opt-out path, audited by
+  `packages/validation/src/__tests__/opt-out-coverage.test.ts`.
+- Budget-gated haiku judge panel for `self_check` verification
+  (`PipelineState.verify_budget`, composition-root-injected): default
+  panel reduced to 1 judge/claim (2 for architecture claims); a budget
+  gate asks the user (reduced sample / full fleet / skip verification)
+  when the invocation count exceeds a configurable cap (default 20).
+- `submit_action_result` / `start_pipeline` response-size bound
+  (`boundEnvelopeResponse`): an oversized `spawn_subagents` action has
+  every invocation's prompt replaced by an observable `OmittedStub`; the
+  full unbounded action is recoverable via
+  `get_pipeline_state(run_id, format:"action")`.
+- `10-verification-report.md` now written by `implementation_gate` before
+  the implementation decision is asked, carrying per-claim judge verdicts
+  when available.
+- Root `pnpm lint` typechecks every workspace package via `tsc --noEmit`
+  (`lint` script added to all 9 TS packages) and runs in CI.
+
+### Fixed
+
+- Root `lint` script was structurally broken: `tsc --noEmit` at the repo
+  root found no `tsconfig.json` (only `tsconfig.base.json` exists), so it
+  printed CLI help and exited non-zero — invisible because CI never ran
+  it. Fixed by delegating to each package's own `lint` script via
+  `pnpm -r run lint`; CI now runs the step so it cannot rot silently again.
+- Hard-output-rule false positives on French-language PRD sections
+  (technical_specification, cryptographic_standards, rate_limiting,
+  secure_communication, GDPR consent, distributed_tracing) that had
+  explicit, justified "non applicable" prose the English-only detector
+  could not recognize.
+- `test_traceability_integrity`'s test-function pattern only matched
+  Swift-style `func test_xxx(`, so bash-defined tests (`test_xxx() { }`,
+  `function test_xxx() { }`) were reported missing even when present.
+- `claim-extractor.ts`'s evidence-snippet window used a fixed ±N-line
+  radius that ignored claim boundaries, letting an adjacent claim's
+  wording bleed into the current claim's evidence and mis-tier it;
+  `snippet()` now stops at the neighboring claim's own start line.
+- `file-export.ts` wrote placeholder text for companion files whose
+  source section(s) produced no content; such files are now omitted
+  entirely, with the omission and its reason recorded in
+  `00-run-notes.md` (numbering stays stable).
+- `renderJudgeVerdicts` stringified the structured `AgentIdentity` judge
+  field as `"[object Object]"` instead of `"kind:name"`.
+
+### Known limitation
+
+- `server.json`'s `packages[0].file_sha256` remains a placeholder
+  (`000...000`) — the real SHA-256 can only be computed after the
+  `.mcpb` bundle is built by the tag-triggered release workflow, which
+  does not currently write it back to this file. Tracked in #23.
+
 ## [0.2.0] — Phase 4: strategy-wiring + audit-cycle closure
 
 ### Added
