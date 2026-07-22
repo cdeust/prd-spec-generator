@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License">
   <img src="https://img.shields.io/badge/TypeScript-5.9+-3178c6.svg" alt="TypeScript 5.9+">
   <img src="https://img.shields.io/badge/Node-20.x_·_22.x-339933.svg" alt="Node 20/22">
-  <img src="https://img.shields.io/badge/Tests-628_passing-brightgreen" alt="628 passing">
+  <img src="https://img.shields.io/badge/Tests-877_passing-brightgreen" alt="877 passing">
   <img src="https://img.shields.io/badge/Packages-10-orange" alt="10 packages">
   <img src="https://img.shields.io/badge/MCP_Tools-17-8A2BE2" alt="17 MCP tools">
   <img src="https://img.shields.io/badge/Validators-Hard_Output_Rules-red" alt="Hard Output Rules">
@@ -32,7 +32,7 @@ Every AI agent that drafts a PRD eventually invents a function that doesn't exis
 
 **prd-spec-generator** is a TypeScript MCP server that fixes this at the structural level. The pipeline is a stateless reducer (`step(state, result?) → next_state, action`) driven by a host (Claude Code or any MCP-speaking agent). Sections are produced one at a time, validated by deterministic Hard Output Rules before the host ever sees them, and every load-bearing claim is judged by a panel of genius reasoning agents drawn from `zetetic-team-subagents` against the codebase graph from `automatised-pipeline`. **Phase 4** then closes the loop: per-judge reliability is calibrated from history, retry budgets are derived from survival statistics, KPI gates are tuned against frozen baselines, and held-out partitions are mechanically sealed so no calibration result can be peeked at before evaluation.
 
-**10 packages. 17 MCP tools. 10 pipeline steps. Multi-judge verification with consensus. Closed-loop calibration with externally-grounded falsifiers. 629 tests. Every numeric constant traces to a citation, a benchmark, or a `// source: provisional heuristic` admission.**
+**10 packages. 17 MCP tools. 20 pipeline steps (11 PRD generation + 9 opt-in implementation). Multi-judge verification with consensus. Closed-loop calibration with externally-grounded falsifiers. 877 tests. Every numeric constant traces to a citation, a benchmark, or a `// source: provisional heuristic` admission.**
 
 ---
 
@@ -57,7 +57,7 @@ The verification subsystem is no longer a one-shot pass/fail report. Every claim
 ```
 start_pipeline(feature_description, codebase_path?)
   → returns the first NextAction; the host executes it and feeds the result
-    back via submit_action_result. Nine steps later: 9 PRD files written.
+    back via submit_action_result. Eleven steps later: 9 PRD files written.
 
 submit_action_result(run_id, result)
   → drives the reducer one more step. The host sees only SUBSTANTIVE actions
@@ -134,8 +134,8 @@ cd prd-spec-generator
 pnpm install --frozen-lockfile
 pnpm build      # builds all 9 buildable packages via tsc
 pnpm bundle     # produces the standalone mcp-server/index.js
-pnpm test       # 629 tests + 2 integration skipped (live MCP integration
-                # env-gated by AIPRD_PIPELINE_BIN)
+pnpm test       # 877 tests (vitest workspace, all packages; live MCP
+                # integration env-gated by AIPRD_PIPELINE_BIN)
 ```
 
 `pnpm verify` runs all of the above (install + build + bundle + test) —
@@ -162,20 +162,23 @@ offline.
 
 ## The pipeline
 
-The reducer produces nine sequential steps. Each step emits at most one substantive action; the host executes it and feeds the result back. A typical trial-tier feature run (11 sections) takes ~62 host-visible iterations.
+The reducer produces twenty sequential steps: eleven PRD-generation steps, then nine opt-in post-specs implementation steps entered only through a human gate. Each step emits at most one substantive action; the host executes it and feeds the result back. A typical trial-tier feature run (11 sections) takes ~62 host-visible iterations.
 
 | # | Step | What it produces |
 |---|------|------------------|
 | **1** | `banner` | Welcome banner with run ID + feature description + capability summary |
-| **2** | `context_detection` | Detects PRD type from trigger words; asks user when ambiguous |
-| **3** | `input_analysis` | Calls `index_codebase` (automatised-pipeline) when a path is provided; sets `codebase_graph_path` |
-| **4** | `feasibility_gate` | Detects epic-scope inputs (≥2 EPIC_SIGNALS); asks user to focus |
-| **5** | `clarification` | Compose-then-answer rounds (4–10 depending on tier); short-circuits on "proceed" |
-| **6** | `budget` | Per-section retrieval/generation token allocation via Cortex paper's 60/30/10 split |
-| **7** | `section_generation` | One section at a time: Cortex recall → engineer draft → validate → (retry up to 3) |
-| **8** | `jira_generation` | Synthesises JIRA tickets from requirements + user_stories + acceptance_criteria |
-| **9** | `file_export` | Writes 9 files (6 core + 3 companion) per SKILL.md Phase 4 |
-| **10** | `self_check` | Two-phase multi-judge verification (see below); typed `verification` field on `done` |
+| **2** | `preflight` | Probes the required ecosystem MCPs (Cortex, ai-architect) before the pipeline depends on them; skippable via `skip_preflight` |
+| **3** | `context_detection` | Detects PRD type from trigger words; asks user when ambiguous |
+| **4** | `input_analysis` | Calls `index_codebase` (automatised-pipeline) when a path is provided; sets `codebase_graph_path` |
+| **5** | `feasibility_gate` | Detects epic-scope inputs (≥2 EPIC_SIGNALS); asks user to focus |
+| **6** | `clarification` | Compose-then-answer rounds (4–10 depending on tier); short-circuits on "proceed" |
+| **7** | `budget` | Per-section retrieval/generation token allocation via Cortex paper's 60/30/10 split |
+| **8** | `section_generation` | One section at a time: Cortex recall → engineer draft → validate → (retry up to 3) |
+| **9** | `jira_generation` | Synthesises JIRA tickets from requirements + user_stories + acceptance_criteria |
+| **10** | `file_export` | Writes 9 files (6 core + 3 companion) per SKILL.md Phase 4 |
+| **11** | `self_check` | Two-phase multi-judge verification (see below); typed `verification` field on `done` |
+
+Steps 12–20 are the opt-in post-specs implementation loop: `implementation_gate` (human gate — "Implement" vs "PRD only"; also writes `10-verification-report.md`) → `pre_impl_grounding` → `implementation` (engineer subagent in an isolated worktree) → `post_impl_verification` (index → detect changes → semantic diff → security gates) → `testing` → `review` (a FAIL verdict retries `implementation` on the same worktree, bounded by `REVIEW_RETRY_CAP`) → `pr_gate` (mandatory human gate before any push) → `pr_creation` → `finalize`. Answering "PRD only" at `implementation_gate` skips straight to `finalize`; `complete` is the terminal marker, not a step.
 
 Every step is independently testable (`stepOnce(state, result?)` returns the same shape as the runner). The runner coalesces `emit_message` actions internally so the host never sees a no-op.
 
@@ -285,7 +288,7 @@ verification      ← claim extraction + judge selection +
                     │  consensus engine (weighted_average + Bayesian)
                     │  + buildJudgePrompt
                     ▼
-orchestration     ← stateless reducer, 9 step handlers, runner
+orchestration     ← stateless reducer, 20 step handlers, runner
                     │  step(state, result?) → next_state, action
                     │  emit_message coalescing; canned-dispatcher utility
                     ▼
@@ -408,7 +411,7 @@ The four pillars (consistent / true / useful / necessary) and the seven rules of
 
 The same standard applied to itself.
 
-1. **It does not write code.** This generator produces a PRD. The downstream coding agent (separate system) reads the PRD, the graph, and Cortex memory; it writes the implementation. Symbols in the PRD are validated against the graph but never edited by us.
+1. **The PRD pipeline does not write code — and the server itself never does.** Steps 1–11 produce a PRD; symbols in the PRD are validated against the graph but never edited by us. The opt-in implementation loop (steps 12–20) runs only when a human answers "Implement" at `implementation_gate`; there, the host's engineer/test-engineer/code-reviewer subagents write, test, and review the implementation in an isolated worktree, and nothing is pushed or turned into a PR without the mandatory `pr_gate` approval. This server only emits `spawn_subagents` actions — it never edits source files or pushes branches itself.
 2. **It does not validate prose quality.** Hard Output Rules check structural invariants (FR numbering, AC traceability, NFR shape, cross-references). They do not check whether a sentence is well-written or persuasive. That is what the multi-judge phase is for, and even there the judges return verdicts on *claims* — atomic assertions — not on style.
 3. **The judge phase is end-to-end testable but the judges are not deterministic.** In tests we use a canned dispatcher that returns 100% PASS by construction; the `distribution_suspicious` detector exists precisely because real judge panels can also degenerate into confirmatory consensus, and we do not pretend otherwise.
 4. **The KPI gates were provisional; Phase 4.5 has shipped.** `iteration_count_max`, `wall_time_ms_max`, and `mean_section_attempts_max` were originally canned-dispatcher baselines. They are now calibrated against the K=100 frozen baseline with Clopper-Pearson exact CIs, per-machine-class wall_time normalization, and `loadCalibratedGates` + `hold_provisional` ratchet protection. The §4.5 lock file commits a content-hash of the baseline; mutating it post hoc fails the seal verification. Where data is still thin, gates remain `hold_provisional` rather than locked. See [docs/PHASE_4_PLAN.md](docs/PHASE_4_PLAN.md) for the full pre-registration.
@@ -444,7 +447,7 @@ packages/
 ├── verification/          Claim extraction · judge selection · consensus engine
 ├── meta-prompting/        Prompt builders (clarification / draft / jira)
 ├── strategy/              Thinking-strategy selector
-├── orchestration/         Stateless reducer · 9 step handlers · runner · canned-dispatcher
+├── orchestration/         Stateless reducer · 20 step handlers · runner · canned-dispatcher
 ├── ecosystem-adapters/    StdioMcpClient · AutomatisedPipelineClient · CortexClient
 ├── mcp-server/            Composition root · 17 MCP tools registered
 ├── benchmark/             Pipeline KPI measurement · golden-fixture HOR scoring

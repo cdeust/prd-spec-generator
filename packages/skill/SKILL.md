@@ -1,7 +1,7 @@
 ---
 name: prd-spec-generator
-version: 3.2.0
-description: Action-driven PRD generation. The MCP server runs a stateless 9-step pipeline reducer; the host (Claude Code) executes each substantive action and feeds the result back via submit_action_result, looping until done. Multi-judge verification combines genius reasoning patterns with zetetic team subagents. Grounded in the ai-architect ecosystem (automatised-pipeline MCP, Cortex MCP, zetetic-team-subagents).
+version: 0.6.0
+description: Action-driven PRD generation. The MCP server runs a stateless 20-step pipeline reducer (11 PRD-generation steps + 9 opt-in implementation steps behind a human gate); the host (Claude Code) executes each substantive action and feeds the result back via submit_action_result, looping until done. Multi-judge verification combines genius reasoning patterns with zetetic team subagents. Grounded in the ai-architect ecosystem (automatised-pipeline MCP, Cortex MCP, zetetic-team-subagents).
 dependencies: node>=20
 prd_contexts: proposal, feature, bug, incident, poc, mvp, release, cicd
 mcp_tools:
@@ -24,7 +24,7 @@ ecosystem:
   - genius reasoning patterns — liskov, dijkstra, fermi, popper, ...
 ---
 
-# AI PRD Generator (v3.1.0) — Dispatcher Protocol
+# AI PRD Generator (v0.6.0) — Dispatcher Protocol
 
 You (the host) drive a loop:
 
