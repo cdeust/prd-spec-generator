@@ -1,5 +1,5 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.cdeust/prd-spec-generator",
   "description": "Turns a feature description into a verified 9-file PRD — multi-judge consensus, 17 MCP tools.",
   "repository": {
@@ -7,13 +7,13 @@
     "source": "github"
   },
   "version": "0.6.0",
-  "website_url": "https://github.com/cdeust/prd-spec-generator#readme",
+  "websiteUrl": "https://github.com/cdeust/prd-spec-generator#readme",
   "packages": [
     {
-      "registry_type": "mcpb",
+      "registryType": "mcpb",
       "identifier": "https://github.com/cdeust/prd-spec-generator/releases/download/v0.6.0/prd-spec-generator.mcpb",
       "version": "0.6.0",
-      "file_sha256": "c4897edab70e8a4db79dfc22167087891e3b62131dce1fe40280e9ed0f95d5e3",
+      "fileSha256": "c4897edab70e8a4db79dfc22167087891e3b62131dce1fe40280e9ed0f95d5e3",
       "transport": {
         "type": "stdio"
       }

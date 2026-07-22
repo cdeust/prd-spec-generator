@@ -462,7 +462,20 @@ packages/
 
 ## License
 
-MIT.
+MIT — see [LICENSE](LICENSE).
+
+This software is the independent work of Clément Deust. It was developed
+outside any employment relationship and is not affiliated with, endorsed by,
+or owned by any past or present employer. It is part of the ai-architect
+ecosystem ([Cortex](https://github.com/cdeust/Cortex),
+[automatised-pipeline](https://github.com/cdeust/automatised-pipeline),
+[zetetic-team-subagents](https://github.com/cdeust/zetetic-team-subagents)).
+
+Citations and primary sources for algorithms and constants are documented
+inline in the code via `// source:` annotations per the project's
+source-discipline rules. Removing those annotations does not change the
+license terms but does forfeit attribution to the original research the
+code is built on.
 
 ---
 
