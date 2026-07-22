@@ -33,6 +33,51 @@ adheres to [Semantic Versioning](https://semver.org/).
 > range, so this residual is left in place rather than reattributed on
 > unverified inference.
 
+## [0.6.1] — 2026-07-22 — doc accuracy, registry metadata, cross-host install
+
+### Added
+
+- README "Use with other MCP hosts" section (Gemini CLI, Codex, Cursor,
+  Windsurf, VS Code) — explicitly scoped to the standalone deterministic
+  spec-linter surface (`validate_prd_section`, `validate_prd_document`,
+  plus the direct-consumption planning/diagnostics tools). The full
+  action-driven pipeline remains host-dependent and is only supported on
+  Claude Code; the docs say so rather than overclaiming.
+
+### Fixed
+
+- Docs aligned with measured reality (#25): test-count badges and prose
+  628/629 → 877 (vitest workspace count), pipeline step count 9 → 20
+  (11 PRD-generation steps + 9 opt-in implementation steps behind the
+  `implementation_gate` human gate), SKILL.md version refs (stale
+  3.2.0/3.1.0 → package version), and the "does not write code" claim
+  rewritten honestly: the server never edits source or pushes, but the
+  opt-in steps 12–20 do drive host subagents that write, test, and review
+  an implementation, gated by `implementation_gate` and `pr_gate`.
+- De-flaked real-tsc oracle tests (#25 + this release): the subprocess
+  tests measure 0.3–3.9s solo (2026-07-22, darwin arm64) but exceeded
+  vitest's 5000ms default under full-suite parallel load, failing as
+  timeouts rather than code failures. `vi.setConfig({ testTimeout:
+  30_000 })` applied to `code-oracle.test.ts` (#25) and
+  `external-oracle.test.ts`, with the measurement recorded at the use
+  site. `findTscBinary`'s `tsc --version` probe timeout also raised
+  3s → 10s (`TSC_PROBE_TIMEOUT_MS`): the probe measures 1.6s wall solo,
+  so 3s left <2× headroom and made `isTscAvailable()` flip
+  load-dependently — throwing `OracleUnavailableError` with tsc
+  installed.
+- LICENSE is now the verbatim MIT text (#26): GitHub licensee reported
+  NOASSERTION because of the custom preamble and trailing citations note,
+  breaking license bots and the marketplace's validate-licenses CI. The
+  preamble, independence statement, and citations note moved verbatim to
+  the README license section.
+- `server.json` migrated from the 2025-07-09 snake_case schema to the
+  current 2025-12-11 camelCase registry schema
+  (`registryType`/`fileSha256`/`websiteUrl`) required by `mcp-publisher`
+  for official MCP registry publication (#26).
+
+> Note: no privacy-policy change in this release — `PRIVACY.md` has
+> shipped since `8decec5` and is staged into the `.mcpb` by `release.yml`.
+
 ## [0.6.0] — 2026-07-17
 
 ### Added

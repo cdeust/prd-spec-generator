@@ -6,13 +6,13 @@
     "url": "https://github.com/cdeust/prd-spec-generator",
     "source": "github"
   },
-  "version": "0.6.0",
+  "version": "0.6.1",
   "websiteUrl": "https://github.com/cdeust/prd-spec-generator#readme",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/cdeust/prd-spec-generator/releases/download/v0.6.0/prd-spec-generator.mcpb",
-      "version": "0.6.0",
+      "identifier": "https://github.com/cdeust/prd-spec-generator/releases/download/v0.6.1/prd-spec-generator.mcpb",
+      "version": "0.6.1",
       "fileSha256": "c4897edab70e8a4db79dfc22167087891e3b62131dce1fe40280e9ed0f95d5e3",
       "transport": {
         "type": "stdio"

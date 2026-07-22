@@ -81681,6 +81681,7 @@ var OracleUnavailableError = class _OracleUnavailableError extends Error {
 
 // packages/benchmark/dist/calibration/code-oracle.js
 var TSC_TIMEOUT_MS = 1e4;
+var TSC_PROBE_TIMEOUT_MS = 1e4;
 function findTscBinary() {
   const candidates = [
     // pnpm hoisted location
@@ -81690,7 +81691,7 @@ function findTscBinary() {
   ];
   for (const candidate of candidates) {
     try {
-      execFileSync(candidate, ["--version"], { timeout: 3e3, stdio: "pipe" });
+      execFileSync(candidate, ["--version"], { timeout: TSC_PROBE_TIMEOUT_MS, stdio: "pipe" });
       return candidate;
     } catch {
     }
@@ -81705,7 +81706,7 @@ async function codeOracle(payload) {
   }
   let tscVersion = "unknown";
   try {
-    tscVersion = execFileSync(tscBin, ["--version"], { timeout: 3e3, stdio: "pipe" }).toString().trim();
+    tscVersion = execFileSync(tscBin, ["--version"], { timeout: TSC_PROBE_TIMEOUT_MS, stdio: "pipe" }).toString().trim();
   } catch {
   }
   const tempDir = mkdtempSync(join7(tmpdir(), "prd-gen-code-oracle-"));

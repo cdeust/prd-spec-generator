@@ -10,8 +10,16 @@
  * Stakes: Medium — calibration infrastructure.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { invokeOracle } from "../external-oracle.js";
+
+// The code-typed dispatch tests spawn the real tsc subprocess chain (probe +
+// version + compile), measured 0.3–3.9s solo (2026-07-22, darwin arm64); under
+// full-suite parallel load they exceeded vitest's 5000ms default and failed as
+// timeouts, not as code failures. Same de-flake as code-oracle.test.ts (#25):
+// 30s keeps the same order of magnitude of headroom CI enjoys without masking
+// a hung compiler.
+vi.setConfig({ testTimeout: 30_000 });
 
 describe("invokeOracle — registry dispatch", () => {
   it("dispatches schema type and returns OracleResult shape", async () => {

@@ -37,6 +37,14 @@ import { OracleUnavailableError } from "./oracle-errors.js";
  *  3× headroom for CI machines. */
 const TSC_TIMEOUT_MS = 10_000;
 
+/** Probe timeout for `tsc --version`. source: measured 2026-07-22 on darwin
+ *  arm64 under background load — `tsc --version` takes 1.6s wall solo; the
+ *  previous 3 000ms left <2× headroom and made isTscAvailable() flip
+ *  load-dependently during full-suite parallel runs (OracleUnavailableError
+ *  thrown with tsc installed). 10 000ms applies the same ~6× headroom policy
+ *  as TSC_TIMEOUT_MS. */
+const TSC_PROBE_TIMEOUT_MS = 10_000;
+
 /** Locate the tsc binary from the worktree's local node_modules first,
  *  then fall back to system PATH. Returns null if not found. */
 function findTscBinary(): string | null {
@@ -53,7 +61,7 @@ function findTscBinary(): string | null {
 
   for (const candidate of candidates) {
     try {
-      execFileSync(candidate, ["--version"], { timeout: 3_000, stdio: "pipe" });
+      execFileSync(candidate, ["--version"], { timeout: TSC_PROBE_TIMEOUT_MS, stdio: "pipe" });
       return candidate;
     } catch {
       // Not found at this location; try the next.
@@ -94,7 +102,7 @@ export async function codeOracle(payload: CodePayload): Promise<OracleResult> {
   // Get tsc version for evidence traceability.
   let tscVersion = "unknown";
   try {
-    tscVersion = execFileSync(tscBin, ["--version"], { timeout: 3_000, stdio: "pipe" })
+    tscVersion = execFileSync(tscBin, ["--version"], { timeout: TSC_PROBE_TIMEOUT_MS, stdio: "pipe" })
       .toString()
       .trim();
   } catch {

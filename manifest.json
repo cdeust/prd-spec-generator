@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "prd-spec-generator",
   "display_name": "prd-spec-generator — Verified PRD Generator",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "license": "MIT",
   "description": "Turns a feature description into a verified 9-file PRD — multi-judge consensus, 17 MCP tools.",
   "long_description": "Production-grade PRD generator with closed-loop reliability calibration, multi-judge verification against externally-grounded oracles, and mechanically-sealed falsifier protocols. 17 MCP tools, 877 tests, full Phase 4 audit lineage. Runs locally over stdio — no network calls, no telemetry.",

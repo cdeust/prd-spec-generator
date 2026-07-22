@@ -1,6 +1,6 @@
 {
   "name": "prd-spec-generator",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "Production-grade PRD generator with closed-loop reliability calibration, multi-judge verification against externally-grounded oracles, and mechanically-sealed falsifier protocols. 17 MCP tools, 877 tests, full Phase 4 audit lineage.",
   "scripts": {
