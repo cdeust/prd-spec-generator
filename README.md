@@ -158,6 +158,76 @@ Both run in <2s on an M-series Mac. No LLM calls, no MCP traffic — the
 reducer is fully driven by canned ActionResults so you can audit behaviour
 offline.
 
+### Use with other MCP hosts
+
+Honest scoping first. The 17 tools register on any MCP host — the server
+is a plain stdio process — but the **full pipeline is host-dependent**: the
+reducer returns actions (`ask_user`, `spawn_subagents`, `write_file`) that
+assume a host which executes them and feeds results back. Claude Code (via
+the plugin + `/generate-prd` skill) is the only host that does this today.
+On other hosts, driving `start_pipeline`/`submit_action_result` by hand is
+possible but not the supported experience.
+
+What **is** worth installing everywhere: the deterministic validation
+surface — a spec linter with no LLM in the loop.
+
+- `validate_prd_section` — Hard Output Rules against a single section
+- `validate_prd_document` — cross-section checks (SP/AC/FR/test traceability)
+
+Plus the direct-consumption tools that need no pipeline run:
+`plan_section_verification`, `plan_document_verification`,
+`conclude_verification`, `coordinate_context_budget`, and the diagnostics
+surface.
+
+Setup: clone the repo — the bundled `mcp-server/index.js` is committed, so
+no build is needed — and point your host at it with `node`. Replace
+`/abs/path` with the clone location.
+
+```bash
+git clone https://github.com/cdeust/prd-spec-generator.git /abs/path/prd-spec-generator
+```
+
+**Gemini CLI:**
+
+```bash
+gemini mcp add prd-spec node /abs/path/prd-spec-generator/mcp-server/index.js
+```
+
+**OpenAI Codex CLI** (`~/.codex/config.toml`, shared with the ChatGPT
+desktop app and Codex IDE extension):
+
+```bash
+codex mcp add prd-spec -- node /abs/path/prd-spec-generator/mcp-server/index.js
+```
+
+**Cursor** (`.cursor/mcp.json`) and **Windsurf**
+(`~/.codeium/windsurf/mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "prd-spec": {
+      "command": "node",
+      "args": ["/abs/path/prd-spec-generator/mcp-server/index.js"]
+    }
+  }
+}
+```
+
+**VS Code** (`.vscode/mcp.json`):
+
+```json
+{
+  "servers": {
+    "prd-spec": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/abs/path/prd-spec-generator/mcp-server/index.js"]
+    }
+  }
+}
+```
+
 ---
 
 ## The pipeline
