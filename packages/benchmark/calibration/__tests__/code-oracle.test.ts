@@ -16,9 +16,15 @@
  * Stakes: Medium — calibration infrastructure.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { codeOracle, isTscAvailable } from "../code-oracle.js";
 import { OracleUnavailableError } from "../oracle-errors.js";
+
+// Real-tsc subprocess tests measure 0.3–3.9s solo (2026-07-22, darwin arm64);
+// under full-suite parallel load they exceeded vitest's 5000ms default and
+// failed as timeouts, not as code failures. 30s keeps the same order of
+// magnitude of headroom CI enjoys without masking a hung compiler.
+vi.setConfig({ testTimeout: 30_000 });
 
 const SIMPLE_VALID_SNIPPET = `
 const x: number = 42;
