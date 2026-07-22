@@ -1,18 +1,6 @@
 MIT License
 
-prd-spec-generator — a stateless reducer that turns a feature description
-into a production-ready PRD with multi-judge verification, deterministic
-Hard Output Rules validation, and research-evidence-backed strategy
-selection. Part of the ai-architect ecosystem
-(https://github.com/cdeust/Cortex,
- https://github.com/cdeust/automatised-pipeline,
- https://github.com/cdeust/zetetic-team-subagents).
-
 Copyright (c) 2026 Clément Deust
-
-This software is the independent work of Clément Deust. It was developed
-outside any employment relationship and is not affiliated with, endorsed
-by, or owned by any past or present employer.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -31,9 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-
-Citations and primary sources for algorithms and constants used in this
-software are documented inline in the code via `// source:` annotations
-per the project's source-discipline rules. Removing those annotations does
-not change the license terms but does forfeit attribution to the original
-research the code is built on.
