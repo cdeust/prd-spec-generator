@@ -16,7 +16,8 @@
       "fileSha256": "c4897edab70e8a4db79dfc22167087891e3b62131dce1fe40280e9ed0f95d5e3",
       "transport": {
         "type": "stdio"
-      }
+      },
+      "file_sha256": "d6f0ce83456f65ffd7663966362612fa2224c7670dbc419d72db7cfccfc10815"
     }
   ]
 }
