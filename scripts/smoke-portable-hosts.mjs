@@ -12,12 +12,28 @@ const HOSTS = [
   {
     name: "codex",
     manifest: ".codex-plugin/plugin.json",
-    placeholder: "${PLUGIN_ROOT}",
+    resolve(server, portableRoot) {
+      return {
+        command: server.command,
+        args: server.args,
+        // Mirrors Codex's normalize_plugin_mcp_server_value: a relative cwd
+        // is joined to the installed plugin root before the process starts.
+        cwd: join(portableRoot, server.cwd),
+      };
+    },
   },
   {
     name: "gemini-cli",
     manifest: "gemini-extension.json",
-    placeholder: "${extensionPath}",
+    resolve(server, portableRoot) {
+      return {
+        command: server.command.replaceAll("${extensionPath}", portableRoot),
+        args: server.args.map((arg) =>
+          arg.replaceAll("${extensionPath}", portableRoot),
+        ),
+        cwd: portableRoot,
+      };
+    },
   },
 ];
 
@@ -55,8 +71,7 @@ for (const host of HOSTS) {
   chmodSync(join(portableRoot, "mcp-server"), 0o555);
   chmodSync(portableRoot, 0o555);
 
-  const command = server.command.replaceAll(host.placeholder, portableRoot);
-  const args = server.args.map((arg) => arg.replaceAll(host.placeholder, portableRoot));
+  const { command, args, cwd } = host.resolve(server, portableRoot);
   const isolatedHome = mkdtempSync(join(tmpdir(), `prd-verifier-${host.name}-`));
   const requests = [
     {
@@ -87,7 +102,7 @@ for (const host of HOSTS) {
 
   try {
     const run = spawnSync(command, args, {
-      cwd: portableRoot,
+      cwd,
       env: {
         ...process.env,
         HOME: isolatedHome,

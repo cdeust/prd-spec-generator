@@ -1,5 +1,5 @@
 {
-  "name": "prd-spec-generator-marketplace",
+  "name": "ai-architect-mcp-spec-marketplace",
   "owner": {
     "name": "Clement Deust",
     "email": "admin@ai-architect.tools"
@@ -10,7 +10,7 @@
   },
   "plugins": [
     {
-      "name": "prd-spec-generator",
+      "name": "ai-architect-mcp-spec",
       "source": "./",
       "description": "10 packages · 17 MCP tools · 20 pipeline steps · multi-judge verification + closed-loop reliability calibration · externally-grounded oracles · sealed held-out partitions · 1503 tests · every constant sourced",
       "version": "0.7.0",

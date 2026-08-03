@@ -1,5 +1,5 @@
 {
-  "name": "prd-spec-generator",
+  "name": "ai-architect-mcp-spec",
   "version": "0.7.0",
   "description": "Deterministic PRD structure verification for Codex, backed by AI Architect MCP Spec.",
   "author": {
@@ -22,14 +22,15 @@
     "prd-spec-verifier": {
       "command": "node",
       "args": [
-        "${PLUGIN_ROOT}/mcp-server/index.js",
+        "mcp-server/index.js",
         "--profile",
         "verifier"
-      ]
+      ],
+      "cwd": "."
     }
   },
   "interface": {
-    "displayName": "PRD Spec Verifier",
+    "displayName": "AI Architect MCP Spec",
     "shortDescription": "Deterministic PRD structure checks",
     "longDescription": "Audit PRD sections and whole documents with deterministic Hard Output Rules and cross-section consistency checks.",
     "developerName": "Clement Deust",

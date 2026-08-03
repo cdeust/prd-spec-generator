@@ -1,6 +1,6 @@
 name: OpenSSF Scorecard
 
-# Issue #29 criterion 7. prd-spec-generator adopts the ecosystem's single
+# Issue #29 criterion 7. ai-architect-mcp-spec adopts the ecosystem's single
 # Scorecard definition as a CALL SITE, not a copy: the reusable workflow lives
 # in cdeust/automatised-pipeline (AP #66/#77), so the pinned action SHAs and
 # the report-only policy live in one place. Scorecard grades repo-level posture

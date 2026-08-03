@@ -4,9 +4,8 @@
   <img src="assets/banner.svg" alt="AI Architect MCP Spec — verified PRDs for agentic delivery pipelines" width="100%"/>
 </p>
 
-**AI Architect MCP Spec** is distributed as `ai-architect-mcp-spec`. The
-Claude Code plugin remains `prd-spec-generator` for compatibility, as does the
-legacy `prd-spec-generator.mcpb` release asset.
+**AI Architect MCP Spec** is published as `ai-architect-mcp-spec` across its
+Claude Code, Codex, Gemini, MCPB, PyPI/npm, and MCP Registry surfaces.
 After 0.7.0 is published under the new identity, the former
 `io.github.cdeust/prd-spec-generator` Registry versions are deprecated with a
 pointer to the canonical entry rather than left active and frozen.
@@ -104,7 +103,7 @@ map_failure_to_retrieval(violations[])
 
 ```bash
 claude plugin marketplace add cdeust/ai-architect-mcp-spec
-claude plugin install prd-spec-generator
+claude plugin install ai-architect-mcp-spec@ai-architect-mcp-spec-marketplace
 ```
 
 Restart your Claude Code session. The 17 MCP tools register on first
@@ -189,7 +188,7 @@ Install it in Codex from the repository marketplace:
 
 ```bash
 codex plugin marketplace add cdeust/ai-architect-mcp-spec
-codex plugin add prd-spec-generator@prd-spec-generator-marketplace
+codex plugin add ai-architect-mcp-spec@ai-architect-mcp-spec-marketplace
 ```
 
 Install the same package as a Gemini CLI extension:

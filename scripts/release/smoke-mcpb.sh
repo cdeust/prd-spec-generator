@@ -27,7 +27,7 @@ set -euo pipefail
 
 EXPECTED_TOOLS="${EXPECTED_TOOLS:-17}"
 STAGE_ROOT="$(mktemp -d)"
-STAGE_DIR="${STAGE_ROOT}/prd-spec-generator-mcpb"
+STAGE_DIR="${STAGE_ROOT}/ai-architect-mcp-spec-mcpb"
 trap 'rm -rf "${STAGE_ROOT}"' EXIT
 
 bash scripts/release/stage-mcpb.sh "${STAGE_DIR}"

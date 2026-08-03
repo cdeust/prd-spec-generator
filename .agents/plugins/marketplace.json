@@ -1,11 +1,11 @@
 {
-  "name": "prd-spec-generator-marketplace",
+  "name": "ai-architect-mcp-spec-marketplace",
   "interface": {
-    "displayName": "PRD Spec Generator"
+    "displayName": "AI Architect MCP Spec"
   },
   "plugins": [
     {
-      "name": "prd-spec-generator",
+      "name": "ai-architect-mcp-spec",
       "source": {
         "source": "local",
         "path": "./"

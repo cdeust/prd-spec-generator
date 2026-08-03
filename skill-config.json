@@ -216,7 +216,7 @@
     }
   },
   "plugin": {
-    "name": "prd-spec-generator",
+    "name": "ai-architect-mcp-spec",
     "version": "2.0.0",
     "mcp_server": {
       "transport": "stdio",

@@ -90,7 +90,7 @@ jobs:
           # only during a tag release and never started — which is how a .mcpb
           # whose declared command dies on `Cannot find module 'ajv'` reached
           # users past a green suite.
-          STAGE_DIR="$(mktemp -d)/prd-spec-generator-mcpb"
+          STAGE_DIR="$(mktemp -d)/ai-architect-mcp-spec-mcpb"
           bash scripts/release/stage-mcpb.sh "${STAGE_DIR}"
           echo "STAGE_DIR=${STAGE_DIR}" >> "$GITHUB_ENV"
 
@@ -106,7 +106,6 @@ jobs:
         run: |
           set -euo pipefail
           OUTFILE="${GITHUB_WORKSPACE}/ai-architect-mcp-spec.mcpb"
-          LEGACY_OUTFILE="${GITHUB_WORKSPACE}/prd-spec-generator.mcpb"
 
           # Use @anthropic-ai/mcpb if available, else zip
           if npx -y --yes @anthropic-ai/mcpb@latest pack --help >/dev/null 2>&1; then
@@ -115,12 +114,8 @@ jobs:
             (cd "${STAGE_DIR}" && zip -r "${OUTFILE}" .)
           fi
 
-          # Compatibility window: both names are the exact same artifact.
-          cp "${OUTFILE}" "${LEGACY_OUTFILE}"
-
           # Compute SHA-256 checksum
           shasum -a 256 "${OUTFILE}" | awk '{print $1}' > "${OUTFILE}.sha256"
-          shasum -a 256 "${LEGACY_OUTFILE}" | awk '{print $1}' > "${LEGACY_OUTFILE}.sha256"
           echo "SHA256: $(cat "${OUTFILE}.sha256")"
           echo "MCPB_SHA256=$(cat "${OUTFILE}.sha256")" >> "$GITHUB_ENV"
 
@@ -144,7 +139,6 @@ jobs:
         with:
           subject-path: |
             ai-architect-mcp-spec.mcpb
-            prd-spec-generator.mcpb
             ai-architect-mcp-spec.cdx.json
 
       - name: Patch server.json with the real .mcpb checksum
@@ -217,7 +211,7 @@ jobs:
           # Append SHA256 to release notes for auditability
           echo "" >> release-notes.md
           echo "### Canonical .mcpb bundle" >> release-notes.md
-          echo "Artifact: \`ai-architect-mcp-spec.mcpb\` (legacy alias: \`prd-spec-generator.mcpb\`)" >> release-notes.md
+          echo "Artifact: \`ai-architect-mcp-spec.mcpb\`" >> release-notes.md
           echo "SHA-256: \`${MCPB_SHA256}\`" >> release-notes.md
 
       - name: Create GitHub Release (with .mcpb artifact + SBOM)
@@ -229,8 +223,6 @@ jobs:
           files: |
             ai-architect-mcp-spec.mcpb
             ai-architect-mcp-spec.mcpb.sha256
-            prd-spec-generator.mcpb
-            prd-spec-generator.mcpb.sha256
             ai-architect-mcp-spec.cdx.json
             ai-architect-mcp-spec.cdx.json.sha256
         env:

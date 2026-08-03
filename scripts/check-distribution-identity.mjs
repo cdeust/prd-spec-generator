@@ -7,8 +7,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const json = (path) => JSON.parse(readFileSync(join(root, path), "utf8"));
 const text = (path) => readFileSync(join(root, path), "utf8");
 
-const product = "prd-spec-generator";
 const distribution = "ai-architect-mcp-spec";
+const product = distribution;
 const repository = distribution;
 const registryId = `io.github.cdeust/${distribution}`;
 const pkg = json("package.json");
@@ -51,7 +51,7 @@ assert.match(text("README.md"), new RegExp(`<!-- mcp-name: ${registryId} -->`));
 assert.match(text("CHANGELOG.md"), new RegExp(`^## \\[${version.replaceAll(".", "\\.")}\\]`, "m"));
 const release = text(".github/workflows/release.yml");
 assert.match(release, new RegExp(`${distribution}\\.mcpb`));
-assert.match(release, new RegExp(`${product}\\.mcpb`));
+assert.doesNotMatch(release, /prd-spec-generator\.mcpb/);
 assert.match(release, new RegExp(`${distribution}\\.cdx\\.json`));
 
 console.log(`Distribution identity is consistent at ${distribution} v${version}.`);
