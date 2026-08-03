@@ -54,9 +54,13 @@ cp mcp-server/package-lock.json "${STAGE_DIR}/mcp-server/"
 cp packages/skill/skill-config.json "${STAGE_DIR}/packages/skill/"
 
 # Runtime deps, resolved from the committed lockfile with integrity verified.
-npm ci \
-  --prefix "${STAGE_DIR}/mcp-server" \
-  --omit=dev --omit=optional --no-audit --no-fund --loglevel=error >&2
+# Run inside the staged package instead of using npm's --prefix flag. npm 11.12
+# misidentifies the root package when --prefix points inside macOS's TMPDIR,
+# even though the same package.json/package-lock.json pair passes from its cwd.
+(
+  cd "${STAGE_DIR}/mcp-server"
+  npm ci --omit=dev --omit=optional --no-audit --no-fund --loglevel=error
+) >&2
 
 echo "Staged contents:" >&2
 find "${STAGE_DIR}" -type f -not -path '*/node_modules/*' | sort >&2

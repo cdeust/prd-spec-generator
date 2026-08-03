@@ -44,7 +44,7 @@ test("Codex and Gemini launch the same verifier profile", () => {
   // `ai-architect-mcp-spec/0.7.0/.`, with these unchanged relative args.
   // Upstream implements that observation in normalize_plugin_mcp_server_value
   // by replacing a relative cwd with root.join(cwd):
-  // https://github.com/openai/codex/blob/main/codex-rs/codex-mcp/src/plugin_config.rs
+  // https://github.com/openai/codex/blob/1bbfb5cfada8e56280adcd397b23d0c301423894/codex-rs/codex-mcp/src/plugin_config.rs#L283-L290
   assert.equal(codexServer.cwd, ".");
   assert.equal(codexServer.args[0], "mcp-server/index.js");
   assert.equal(geminiServer.args[0], "${extensionPath}/mcp-server/index.js");

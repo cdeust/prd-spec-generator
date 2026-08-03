@@ -41,10 +41,7 @@ function loadSkillConfig() {
     return { version: "2.0.0", status: "config_not_found" };
 }
 function loadSkillMd() {
-    const skillPaths = [
-        join(PLUGIN_ROOT, "skills", "ai-architect-mcp-spec", "SKILL.md"),
-        join(PLUGIN_ROOT, "packages", "skill", "SKILL.md"),
-    ];
+    const skillPaths = [join(PLUGIN_ROOT, "packages", "skill", "SKILL.md")];
     for (const p of skillPaths) {
         if (existsSync(p)) {
             return readFileSync(p, "utf-8");

@@ -23,6 +23,44 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+const REPO_ROOT = resolve(__dirname, "../../../..");
+
+interface ProjectMcpIdentity {
+  readonly pluginName: string;
+  readonly serverKey: string;
+  readonly prefix: string;
+}
+
+/** Derive this plugin's host-visible MCP identity from its shipped manifests. */
+function projectMcpIdentity(): ProjectMcpIdentity {
+  const plugin = JSON.parse(
+    readFileSync(resolve(REPO_ROOT, ".claude-plugin/plugin.json"), "utf8"),
+  ) as { readonly name?: unknown; readonly mcpServers?: unknown };
+  if (typeof plugin.name !== "string" || typeof plugin.mcpServers !== "string") {
+    throw new Error(".claude-plugin/plugin.json must declare name and mcpServers path");
+  }
+
+  const mcp = JSON.parse(
+    readFileSync(resolve(REPO_ROOT, plugin.mcpServers), "utf8"),
+  ) as { readonly mcpServers?: unknown };
+  if (typeof mcp.mcpServers !== "object" || mcp.mcpServers === null) {
+    throw new Error(`${plugin.mcpServers} must declare mcpServers`);
+  }
+  const serverKeys = Object.keys(mcp.mcpServers);
+  if (serverKeys.length !== 1) {
+    throw new Error(`${plugin.mcpServers} must declare exactly one MCP server`);
+  }
+
+  const serverKey = serverKeys[0]!;
+  return {
+    pluginName: plugin.name,
+    serverKey,
+    prefix: `mcp__plugin_${plugin.name}_${serverKey}__`,
+  };
+}
+
+const PROJECT_MCP_IDENTITY = projectMcpIdentity();
+
 /**
  * Prefixes the host can resolve for this repo's declared dependencies.
  *
@@ -37,9 +75,9 @@ const KNOWN_MCP_PREFIXES: ReadonlySet<string> = new Set([
   "mcp__plugin_hypermnesia-mcp_cortex__",
   // automatised-pipeline. plugin name and server key are identical.
   "mcp__plugin_automatised-pipeline_automatised-pipeline__",
-  // This package, as the host sees it. plugin "prd-spec-generator", server "prd-gen".
-  // Kept as the worked example that both halves of the name are load-bearing.
-  "mcp__plugin_prd-spec-generator_prd-gen__",
+  // This package, derived from plugin.json name × the sole .mcp.json server key.
+  // Both halves are load-bearing and a publication rename changes the prefix.
+  PROJECT_MCP_IDENTITY.prefix,
 ]);
 
 /**
@@ -51,8 +89,6 @@ const KNOWN_MCP_PREFIXES: ReadonlySet<string> = new Set([
  * defect this gate exists to fail on.
  */
 const LEGACY_MARKER = "mcp-prefix-allow-legacy";
-
-const REPO_ROOT = resolve(__dirname, "../../../..");
 
 const PREFIX_RE = /mcp__plugin_[a-zA-Z0-9_.-]+?__/g;
 
@@ -108,6 +144,15 @@ function scanRepo(): { offences: Offence[]; seen: Set<string>; scanned: number }
 }
 
 describe("plugin-scoped MCP tool prefixes", () => {
+  it("derives this package prefix from plugin.json name and .mcp.json server key", () => {
+    expect(PROJECT_MCP_IDENTITY).toEqual({
+      pluginName: "ai-architect-mcp-spec",
+      serverKey: "prd-gen",
+      prefix: "mcp__plugin_ai-architect-mcp-spec_prd-gen__",
+    });
+    expect(KNOWN_MCP_PREFIXES.has(PROJECT_MCP_IDENTITY.prefix)).toBe(true);
+  });
+
   it("names only prefixes the host can resolve", () => {
     const { offences } = scanRepo();
     const report = offences
@@ -143,5 +188,7 @@ describe("plugin-scoped MCP tool prefixes", () => {
     // ...and against the malformed automatised-pipeline spelling (underscores,
     // no server key) that this gate found in docs/EXAMPLES.md when introduced.
     expect(KNOWN_MCP_PREFIXES.has("mcp__plugin_automatised_pipeline__")).toBe(false); // mcp-prefix-allow-legacy
+    // ...and the former publication identity, whose plugin half changed in 0.7.0.
+    expect(KNOWN_MCP_PREFIXES.has("mcp__plugin_prd-spec-generator_prd-gen__")).toBe(false); // mcp-prefix-allow-legacy
   });
 });

@@ -15,8 +15,16 @@ const pkg = json("package.json");
 const version = pkg.version;
 const fullSkill = text("packages/skill/SKILL.md");
 const fullSkillPackage = json("packages/skill/package.json");
+const claudePlugin = json(".claude-plugin/plugin.json");
+const claudeMcpConfig = json(claudePlugin.mcpServers);
+const claudeServerKeys = Object.keys(claudeMcpConfig.mcpServers);
 
 assert.equal(pkg.name, distribution);
+assert.deepEqual(claudeServerKeys, ["prd-gen"]);
+assert.equal(
+  `mcp__plugin_${claudePlugin.name}_${claudeServerKeys[0]}__`,
+  "mcp__plugin_ai-architect-mcp-spec_prd-gen__",
+);
 for (const path of [
   "manifest.json",
   ".claude-plugin/plugin.json",
