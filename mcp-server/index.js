@@ -92112,7 +92112,7 @@ function loadSkillConfig() {
 }
 function loadSkillMd() {
   const skillPaths = [
-    join10(PLUGIN_ROOT, "skills", "prd-spec-generator", "SKILL.md"),
+    join10(PLUGIN_ROOT, "skills", "ai-architect-mcp-spec", "SKILL.md"),
     join10(PLUGIN_ROOT, "packages", "skill", "SKILL.md")
   ];
   for (const p of skillPaths) {

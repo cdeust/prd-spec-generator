@@ -13,6 +13,8 @@ const repository = distribution;
 const registryId = `io.github.cdeust/${distribution}`;
 const pkg = json("package.json");
 const version = pkg.version;
+const fullSkill = text("packages/skill/SKILL.md");
+const fullSkillPackage = json("packages/skill/package.json");
 
 assert.equal(pkg.name, distribution);
 for (const path of [
@@ -48,6 +50,9 @@ if (server.packages[0].fileSha256 !== undefined) {
 }
 
 assert.match(text("README.md"), new RegExp(`<!-- mcp-name: ${registryId} -->`));
+assert.match(fullSkill, new RegExp(`^---\\nname: ${distribution}\\nversion: ${version.replaceAll(".", "\\.")}\\n`));
+assert.equal(fullSkillPackage.name, "@ai-architect-mcp-spec/skill");
+assert.doesNotMatch(text("packages/mcp-server/src/index.ts"), /skills\", \"prd-spec-generator/);
 assert.match(text("CHANGELOG.md"), new RegExp(`^## \\[${version.replaceAll(".", "\\.")}\\]`, "m"));
 const release = text(".github/workflows/release.yml");
 assert.match(release, new RegExp(`${distribution}\\.mcpb`));

@@ -1,6 +1,6 @@
 ---
-name: prd-spec-generator
-version: 0.6.1
+name: ai-architect-mcp-spec
+version: 0.7.0
 description: Action-driven PRD generation. The MCP server runs a stateless 20-step pipeline reducer (11 PRD-generation steps + 9 opt-in implementation steps behind a human gate); the host (Claude Code) executes each substantive action and feeds the result back via submit_action_result, looping until done. Multi-judge verification combines genius reasoning patterns with zetetic team subagents. Grounded in the ai-architect ecosystem (automatised-pipeline MCP, Cortex MCP, zetetic-team-subagents).
 dependencies: node>=20
 prd_contexts: proposal, feature, bug, incident, poc, mvp, release, cicd
@@ -24,7 +24,7 @@ ecosystem:
   - genius reasoning patterns — liskov, dijkstra, fermi, popper, ...
 ---
 
-# AI PRD Generator (v0.7.0) — Dispatcher Protocol
+# AI Architect MCP Spec (v0.7.0) — Dispatcher Protocol
 
 You (the host) drive a loop:
 
@@ -306,7 +306,7 @@ NFR claims (latency, throughput, fps, storage) MUST NOT receive PASS — judges 
 | Persistent memory, recall, narrative, methodology | **Cortex MCP** |
 | Reasoning roles (engineer, reviewer, dba, ...) | **zetetic-team-subagents** |
 | Genius reasoning patterns | **zetetic-team-subagents/genius** |
-| PRD generation, multi-judge verification, hard-output rules, file export | **prd-spec-generator** (this) |
+| PRD generation, multi-judge verification, hard-output rules, file export | **ai-architect-mcp-spec** (this) |
 
 A correctly configured project has all four ecosystem dependencies registered in `.mcp.json`. Missing dependencies surface as `tool_result.success: false` from `call_pipeline_tool` or `call_cortex_tool`, which causes the pipeline to emit `failed`.
 

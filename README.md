@@ -117,6 +117,24 @@ The plugin's bundled MCP server at `mcp-server/index.js` is self-contained
 (only `better-sqlite3` is an optional native dependency for the evidence
 repository — gracefully degrades to in-memory mode when absent).
 
+#### Migrating from `prd-spec-generator`
+
+The old plugin and marketplace are deprecated publications, not aliases. Remove
+them before installing the canonical package:
+
+```bash
+claude plugin uninstall prd-spec-generator@prd-spec-generator-marketplace
+claude plugin marketplace remove prd-spec-generator-marketplace
+claude plugin marketplace add cdeust/ai-architect-mcp-spec
+claude plugin install ai-architect-mcp-spec@ai-architect-mcp-spec-marketplace
+```
+
+Callers that used `prd-spec-generator:generate-prd` must use
+`ai-architect-mcp-spec:generate-prd`. The `prd-gen` MCP server name,
+`@prd-gen/*` private workspace packages, `PRD_GEN_*` environment variables,
+and `.prd-gen` local data directory remain stable internal interfaces; they do
+not keep the deprecated publication installed.
+
 ### Companion ecosystem
 
 For full effect, install the three companion plugins so the pipeline can

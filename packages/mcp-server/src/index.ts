@@ -80,7 +80,7 @@ function loadSkillConfig(): Record<string, unknown> {
 
 function loadSkillMd(): string {
   const skillPaths = [
-    join(PLUGIN_ROOT, "skills", "prd-spec-generator", "SKILL.md"),
+    join(PLUGIN_ROOT, "skills", "ai-architect-mcp-spec", "SKILL.md"),
     join(PLUGIN_ROOT, "packages", "skill", "SKILL.md"),
   ];
 

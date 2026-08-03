@@ -6,19 +6,30 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- Raise `fast-uri` to 3.1.5, the first patched version for
+  GHSA-7p8r-x3mc-p8w7, and rebuild the committed MCP bundle.
+- Raise `hono` to 4.12.34, the first patched version for
+  GHSA-8j4g-w8fx-2239, and rebuild the committed MCP bundle. A production-tree
+  `pnpm audit` reports zero remaining vulnerabilities after both updates.
+
 ## [0.7.0] — 2026-08-03 — portable verifier and canonical distribution identity
 
 ### Added
 
-- **Canonical distribution identity.** The product and Claude/Codex/Gemini
-  plugins remain `prd-spec-generator`, while the official MCP Registry entry
-  and primary portable bundle become `ai-architect-mcp-spec` at version 0.7.0.
-  Repository-facing branding and URLs move to **AI Architect MCP Spec** at
-  `cdeust/ai-architect-mcp-spec`.
-  Releases retain `prd-spec-generator.mcpb` as a byte-identical compatibility
-  asset, and the existing `prd-gen` server/tool namespace remains unchanged.
-  The release procedure deprecates all versions of the former Registry entry
-  only after the new canonical entry is active.
+- **Canonical distribution identity.** The product, full-pipeline skill,
+  Claude/Codex/Gemini plugins, MCPB asset, and official MCP Registry entry are
+  `ai-architect-mcp-spec` at version 0.7.0. Repository-facing branding and URLs
+  move to **AI Architect MCP Spec** at `cdeust/ai-architect-mcp-spec`; no
+  `prd-spec-generator` plugin or release alias is retained. Existing callers
+  must replace the `prd-spec-generator:generate-prd` qualifier with
+  `ai-architect-mcp-spec:generate-prd`. The internal `@prd-gen/*` workspace
+  packages, `PRD_GEN_*` environment variables, `.prd-gen` data directory, and
+  `prd-gen` MCP server/tool namespace remain stable protocol and storage
+  identifiers; none is a published plugin or marketplace identity. The release
+  procedure deprecates all versions of the former Registry entry only after the
+  new canonical entry is active.
 
 - **Portable Spec Verifier for Codex and Gemini CLI.** Both host manifests now
   launch the same opt-in `verifier` profile, which advertises and accepts only

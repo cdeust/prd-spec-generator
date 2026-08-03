@@ -39,9 +39,12 @@ test("Codex and Gemini launch the same verifier profile", () => {
   assert.equal(geminiServer.command, "node");
   assert.deepEqual(codexServer.args.slice(-2), EXPECTED_ARGS);
   assert.deepEqual(geminiServer.args.slice(-2), EXPECTED_ARGS);
-  // Codex normalizes a relative MCP cwd against the installed plugin root;
-  // its MCP argument list does not expand the hook-only PLUGIN_ROOT variable.
-  // source: openai/codex codex-rs/codex-mcp/src/plugin_config.rs
+  // Measured with the installed Codex CLI 0.146.0: `codex mcp list` reports
+  // this plugin's cwd as the absolute immutable cache root ending in
+  // `ai-architect-mcp-spec/0.7.0/.`, with these unchanged relative args.
+  // Upstream implements that observation in normalize_plugin_mcp_server_value
+  // by replacing a relative cwd with root.join(cwd):
+  // https://github.com/openai/codex/blob/main/codex-rs/codex-mcp/src/plugin_config.rs
   assert.equal(codexServer.cwd, ".");
   assert.equal(codexServer.args[0], "mcp-server/index.js");
   assert.equal(geminiServer.args[0], "${extensionPath}/mcp-server/index.js");
@@ -82,11 +85,16 @@ test("Claude remains on its existing full-profile launch path", () => {
 test("canonical distribution identity is shared by every host plugin", () => {
   const pkg = json("package.json");
   const server = json("server.json");
+  const fullSkill = text("packages/skill/SKILL.md");
+  const fullSkillPackage = json("packages/skill/package.json");
   assert.equal(server.name, "io.github.cdeust/ai-architect-mcp-spec");
   assert.equal(server.version, pkg.version);
   assert.equal(server.packages[0].version, pkg.version);
   assert.match(server.packages[0].identifier, /\/ai-architect-mcp-spec\.mcpb$/);
   assertOptionalReleasedChecksum(server.packages[0].fileSha256);
+  assert.match(fullSkill, /^---\nname: ai-architect-mcp-spec\nversion: 0\.7\.0\n/);
+  assert.doesNotMatch(fullSkill, /name: prd-spec-generator/);
+  assert.equal(fullSkillPackage.name, "@ai-architect-mcp-spec/skill");
   for (const path of [
     ".codex-plugin/plugin.json",
     ".agents/plugins/marketplace.json",

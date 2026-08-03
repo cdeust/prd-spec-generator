@@ -1,6 +1,6 @@
 {
-  "name": "@prd-gen/skill",
+  "name": "@ai-architect-mcp-spec/skill",
   "version": "0.1.0",
   "private": true,
-  "description": "SKILL.md, commands, and Claude Code plugin configuration"
+  "description": "AI Architect MCP Spec skill, commands, and Claude Code plugin configuration"
 }
