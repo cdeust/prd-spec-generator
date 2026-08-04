@@ -17,7 +17,7 @@
  *   ✓ No protocol-violation errors fire during a clean run.
  *
  * What this does NOT prove:
- *   ✗ That the real automatised-pipeline / Cortex / subagent calls would work
+ *   ✗ That the real ai-architect-mcp-codebase / Cortex / subagent calls would work
  *     against a real ecosystem (those are mocked here).
  *   ✗ That a real LLM would produce useful PRD content (the canned subagent
  *     responses are minimal markdown that satisfies the validator).

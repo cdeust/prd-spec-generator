@@ -106,7 +106,7 @@ export const VerificationStateSchema = z.object({
   after_graph_path: z.string().nullable().default(null),
   /**
    * Qualified names from `detect_changes`'s `symbols_affected[].qualified_name`
-   * (automatised-pipeline/src/git_diff.rs ChangedSymbol), carried forward so
+   * (ai-architect-mcp-codebase/src/git_diff.rs ChangedSymbol), carried forward so
    * `check_security_gates` (call 4) can consume them as its required
    * `changed_symbols` argument — design §1: "check_security_gates ... its own
    * schema *requires* changed_symbols (from detect_changes)". Empty array

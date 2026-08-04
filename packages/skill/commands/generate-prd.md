@@ -60,7 +60,7 @@ For each envelope:
 | action.kind | What you do | Result you submit back |
 |---|---|---|
 | `ask_user` | `AskUserQuestion` with `header`, `description`, `options` | `user_answer` (echo `question_id` verbatim; `selected[0]` is the chosen label string) |
-| `call_pipeline_tool` | Call the named tool on the **automatised-pipeline MCP** | `tool_result` (echo `correlation_id` verbatim) |
+| `call_pipeline_tool` | Call the named tool on the **ai-architect-mcp-codebase MCP** | `tool_result` (echo `correlation_id` verbatim) |
 | `call_cortex_tool` | Call the named tool on the **Cortex MCP** | `tool_result` (echo `correlation_id` verbatim) |
 | `spawn_subagents` | Issue ALL invocations in parallel via Agent tool, one message; do not modify prompts | `subagent_batch_result` (echo `batch_id` and each `invocation_id` verbatim) |
 | `write_file` | Write `content` to `path` (mkdir as needed) | `file_written` (echo `path` verbatim; `bytes` is UTF-8 byte length) |
@@ -142,5 +142,5 @@ loading throughout — the detail is never lost, just fetched on demand.
 
 ## Notes
 
-- The pipeline calls **automatised-pipeline MCP**, **Cortex MCP**, and **zetetic-team-subagents** on your behalf via `call_pipeline_tool`, `call_cortex_tool`, and `spawn_subagents` actions. Do not call them outside the dispatch table.
+- The pipeline calls **ai-architect-mcp-codebase MCP**, **Cortex MCP**, and **zetetic-team-subagents** on your behalf via `call_pipeline_tool`, `call_cortex_tool`, and `spawn_subagents` actions. Do not call them outside the dispatch table.
 - Tool prefixes (`mcp__<server-key>__<tool_name>`) depend on your project's `.mcp.json` registration keys. Inspect `.mcp.json` to derive the actual prefix; the convention examples in SKILL.md are illustrative.

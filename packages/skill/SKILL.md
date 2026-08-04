@@ -1,7 +1,7 @@
 ---
 name: ai-architect-mcp-spec
 version: 0.7.0
-description: Action-driven PRD generation. The MCP server runs a stateless 20-step pipeline reducer (11 PRD-generation steps + 9 opt-in implementation steps behind a human gate); the host (Claude Code) executes each substantive action and feeds the result back via submit_action_result, looping until done. Multi-judge verification combines genius reasoning patterns with zetetic team subagents. Grounded in the ai-architect ecosystem (automatised-pipeline MCP, Cortex MCP, zetetic-team-subagents).
+description: Action-driven PRD generation. The MCP server runs a stateless 20-step pipeline reducer (11 PRD-generation steps + 9 opt-in implementation steps behind a human gate); the host (Claude Code) executes each substantive action and feeds the result back via submit_action_result, looping until done. Multi-judge verification combines genius reasoning patterns with zetetic team subagents. Grounded in the ai-architect ecosystem (ai-architect-mcp-codebase MCP, Cortex MCP, zetetic-team-subagents).
 dependencies: node>=20
 prd_contexts: proposal, feature, bug, incident, poc, mvp, release, cicd
 mcp_tools:
@@ -18,7 +18,7 @@ mcp_tools_legacy:
   - get_quality_history, get_strategy_effectiveness
   - coordinate_context_budget, map_failure_to_retrieval
 ecosystem:
-  - automatised-pipeline (Rust MCP) — codebase indexing, graph queries, impact, semantic-diff
+  - ai-architect-mcp-codebase (Rust MCP) — codebase indexing, graph queries, impact, semantic-diff
   - cortex (Python MCP) — persistent memory, recall, methodology, narrative
   - zetetic-team-subagents — engineer, code-reviewer, test-engineer, security-auditor, dba, ...
   - genius reasoning patterns — liskov, dijkstra, fermi, popper, ...
@@ -121,9 +121,9 @@ Every response from `start_pipeline` and `submit_action_result` has this shape:
 }
 ```
 
-**Execute:** Call the **automatised-pipeline MCP** tool named `tool_name` with `arguments` exactly as provided. The tool prefix is `mcp__<server-key>__<tool_name>` where `<server-key>` is the registration key in your project's `.mcp.json` for the automatised-pipeline server. The default registration key is `automatised-pipeline` (per the automatised-pipeline plugin's `.mcp.json`), so the prefix is `mcp__plugin_automatised-pipeline_automatised-pipeline__<tool_name>`. Inspect your `.mcp.json` to confirm.
+**Execute:** Call the **ai-architect-mcp-codebase MCP** tool named `tool_name` with `arguments` exactly as provided. The tool prefix is `mcp__plugin_<plugin-name>_<server-key>__<tool_name>`. The plugin is `ai-architect-mcp-codebase` and its sole `.mcp.json` server key is `ai-architect`, so the prefix is `mcp__plugin_ai-architect-mcp-codebase_ai-architect__<tool_name>`. Inspect your `.mcp.json` to confirm.
 
-**If the automatised-pipeline MCP is not registered in your project**, submit a tool_result with `success: false`. The pipeline will halt with a `failed` action; the user must register the dependency before re-running.
+**If the ai-architect-mcp-codebase MCP is not registered in your project**, submit a tool_result with `success: false`. The pipeline will halt with a `failed` action; the user must register the dependency before re-running.
 
 **Submit (success):**
 ```json
@@ -302,7 +302,7 @@ NFR claims (latency, throughput, fps, storage) MUST NOT receive PASS — judges 
 
 | Concern | Owner |
 |---|---|
-| Codebase indexing, graph queries, impact, semantic diff | **automatised-pipeline MCP** |
+| Codebase indexing, graph queries, impact, semantic diff | **ai-architect-mcp-codebase MCP** |
 | Persistent memory, recall, narrative, methodology | **Cortex MCP** |
 | Reasoning roles (engineer, reviewer, dba, ...) | **zetetic-team-subagents** |
 | Genius reasoning patterns | **zetetic-team-subagents/genius** |

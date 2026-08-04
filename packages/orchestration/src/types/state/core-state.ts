@@ -26,7 +26,7 @@ export const PipelineStateSchema = z.object({
   feature_description: z.string(),
   codebase_path: z.string().nullable(),
   /**
-   * Filesystem path returned by automatised-pipeline `index_codebase`
+   * Filesystem path returned by ai-architect-mcp-codebase `index_codebase`
    * (response field `graph_path`). Subsequent graph-query tools (query_graph,
    * get_symbol, etc.) use this as their `graph_path` argument.
    */
@@ -45,7 +45,7 @@ export const PipelineStateSchema = z.object({
    */
   codebase_gitignore_written: z.boolean().default(false),
   /**
-   * Code-graph grounding for the feature, returned by automatised-pipeline
+   * Code-graph grounding for the feature, returned by ai-architect-mcp-codebase
    * `prepare_prd_input` in FEATURE MODE (response field `prd_context`):
    *   { matched_symbols, impacted_communities, impacted_processes,
    *     graph_stats, mode }
@@ -195,11 +195,11 @@ export const PipelineStateSchema = z.object({
    * file_export has not yet run.
    *
    * source: AP validate_prd_against_graph contract, `affected_symbols_path`
-   * argument (automatised-pipeline stages/stage-6.md §4.2 / §6.1).
+   * argument (ai-architect-mcp-codebase stages/stage-6.md §4.2 / §6.1).
    */
   affected_symbols_path: z.string().nullable().default(null),
   /**
-   * PRD-vs-graph validation report from automatised-pipeline
+   * PRD-vs-graph validation report from ai-architect-mcp-codebase
    * `validate_prd_against_graph` (args { prd_path, graph_path }), fetched in
    * self-check after the PRD file is exported. Symbol-hallucination /
    * community-consistency / process-impact findings. Merged into the
@@ -240,7 +240,7 @@ export const PipelineStateSchema = z.object({
    * Global Cortex memory-recall summary for the whole run, fetched ONCE
    * (query = feature_description) at the start of input_analysis — before
    * any codebase-specific or per-section context is built. Distinct from
-   * `codebase_grounding` (code-graph evidence from automatised-pipeline) and
+   * `codebase_grounding` (code-graph evidence from ai-architect-mcp-codebase) and
    * from the per-section `call_cortex_tool[recall]` in section-generation.ts
    * (which queries a section-specific template). This is prior-run/decision
    * memory, injected into every downstream prompt that builds context so

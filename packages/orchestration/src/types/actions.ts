@@ -53,7 +53,7 @@ export type AskUserAction = z.infer<typeof AskUserActionSchema>;
 
 export const CallPipelineToolActionSchema = z.object({
   kind: z.literal("call_pipeline_tool"),
-  tool_name: z.string().describe("automatised-pipeline MCP tool name"),
+  tool_name: z.string().describe("ai-architect-mcp-codebase MCP tool name"),
   arguments: z.record(z.string(), z.unknown()),
   /** Opaque routing token — host echoes it back unchanged on the corresponding tool_result. */
   correlation_id: z.string(),
@@ -169,7 +169,7 @@ export const VerificationSummarySchema = z.object({
   distribution: z.record(VerdictSchema, z.number().int().nonnegative()),
   distribution_suspicious: z.boolean(),
   /**
-   * PRD-vs-graph validation report from automatised-pipeline
+   * PRD-vs-graph validation report from ai-architect-mcp-codebase
    * `validate_prd_against_graph`, attached when the run had a code graph.
    * Symbol-hallucination / community-consistency / process-impact findings.
    * Opaque object — the orchestration layer is a passthrough and does not parse

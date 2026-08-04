@@ -35,14 +35,14 @@ pointer to the canonical entry rather than left active and frozen.
   <strong>Companion projects:</strong><br>
   <a href="https://github.com/cdeust/Cortex">Cortex</a> — persistent memory that injects past decisions into every PRD<br>
   <a href="https://github.com/cdeust/zetetic-team-subagents">zetetic-team-subagents</a> — 97 genius reasoning patterns that judge each claim<br>
-  <a href="https://github.com/cdeust/automatised-pipeline">automatised-pipeline</a> — the codebase intelligence layer this generator consumes upstream
+  <a href="https://github.com/cdeust/ai-architect-mcp-codebase">ai-architect-mcp-codebase</a> — the codebase intelligence layer this generator consumes upstream
 </p>
 
 ---
 
 Every AI agent that drafts a PRD eventually invents a function that doesn't exist, claims latency it can't measure, or writes acceptance criteria that don't tie back to the requirements they're supposed to test. The output sounds confident. It is not actionable. The next stage in the pipeline — code generation, ticket import, sprint planning — silently inherits the hallucination, ships it, and pays for it later.
 
-**AI Architect MCP Spec** is a TypeScript MCP server that fixes this at the structural level. Its portable verifier gives Codex, Gemini CLI, Claude Code, CI, and other stdio MCP hosts the same deterministic Hard Output Rules and cross-section traceability checks. The full pipeline is a stateless reducer (`step(state, result?) → next_state, action`) driven by a host that can execute its orchestration actions; Claude Code is the only packaged full-pipeline host today. Sections are produced one at a time, validated before the host ever sees them, and every load-bearing claim is judged by a panel of genius reasoning agents drawn from `zetetic-team-subagents` against the codebase graph from `automatised-pipeline`. The loop is closed: per-judge reliability is calibrated from history, retry budgets are derived from survival statistics, KPI gates are tuned against frozen baselines, and held-out partitions are mechanically sealed so no calibration result can be peeked at before evaluation.
+**AI Architect MCP Spec** is a TypeScript MCP server that fixes this at the structural level. Its portable verifier gives Codex, Gemini CLI, Claude Code, CI, and other stdio MCP hosts the same deterministic Hard Output Rules and cross-section traceability checks. The full pipeline is a stateless reducer (`step(state, result?) → next_state, action`) driven by a host that can execute its orchestration actions; Claude Code is the only packaged full-pipeline host today. Sections are produced one at a time, validated before the host ever sees them, and every load-bearing claim is judged by a panel of genius reasoning agents drawn from `zetetic-team-subagents` against the codebase graph from `ai-architect-mcp-codebase`. The loop is closed: per-judge reliability is calibrated from history, retry budgets are derived from survival statistics, KPI gates are tuned against frozen baselines, and held-out partitions are mechanically sealed so no calibration result can be peeked at before evaluation.
 
 **10 packages. 17 MCP tools. 20 pipeline steps (11 PRD generation + 9 opt-in implementation). Multi-judge verification with consensus. Closed-loop calibration with externally-grounded falsifiers. 1504 tests. Every numeric constant traces to a citation, a benchmark, or a `// source: provisional heuristic` admission.**
 
@@ -157,12 +157,12 @@ consume codebase intelligence, persistent memory, and the genius-agent
 panel:
 
 ```bash
-claude plugin marketplace add cdeust/automatised-pipeline    # codebase graph intel
+claude plugin marketplace add cdeust/ai-architect-mcp-codebase  # codebase graph intel
 claude plugin marketplace add cdeust/Cortex                  # persistent memory
 claude plugin marketplace add cdeust/zetetic-team-subagents  # the genius + team agents
 
-claude plugin install automatised-pipeline
-claude plugin install cortex
+claude plugin install ai-architect-mcp-codebase
+claude plugin install hypermnesia-mcp
 claude plugin install zetetic-team-subagents
 ```
 
@@ -301,7 +301,7 @@ The reducer produces twenty sequential steps: eleven PRD-generation steps, then 
 | **1** | `banner` | Welcome banner with run ID + feature description + capability summary |
 | **2** | `preflight` | Probes the required ecosystem MCPs (Cortex, ai-architect) before the pipeline depends on them; skippable via `skip_preflight` |
 | **3** | `context_detection` | Detects PRD type from trigger words; asks user when ambiguous |
-| **4** | `input_analysis` | Calls `index_codebase` (automatised-pipeline) when a path is provided; sets `codebase_graph_path` |
+| **4** | `input_analysis` | Calls `index_codebase` (ai-architect-mcp-codebase) when a path is provided; sets `codebase_graph_path` |
 | **5** | `feasibility_gate` | Detects epic-scope inputs (≥2 EPIC_SIGNALS); asks user to focus |
 | **6** | `clarification` | Compose-then-answer rounds (4–10 depending on tier); short-circuits on "proceed" |
 | **7** | `budget` | Per-section retrieval/generation token allocation via Cortex paper's 60/30/10 split |
@@ -459,7 +459,7 @@ A cross-audit found and fixed two layer violations:
 | Failure mode | What we do |
 |---|---|
 | **Section drift between turns** | Single immutable `PipelineState` snapshot per step; reducer is pure; host can replay any step |
-| **Hallucinated symbols** | `validate_prd_section` runs Hard Output Rules; symbols cross-checked against `automatised-pipeline` graph if `codebase_path` is set |
+| **Hallucinated symbols** | `validate_prd_section` runs Hard Output Rules; symbols cross-checked against `ai-architect-mcp-codebase` graph if `codebase_path` is set |
 | **NFRs claiming PASS without measurement** | Verdict taxonomy refuses PASS for latency/throughput/fps/storage; consensus engine forwards SPEC-COMPLETE / NEEDS-RUNTIME |
 | **Confirmatory bias (every judge says PASS)** | `distribution_suspicious` flag fires at 100% PASS over ≥5 claims; surfaced in typed `done.verification.distribution_suspicious` |
 | **Acceptance criteria not traceable to requirements** | Cross-document validator checks FR-AC coverage and AC numbering gaps |
@@ -497,7 +497,7 @@ A cross-audit found and fixed two layer violations:
                                   └─────────────────────────────┘
 ```
 
-Each project owns one concern. `automatised-pipeline` knows what's true about the code. Cortex knows what we already decided. zetetic-team-subagents knows how to reason about a specific shape of claim. **AI Architect MCP Spec** is the deterministic glue that turns those three signals into a PRD an agent can act on.
+Each project owns one concern. `ai-architect-mcp-codebase` knows what's true about the code. Cortex knows what we already decided. zetetic-team-subagents knows how to reason about a specific shape of claim. **AI Architect MCP Spec** is the deterministic glue that turns those three signals into a PRD an agent can act on.
 
 ---
 
@@ -609,7 +609,7 @@ This software is the independent work of Clément Deust. It was developed
 outside any employment relationship and is not affiliated with, endorsed by,
 or owned by any past or present employer. It is part of the ai-architect
 ecosystem ([Cortex](https://github.com/cdeust/Cortex),
-[automatised-pipeline](https://github.com/cdeust/automatised-pipeline),
+[ai-architect-mcp-codebase](https://github.com/cdeust/ai-architect-mcp-codebase),
 [zetetic-team-subagents](https://github.com/cdeust/zetetic-team-subagents)).
 
 Citations and primary sources for algorithms and constants are documented

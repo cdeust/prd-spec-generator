@@ -17,9 +17,9 @@
  *
  * Default = `full` (documented divergence). Issue #28 criterion 3 asks the
  * default to be the agent-facing set. This wave keeps `full` the default
- * across all three repos (automatised-pipeline, Cortex, prd-gen) because
+ * across all three repos (ai-architect-mcp-codebase, Cortex, prd-gen) because
  * shrinking the *default* advertised surface is a breaking change — a client
- * that called a now-hidden tool would break — mirroring automatised-pipeline's
+ * that called a now-hidden tool would break — mirroring ai-architect-mcp-codebase's
  * `ToolProfile` reasoning. `agent` is opt-in via `--profile agent` /
  * `PRD_GEN_PROFILE=agent`. The divergence is recorded in CHANGELOG.md.
  *

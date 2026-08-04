@@ -1,6 +1,6 @@
 /**
  * Tests for the `stage-5.affected_symbols.json` extraction contract
- * (automatised-pipeline stages/stage-6.md §4.2).
+ * (ai-architect-mcp-codebase stages/stage-6.md §4.2).
  *
  * Extraction is tolerant (absent/malformed block → empty document, never
  * throws); validation of retained entries is strict (invalid array elements

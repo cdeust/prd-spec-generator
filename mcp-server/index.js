@@ -39491,7 +39491,7 @@ var VerificationStateSchema = external_exports.object({
   after_graph_path: external_exports.string().nullable().default(null),
   /**
    * Qualified names from `detect_changes`'s `symbols_affected[].qualified_name`
-   * (automatised-pipeline/src/git_diff.rs ChangedSymbol), carried forward so
+   * (ai-architect-mcp-codebase/src/git_diff.rs ChangedSymbol), carried forward so
    * `check_security_gates` (call 4) can consume them as its required
    * `changed_symbols` argument — design §1: "check_security_gates ... its own
    * schema *requires* changed_symbols (from detect_changes)". Empty array
@@ -39704,7 +39704,7 @@ var AskUserActionSchema = external_exports.object({
 });
 var CallPipelineToolActionSchema = external_exports.object({
   kind: external_exports.literal("call_pipeline_tool"),
-  tool_name: external_exports.string().describe("automatised-pipeline MCP tool name"),
+  tool_name: external_exports.string().describe("ai-architect-mcp-codebase MCP tool name"),
   arguments: external_exports.record(external_exports.string(), external_exports.unknown()),
   /** Opaque routing token — host echoes it back unchanged on the corresponding tool_result. */
   correlation_id: external_exports.string()
@@ -39775,7 +39775,7 @@ var VerificationSummarySchema = external_exports.object({
   distribution: external_exports.record(VerdictSchema, external_exports.number().int().nonnegative()),
   distribution_suspicious: external_exports.boolean(),
   /**
-   * PRD-vs-graph validation report from automatised-pipeline
+   * PRD-vs-graph validation report from ai-architect-mcp-codebase
    * `validate_prd_against_graph`, attached when the run had a code graph.
    * Symbol-hallucination / community-consistency / process-impact findings.
    * Opaque object — the orchestration layer is a passthrough and does not parse
@@ -39912,7 +39912,7 @@ var PipelineStateSchema = external_exports.object({
   feature_description: external_exports.string(),
   codebase_path: external_exports.string().nullable(),
   /**
-   * Filesystem path returned by automatised-pipeline `index_codebase`
+   * Filesystem path returned by ai-architect-mcp-codebase `index_codebase`
    * (response field `graph_path`). Subsequent graph-query tools (query_graph,
    * get_symbol, etc.) use this as their `graph_path` argument.
    */
@@ -39931,7 +39931,7 @@ var PipelineStateSchema = external_exports.object({
    */
   codebase_gitignore_written: external_exports.boolean().default(false),
   /**
-   * Code-graph grounding for the feature, returned by automatised-pipeline
+   * Code-graph grounding for the feature, returned by ai-architect-mcp-codebase
    * `prepare_prd_input` in FEATURE MODE (response field `prd_context`):
    *   { matched_symbols, impacted_communities, impacted_processes,
    *     graph_stats, mode }
@@ -40071,11 +40071,11 @@ var PipelineStateSchema = external_exports.object({
    * file_export has not yet run.
    *
    * source: AP validate_prd_against_graph contract, `affected_symbols_path`
-   * argument (automatised-pipeline stages/stage-6.md §4.2 / §6.1).
+   * argument (ai-architect-mcp-codebase stages/stage-6.md §4.2 / §6.1).
    */
   affected_symbols_path: external_exports.string().nullable().default(null),
   /**
-   * PRD-vs-graph validation report from automatised-pipeline
+   * PRD-vs-graph validation report from ai-architect-mcp-codebase
    * `validate_prd_against_graph` (args { prd_path, graph_path }), fetched in
    * self-check after the PRD file is exported. Symbol-hallucination /
    * community-consistency / process-impact findings. Merged into the
@@ -40116,7 +40116,7 @@ var PipelineStateSchema = external_exports.object({
    * Global Cortex memory-recall summary for the whole run, fetched ONCE
    * (query = feature_description) at the start of input_analysis — before
    * any codebase-specific or per-section context is built. Distinct from
-   * `codebase_grounding` (code-graph evidence from automatised-pipeline) and
+   * `codebase_grounding` (code-graph evidence from ai-architect-mcp-codebase) and
    * from the per-section `call_cortex_tool[recall]` in section-generation.ts
    * (which queries a section-specific template). This is prior-run/decision
    * memory, injected into every downstream prompt that builds context so
@@ -40471,7 +40471,7 @@ function adviseCortexInstall() {
     "",
     "To install:",
     "  /plugin marketplace add cdeust/cortex",
-    "  /plugin install cortex@cortex-plugins",
+    "  /plugin install hypermnesia-mcp@cortex-plugins",
     "  /reload-plugins",
     "",
     "If you genuinely want to run without Cortex, re-invoke",
@@ -40480,14 +40480,14 @@ function adviseCortexInstall() {
 }
 function adviseAiArchitectInstall() {
   return [
-    "automatised-pipeline (ai-architect) MCP not reachable.",
+    "ai-architect-mcp-codebase (ai-architect) MCP not reachable.",
     "",
-    "A codebase_path was supplied, which requires the automatised-pipeline",
+    "A codebase_path was supplied, which requires the ai-architect-mcp-codebase",
     "MCP for analyze_codebase + downstream graph queries.",
     "",
     "To install:",
-    "  /plugin marketplace add cdeust/automatised-pipeline",
-    "  /plugin install automatised-pipeline@automatised-pipeline-marketplace",
+    "  /plugin marketplace add cdeust/ai-architect-mcp-codebase",
+    "  /plugin install ai-architect-mcp-codebase@ai-architect-mcp-codebase-marketplace",
     "  /reload-plugins",
     "",
     "If you only need PRD generation without codebase analysis, omit",
@@ -91696,7 +91696,7 @@ function envelope(state, action, messages = []) {
 function registerPipelineTools(server2) {
   const startPipeline = server2.tool("start_pipeline", "Initialize a new PRD pipeline run. Returns run_id and the first NextAction the host must execute.", {
     feature_description: external_exports.string().describe("What the PRD is about \u2014 passed to all prompts"),
-    codebase_path: external_exports.string().optional().describe("Absolute path to the codebase. Triggers index_codebase via automatised-pipeline."),
+    codebase_path: external_exports.string().optional().describe("Absolute path to the codebase. Triggers index_codebase via ai-architect-mcp-codebase."),
     skip_preflight: external_exports.boolean().optional().describe("If true, skip the preflight step that probes Cortex (and ai-architect when codebase_path is set). Default false. Use only when you accept degraded section generation without persistent memory recall.")
   }, { destructiveHint: true }, async ({ feature_description, codebase_path, skip_preflight }) => {
     const inFlightCount = inFlightRunCount();

@@ -1,9 +1,9 @@
 /**
- * Input analysis — call automatised-pipeline `analyze_codebase`, then
+ * Input analysis — call ai-architect-mcp-codebase `analyze_codebase`, then
  * `prepare_prd_input` (FEATURE MODE) to ground the feature on the code graph.
  *
- * Tool contracts (source of truth: automatised-pipeline/src/tool_schemas.rs,
- * verified against automatised-pipeline/src/main.rs do_analyze_codebase,
+ * Tool contracts (source of truth: ai-architect-mcp-codebase/src/tool_schemas.rs,
+ * verified against ai-architect-mcp-codebase/src/main.rs do_analyze_codebase,
  * 2026-07-13):
  *   analyze_codebase (Stage 3 — all-in-one: index_codebase + resolve_graph +
  *   cluster_graph in one call; tool_schemas.rs:522 analyze_codebase_schema):

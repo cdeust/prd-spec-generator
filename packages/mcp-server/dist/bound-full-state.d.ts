@@ -62,7 +62,7 @@
  *   shed-2 4. clarifications[] (oldest first)  — historical Q&A; the NEWEST turn
  *                                                is the most relevant, so elide
  *                                                from the front.
- *   shed-1 5. codebase_grounding, prd_validation — opaque automatised-pipeline
+ *   shed-1 5. codebase_grounding, prd_validation — opaque ai-architect-mcp-codebase
  *                                                passthrough blobs, the LARGEST
  *                                                (~90k+), LEAST needed for
  *                                                failure diagnosis, and

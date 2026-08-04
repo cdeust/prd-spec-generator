@@ -1,12 +1,12 @@
 /**
- * Schema-contract test for the automatised-pipeline MCP protocol.
+ * Schema-contract test for the ai-architect-mcp-codebase MCP protocol.
  *
  * Wave C "no-skip" rewrite. Previously this file gated on
  * `AIPRD_PIPELINE_BIN` and skipped in CI when the live Rust binary was
  * absent — equivalent to never running. The live-binary check is now
  * replaced with an unconditional schema pin against the request and
  * response shapes the live server uses (per
- * /Users/cdeust/Developments/anthropic/ai-automatised-pipeline/NOTES.md).
+ * /Users/cdeust/Developments/anthropic/ai-architect-mcp-codebase/NOTES.md).
  *
  * What this PROVES (unconditional, in CI):
  *   ✓ `IndexCodebaseRequestSchema` accepts the request shape
@@ -39,7 +39,7 @@ import {
   IndexCodebaseResponseSchema,
 } from "../contracts/codebase.js";
 
-describe("automatised-pipeline MCP — request/response schema contract", () => {
+describe("ai-architect-mcp-codebase MCP — request/response schema contract", () => {
   it("IndexCodebaseRequestSchema accepts the shape handleInputAnalysis constructs", () => {
     // Pinned shape — must remain consumable from orchestration's
     // section-generation handler. A future field rename here would break
@@ -63,7 +63,7 @@ describe("automatised-pipeline MCP — request/response schema contract", () => 
   });
 
   it("IndexCodebaseResponseSchema parses the live-server shape (graph_path, not graph_id)", () => {
-    // The live Rust server (per tool_schemas.rs in ai-automatised-pipeline)
+    // The live Rust server (per tool_schemas.rs in ai-architect-mcp-codebase)
     // returns `graph_path`, not `graph_id`. This test pins that contract.
     const liveShape = {
       graph_path: "/tmp/prd-gen-pipeline-test/graph.bin",

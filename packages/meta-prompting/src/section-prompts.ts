@@ -25,7 +25,7 @@ import {
 import type { StrategyAssignment } from "@prd-gen/strategy";
 
 /**
- * One symbol matched against the codebase graph by automatised-pipeline's
+ * One symbol matched against the codebase graph by ai-architect-mcp-codebase's
  * feature-mode `prepare_prd_input`. Only the fields the rendered grounding
  * block consumes are typed; the AP payload may carry more (relationships,
  * processes), which this builder deliberately does not render to keep the
@@ -82,7 +82,7 @@ export interface SectionPromptInput {
    */
   readonly strategy_assignment?: StrategyAssignment;
   /**
-   * Code-graph grounding for the feature, produced by automatised-pipeline's
+   * Code-graph grounding for the feature, produced by ai-architect-mcp-codebase's
    * feature-mode `prepare_prd_input` (its `prd_context` payload) and threaded
    * through from `PipelineState.codebase_grounding`. When present and non-empty,
    * the rendered prompt gains a `<codebase_grounding>` block listing real
@@ -313,7 +313,7 @@ function renderGroundingBlock(
 /**
  * Instructs the engineer subagent to append a machine-parsable "Affected
  * Symbols" block to the technical_specification section. This is the ONLY
- * source for automatised-pipeline stage 6's `stage-5.affected_symbols.json`
+ * source for ai-architect-mcp-codebase stage 6's `stage-5.affected_symbols.json`
  * sidecar — claims must come from what the LLM asserts here, never from
  * `<codebase_grounding>` (that would validate the graph against itself;
  * stage 6's whole purpose is to catch symbols the PRD claims that the graph
@@ -331,7 +331,7 @@ function renderGroundingBlock(
  * suppress stage 6's regex fallback, which activates only when the file is
  * ABSENT).
  *
- * source: automatised-pipeline stages/stage-6.md §4.2 contract; parser
+ * source: ai-architect-mcp-codebase stages/stage-6.md §4.2 contract; parser
  * verified against src/prd_validator.rs::parse_structured_claims (JSON, not
  * the doc's illustrative YAML) — see affected-symbols.ts module doc.
  */

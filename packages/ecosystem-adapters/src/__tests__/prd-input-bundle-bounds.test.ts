@@ -1,7 +1,7 @@
 /**
  * Bounded-I/O contract tests for PrdInputBundleSchema (Phase 1c).
  *
- * Proves: unbounded fields parsed from automatised-pipeline cannot blow the
+ * Proves: unbounded fields parsed from ai-architect-mcp-codebase cannot blow the
  * Claude Code 100,000-char MCP response budget — they are rejected with a
  * ZodError (observable), never silently truncated.
  */

@@ -135,7 +135,7 @@ These are decisions, not gaps waiting to be filled.
 5. **It will not become a general-purpose agent framework.** It is one pipeline with one job.
    Ecosystem composition happens through the MCP boundary, with
    [Cortex](https://github.com/cdeust/Cortex) and
-   [automatised-pipeline](https://github.com/cdeust/automatised-pipeline) as separate projects.
+   [ai-architect-mcp-codebase](https://github.com/cdeust/ai-architect-mcp-codebase) as separate projects.
 6. **It will not add a second maintainer for the sake of a badge criterion.** The three blocked
    gold criteria stay blocked until a second person genuinely joins the project.
 

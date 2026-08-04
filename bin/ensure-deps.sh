@@ -21,7 +21,7 @@
 # first run, then hands off to node. Idempotent: it no-ops once the deps are
 # present, so steady-state launch cost is a single directory check.
 #
-# Mirrors automatised-pipeline's bin/ensure-binary.sh ensure-then-exec launcher.
+# Mirrors ai-architect-mcp-codebase's bin/ensure-binary.sh ensure-then-exec launcher.
 # source: coding-standards.md §2.2 (composition-root provisioning); follow-up to
 # the MCP-startup-deadlock fix (PR #2).
 #

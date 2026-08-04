@@ -1,6 +1,6 @@
 /**
- * Contracts for the automatised-pipeline MCP.
- * Stage assignments per /Users/cdeust/Developments/anthropic/ai-automatised-pipeline/NOTES.md.
+ * Contracts for the ai-architect-mcp-codebase MCP.
+ * Stage assignments per /Users/cdeust/Developments/anthropic/ai-architect-mcp-codebase/NOTES.md.
  *
  * Tool names are canonical — defined in the pipeline's `src/tool_schemas.rs`.
  * We do not duplicate logic; we type the requests and parse the responses.
@@ -12,7 +12,7 @@ import { z } from "zod";
 
 /**
  * source: tool_schemas.rs index_codebase_schema (live binary at
- * /Users/cdeust/Developments/anthropic/ai-automatised-pipeline/src/tool_schemas.rs:214).
+ * /Users/cdeust/Developments/anthropic/ai-architect-mcp-codebase/src/tool_schemas.rs:214).
  * Required fields are `path` and `output_dir`; `language` is optional with
  * default "auto". `refresh` is NOT in the schema.
  */
@@ -40,7 +40,7 @@ export const IndexCodebaseResponseSchema = z.object({
 export type IndexCodebaseResponse = z.infer<typeof IndexCodebaseResponseSchema>;
 
 /**
- * source: automatised-pipeline/src/tool_schemas.rs:522 analyze_codebase_schema
+ * source: ai-architect-mcp-codebase/src/tool_schemas.rs:522 analyze_codebase_schema
  * (verified against the live binary's do_analyze_codebase in main.rs,
  * 2026-07-13). Stage 3 all-in-one: runs index_codebase + resolve_graph +
  * cluster_graph in one call. Required fields are `path` and `output_dir`;
@@ -75,7 +75,7 @@ export type AnalyzeCodebaseRequest = z.infer<
 >;
 
 /**
- * source: automatised-pipeline/src/main.rs do_analyze_codebase — response
+ * source: ai-architect-mcp-codebase/src/main.rs do_analyze_codebase — response
  * shape verified 2026-07-13 (`graph_path` top-level plus `index`/`resolve`/
  * `cluster` sub-objects). Only `graph_path` is required by downstream graph
  * tools; the rest is opaque combined-stage statistics.
@@ -164,7 +164,7 @@ export type PreparePrdInputRequest = z.infer<typeof PreparePrdInputRequestSchema
 /**
  * Bounded-I/O budget for the PrdInputBundle (Phase 1c).
  *
- * The bundle is parsed from the automatised-pipeline MCP and stored verbatim
+ * The bundle is parsed from the ai-architect-mcp-codebase MCP and stored verbatim
  * into PipelineState.codebase_grounding, which is later serialized into every
  * section-generation prompt as codebase context. An unbounded bundle therefore
  * blows up (a) the MCP frame carrying the prepare_prd_input response and
@@ -193,7 +193,7 @@ export type PreparePrdInputRequest = z.infer<typeof PreparePrdInputRequestSchema
  * layer (z.unknown()), so we cannot safely truncate inside it without risking
  * invalid JSON or dropping the one field a section needed. A ZodError is the
  * observable signal — the caller (preparePrdInput) sees it and must ask
- * automatised-pipeline for a smaller finding/graph slice. Silent data loss is
+ * ai-architect-mcp-codebase for a smaller finding/graph slice. Silent data loss is
  * never acceptable (Phase 1c rule).
  */
 // source: Claude Code 2.1.170 binary cap, 100,000 chars (see block comment).
@@ -220,7 +220,7 @@ const GRAPH_STATS_BUDGET_CHARS = 10_000; // 0.10 × 100,000
  * budget divided by a measured per-element floor: a single matched-symbol /
  * community / process entry serializes to ~200 chars minimum (fqn + file +
  * a few numeric fields).
- *   source: measured 2026-06-10 on the automatised-pipeline integration
+ *   source: measured 2026-06-10 on the ai-architect-mcp-codebase integration
  *   fixture (packages/ecosystem-adapters/src/__tests__/automatised-pipeline.integration.test.ts)
  *   — smallest entry observed was 187 chars compact-JSON; rounded up to 200.
  * Element cap = floor(array_budget / 200). The element cap and the char cap
@@ -250,7 +250,7 @@ function jsonChars(value: unknown): number {
  */
 function boundedJsonField(budget: number, fieldName: string) {
   return z.unknown().refine((v) => jsonChars(v) <= budget, {
-    message: `${fieldName} exceeds bounded-I/O budget of ${budget} chars (serialized). Request a smaller slice from automatised-pipeline. source: Claude Code 2.1.170 MCP 100,000-char cap, proportional share.`,
+    message: `${fieldName} exceeds bounded-I/O budget of ${budget} chars (serialized). Request a smaller slice from ai-architect-mcp-codebase. source: Claude Code 2.1.170 MCP 100,000-char cap, proportional share.`,
   });
 }
 

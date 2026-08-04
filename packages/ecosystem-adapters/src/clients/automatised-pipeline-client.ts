@@ -1,8 +1,8 @@
 /**
- * Typed client for the automatised-pipeline MCP.
+ * Typed client for the ai-architect-mcp-codebase MCP.
  *
  * One method per pipeline stage we need from prd-spec-generator. Tool names
- * are canonical — see /Users/cdeust/Developments/anthropic/ai-automatised-pipeline/NOTES.md.
+ * are canonical — see /Users/cdeust/Developments/anthropic/ai-architect-mcp-codebase/NOTES.md.
  *
  * We do NOT reimplement any pipeline logic; we type the requests and parse
  * the responses, delegating execution to the Rust MCP server.
@@ -60,7 +60,7 @@ export class AutomatisedPipelineClient {
   constructor(config: AutomatisedPipelineClientConfig) {
     this.client = new StdioMcpClient({
       ...config,
-      serverName: "automatised-pipeline",
+      serverName: "ai-architect",
     });
   }
 
@@ -145,7 +145,7 @@ export class AutomatisedPipelineClient {
    * skips Stage 3b/3c (see input-analysis.ts module doc for the measured
    * regression this fixes: memory 4263670).
    *
-   * source: automatised-pipeline/src/tool_schemas.rs:522
+   * source: ai-architect-mcp-codebase/src/tool_schemas.rs:522
    * analyze_codebase_schema — required { path, output_dir }, NOT
    * { directory } (pre-fix signature was wrong and never matched the
    * live binary's schema).

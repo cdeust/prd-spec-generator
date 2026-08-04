@@ -231,7 +231,7 @@ export function registerPipelineTools(server: McpServer): Record<string, Registe
       codebase_path: z
         .string()
         .optional()
-        .describe("Absolute path to the codebase. Triggers index_codebase via automatised-pipeline."),
+        .describe("Absolute path to the codebase. Triggers index_codebase via ai-architect-mcp-codebase."),
       skip_preflight: z
         .boolean()
         .optional()

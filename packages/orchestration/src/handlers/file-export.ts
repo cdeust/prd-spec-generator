@@ -20,12 +20,12 @@
  * only after delivery.
  *
  * The affected-symbols sidecar is conditional (not always emitted):
- * automatised-pipeline stage 6 treats an ABSENT
+ * ai-architect-mcp-codebase stage 6 treats an ABSENT
  * `stage-5.affected_symbols.json` as "fall back to regex extraction" and a
  * PRESENT-BUT-EMPTY one as "the PRD asserts zero claims" — the latter would
  * wrongly suppress the regex fallback. So the sidecar is written only when
  * parseAffectedSymbolsBlock found ≥1 claim.
- * source: automatised-pipeline stages/stage-6.md §4.2.
+ * source: ai-architect-mcp-codebase stages/stage-6.md §4.2.
  */
 
 import type { StepHandler } from "../runner.js";
@@ -153,7 +153,7 @@ function jiraContent(state: PipelineState): string {
  * @prd-gen/meta-prompting section-prompts.ts) — never from
  * `state.codebase_grounding`, which would validate the graph against itself.
  *
- * source: automatised-pipeline stages/stage-6.md §4.2.
+ * source: ai-architect-mcp-codebase stages/stage-6.md §4.2.
  */
 function affectedSymbolsForState(state: PipelineState): AffectedSymbolsDocument {
   const techSpec = state.sections.find(

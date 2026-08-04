@@ -10,7 +10,7 @@ unless you opt in.** This document explains how to run them.
 ## Why integration tests are gated
 
 The MCP protocol is a contract between this project and three other
-ecosystem services (`automatised-pipeline`, `Cortex`, `zetetic-team-subagents`).
+ecosystem services (`ai-architect-mcp-codebase`, `Cortex`, `zetetic-team-subagents`).
 Mocked tests prove the protocol matches what THIS project expects; they
 do not prove the live counterparties send what THIS project expects.
 
@@ -21,7 +21,7 @@ real dependency.
 
 ---
 
-## Live `automatised-pipeline` test
+## Live `ai-architect-mcp-codebase` test
 
 **File:** `packages/ecosystem-adapters/src/__tests__/automatised-pipeline.integration.test.ts`
 
@@ -44,18 +44,18 @@ real dependency.
 Build the Rust binary from the companion repo:
 
 ```bash
-git clone https://github.com/cdeust/automatised-pipeline.git
-cd automatised-pipeline
+git clone https://github.com/cdeust/ai-architect-mcp-codebase.git
+cd ai-architect-mcp-codebase
 cargo build --release
 # First build: ~5 minutes (compiles LadybugDB C++ core).
-# Resulting binary: target/release/ai-architect-mcp
+# Resulting binary: target/release/ai-architect-mcp-codebase
 ```
 
 ### Run
 
 ```bash
 cd /path/to/prd-spec-generator
-AIPRD_PIPELINE_BIN=/absolute/path/to/automatised-pipeline/target/release/ai-architect-mcp \
+AIPRD_PIPELINE_BIN=/absolute/path/to/ai-architect-mcp-codebase/target/release/ai-architect-mcp-codebase \
   pnpm test
 ```
 
@@ -69,14 +69,14 @@ extractors).
 When `AIPRD_PIPELINE_BIN` points to a valid binary:
 
 ```
-✓ live automatised-pipeline integration > health_check returns a non-empty status
-✓ live automatised-pipeline integration > index_codebase returns a graph_path
+✓ live ai-architect-mcp-codebase integration > health_check returns a non-empty status
+✓ live ai-architect-mcp-codebase integration > index_codebase returns a graph_path
 ```
 
 When the env var is missing or the binary doesn't exist:
 
 ```
-↓ live automatised-pipeline integration (skipped)
+↓ live ai-architect-mcp-codebase integration (skipped)
 ```
 
 The skip is deliberate. `vitest`'s `describe.skipIf` predicate evaluates
@@ -88,7 +88,7 @@ at test-collection time, so unset → skipped, not failed.
 |---|---|
 | `Error: connect ECONNREFUSED` | Binary started but exited before stdio handshake. Check binary's stderr. |
 | `Error: tool not found: index_codebase` | Binary version predates Stage-3a tool implementation. Build a newer release tag. |
-| `Error: cannot parse response as JSON` | The pipeline emitted non-JSON-RPC traffic on stdout (typically a panic or log line). File a bug against automatised-pipeline. |
+| `Error: cannot parse response as JSON` | The pipeline emitted non-JSON-RPC traffic on stdout (typically a panic or log line). File a bug against ai-architect-mcp-codebase. |
 | Test hangs > 30s | The pipeline is stuck on a large-codebase index. Set `AIPRD_PIPELINE_FIXTURE` to a smaller directory. |
 
 ---
@@ -134,7 +134,7 @@ Currently NOT run in CI because:
 - The dependency lives in a separate repo on a different release cadence.
 
 **Roadmap:** add a separate `integration.yml` workflow that runs nightly
-against the latest `automatised-pipeline` release tag. Tracked as
+against the latest `ai-architect-mcp-codebase` release tag. Tracked as
 follow-up. PRs welcome.
 
 ---

@@ -47,7 +47,7 @@ function adviseCortexInstall(): string {
     "",
     "To install:",
     "  /plugin marketplace add cdeust/cortex",
-    "  /plugin install cortex@cortex-plugins",
+    "  /plugin install hypermnesia-mcp@cortex-plugins",
     "  /reload-plugins",
     "",
     "If you genuinely want to run without Cortex, re-invoke",
@@ -57,14 +57,14 @@ function adviseCortexInstall(): string {
 
 function adviseAiArchitectInstall(): string {
   return [
-    "automatised-pipeline (ai-architect) MCP not reachable.",
+    "ai-architect-mcp-codebase (ai-architect) MCP not reachable.",
     "",
-    "A codebase_path was supplied, which requires the automatised-pipeline",
+    "A codebase_path was supplied, which requires the ai-architect-mcp-codebase",
     "MCP for analyze_codebase + downstream graph queries.",
     "",
     "To install:",
-    "  /plugin marketplace add cdeust/automatised-pipeline",
-    "  /plugin install automatised-pipeline@automatised-pipeline-marketplace",
+    "  /plugin marketplace add cdeust/ai-architect-mcp-codebase",
+    "  /plugin install ai-architect-mcp-codebase@ai-architect-mcp-codebase-marketplace",
     "  /reload-plugins",
     "",
     "If you only need PRD generation without codebase analysis, omit",

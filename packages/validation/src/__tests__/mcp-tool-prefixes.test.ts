@@ -73,8 +73,12 @@ const KNOWN_MCP_PREFIXES: ReadonlySet<string> = new Set([
   // Cortex memory. plugin.json: name "hypermnesia-mcp", mcpServers key "cortex".
   // Renamed from "cortex" in v4.15.0 over a community-directory collision.
   "mcp__plugin_hypermnesia-mcp_cortex__",
-  // automatised-pipeline. plugin name and server key are identical.
-  "mcp__plugin_automatised-pipeline_automatised-pipeline__",
+  // Codebase graph intel. plugin.json: name "ai-architect-mcp-codebase",
+  // mcpServers key "ai-architect". Renamed from "ai-architect-mcp-codebase" (and
+  // briefly "ai-architect-codebase") in v0.9.0; the producer publishes the
+  // three dead spellings in mcp-contract.json as revoked_claude_tool_prefixes,
+  // and .github/workflows/upstream-identity.yml checks this row against it.
+  "mcp__plugin_ai-architect-mcp-codebase_ai-architect__",
   // This package, derived from plugin.json name × the sole .mcp.json server key.
   // Both halves are load-bearing and a publication rename changes the prefix.
   PROJECT_MCP_IDENTITY.prefix,
@@ -185,7 +189,7 @@ describe("plugin-scoped MCP tool prefixes", () => {
     // the outage. Without this, an allowlist that accidentally contained every
     // prefix would still pass the two tests above.
     expect(KNOWN_MCP_PREFIXES.has("mcp__plugin_cortex_cortex__")).toBe(false); // mcp-prefix-allow-legacy
-    // ...and against the malformed automatised-pipeline spelling (underscores,
+    // ...and against the malformed ai-architect-mcp-codebase spelling (underscores,
     // no server key) that this gate found in docs/EXAMPLES.md when introduced.
     expect(KNOWN_MCP_PREFIXES.has("mcp__plugin_automatised_pipeline__")).toBe(false); // mcp-prefix-allow-legacy
     // ...and the former publication identity, whose plugin half changed in 0.7.0.

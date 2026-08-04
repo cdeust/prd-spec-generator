@@ -12,7 +12,7 @@ AI Architect MCP Spec is an MCP server that turns a feature description into a
   installs from the npm registry at first run — a pnpm workspace + lockfile is
   exactly the shape npm supply-chain attacks target (a postinstall script in a
   transitive dependency).
-- **It shells out to the ecosystem** (optional automatised-pipeline / Cortex
+- **It shells out to the ecosystem** (optional ai-architect-mcp-codebase / Cortex
   MCPs) only when you configure them.
 
 Because the delivered artifact is a bundled npm-derived `.mcpb`, "what is

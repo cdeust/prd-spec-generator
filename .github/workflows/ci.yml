@@ -17,7 +17,7 @@ name: CI
 #   - workspace topology breakage (a package moves and others can no longer build)
 #
 # What this does NOT protect against:
-#   - real ecosystem integration (no live automatised-pipeline / Cortex MCPs)
+#   - real ecosystem integration (no live ai-architect-mcp-codebase / Cortex MCPs)
 #   - LLM judge response drift
 #   - performance regressions (no time budget asserted in tests)
 # Both gaps are tracked in the project roadmap.
@@ -86,7 +86,7 @@ jobs:
         # with a lockfile is exactly the targeted shape. Scoped to --prod: a
         # dev-only advisory does not ship in the .mcpb, and gating the whole
         # matrix on it would make the audit a gate everyone learns to skip
-        # (the automatised-pipeline #77 lesson). High+ in the production tree
+        # (the ai-architect-mcp-codebase #77 lesson). High+ in the production tree
         # is blocking; run once (Node 20 leg) since the advisory set is
         # node-version-independent.
         if: matrix.node-version == '20.x'

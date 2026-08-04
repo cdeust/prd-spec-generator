@@ -8,8 +8,8 @@
  *   3. `verify_semantic_diff`       → regression check, before vs. after graph
  *   4. `check_security_gates`       → consumes call 2's changed_symbols
  *
- * Tool contracts (source of truth: automatised-pipeline/src/tool_schemas.rs,
- * verified against automatised-pipeline/src/main.rs + src/git_diff.rs +
+ * Tool contracts (source of truth: ai-architect-mcp-codebase/src/tool_schemas.rs,
+ * verified against ai-architect-mcp-codebase/src/main.rs + src/git_diff.rs +
  * src/security_gates.rs, 2026-07-14):
  *   index_codebase (tool_schemas.rs:220 index_codebase_schema):
  *     inputs required: { path, output_dir }

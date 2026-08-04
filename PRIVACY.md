@@ -26,7 +26,7 @@ and does not phone home.
 ## What data leaves your machine
 
 Nothing, unless you explicitly pass information to other tools (e.g., Cortex recall,
-`automatised-pipeline`). This server does not make outbound network requests of its own.
+`ai-architect-mcp-codebase`). This server does not make outbound network requests of its own.
 
 ## Telemetry
 

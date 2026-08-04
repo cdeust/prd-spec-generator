@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * `stage-5.affected_symbols.json` sidecar — contract-first claim extraction
- * for automatised-pipeline's stage 6 anti-hallucination validator
+ * for ai-architect-mcp-codebase's stage 6 anti-hallucination validator
  * (`validate_prd_against_graph`).
  *
  * Claims originate from the PRD generator's own LLM output (the
@@ -12,7 +12,7 @@ import { z } from "zod";
  * (circular — the whole point of stage 6's axis V1 is to catch symbols the
  * PRD claims that the graph does NOT contain).
  *
- * source: automatised-pipeline stages/stage-6.md §4.2 (contract shape) +
+ * source: ai-architect-mcp-codebase stages/stage-6.md §4.2 (contract shape) +
  * src/prd_validator.rs::parse_structured_claims (parser — confirms JSON,
  * not the YAML shown in the doc's illustrative example; sidecar is read via
  * `serde_json::from_str`). Verified 2026-07-14 against the live binary
@@ -93,7 +93,7 @@ const AFFECTED_SYMBOLS_BLOCK_PATTERN = new RegExp(
  *                element is checked independently via safeParse; invalid
  *                elements are dropped, not the whole array).
  *
- * source: automatised-pipeline stages/stage-6.md §4.2 — "if no claim is
+ * source: ai-architect-mcp-codebase stages/stage-6.md §4.2 — "if no claim is
  * parsed, prd-spec-generator must not export the sidecar" (an empty sidecar
  * would defeat stage 6's regex fallback, which activates only when the file
  * is ABSENT). Callers must check `affected_symbols.length > 0` before

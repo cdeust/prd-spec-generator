@@ -49,10 +49,10 @@ The welcome banner + context-detection messages were coalesced into
 the `messages` array; the runner internally consumed two `emit_message`
 actions and only surfaced the substantive `call_pipeline_tool`.
 
-### Step 2 — Host calls automatised-pipeline
+### Step 2 — Host calls ai-architect-mcp-codebase
 
 ```
-host: mcp__plugin_automatised-pipeline_automatised-pipeline__index_codebase({
+host: mcp__plugin_ai-architect-mcp-codebase_ai-architect__index_codebase({
   path: "/Users/me/projects/admin-console",
   output_dir: "/Users/me/projects/admin-console/.prd-gen/graphs/run_lzx8f9_a3k2m1"
 })
